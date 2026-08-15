@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      # DB-001: kcpc_migrator is the cluster's initial superuser (schema owner, runs Flyway
+      # migrations); db/init/01_create_app_role.sh then creates the separate, restricted
+      # kcpc_app runtime role that the application actually connects as.
+      POSTGRES_DB: kcpc_prod
+      POSTGRES_USER: kcpc_migrator
+      POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    volumes:
+      - kcpc_db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcpc_migrator -d kcpc_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: kcpc_prod
+      # Runtime datasource (JPA/Hikari): the restricted role - see DB-001.
+      DB_USER: kcpc_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      # Flyway-only datasource: the schema-owning migrator role, never used at request-serving time.
+      FLYWAY_DB_USER: kcpc_migrator
+      FLYWAY_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:?set a >=64-byte secret in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+volumes:
+  kcpc_db_data:

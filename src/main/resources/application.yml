@@ -1,0 +1,127 @@
+spring:
+  application:
+    name: kcpc-mkt-mvp
+  mvc:
+    view:
+      prefix: /WEB-INF/views/
+      suffix: .jsp
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+server:
+  port: 8080
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: true
+        same-site: lax
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi
+  swagger-ui:
+    path: /api/v1/docs
+    enabled: true
+
+app:
+  security:
+    jwt:
+      # HS512 signing secret (>=64 bytes per RFC 7518 §3.2). MUST be overridden via
+      # APP_SECURITY_JWT_SECRET in every non-dev environment - this default is publicly
+      # committed and therefore worthless as a secret.
+      secret: ${APP_SECURITY_JWT_SECRET:7ffb418f9324372bb29aa0925c30436d0568cf34e55eaf3e75d15c930e137954bb2bd37609c98c103e0a71e197468637e6d21ad8bb942e87a5916cc956f7a3a1}
+      issuer: kcpc-mkt-mvp
+      access-token-ttl-minutes: ${APP_SECURITY_JWT_TTL_MINUTES:480}
+      cookie-name: KCPC_AT
+      cookie-path: /
+      cookie-secure: true
+      cookie-same-site: Lax
+  csrf:
+    cookie-name: KCPC_CSRF
+    header-name: X-CSRF-TOKEN
+
+logging:
+  level:
+    root: INFO
+    com.kcpc.mkt: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:postgresql://localhost:5432/kcpc_dev
+    username: kcpc_app
+    password: kcpc_app_dev_pw
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-demo
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+app:
+  security:
+    jwt:
+      cookie-secure: false
+logging:
+  level:
+    com.kcpc.mkt: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:postgresql://localhost:5432/kcpc_test
+    username: kcpc_app
+    password: kcpc_app_dev_pw
+  flyway:
+    clean-disabled: false
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+app:
+  security:
+    jwt:
+      cookie-secure: false
+      secret: 2c3d0ca4fc87c91d0d09eae17527a4e443de605dffbde5bc1ae51645ccc8dcd6214afe526e5b05df097d549b0777d3610656269e23933bfcdf122d5b385bdda1
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  # DB-001: runtime datasource (JPA/Hikari, every request-serving query) connects as the
+  # restricted kcpc_app role - no UPDATE/DELETE/TRUNCATE on append-only tables (enforced both by
+  # Postgres GRANTs and by DB trigger; see V13__db_privilege_split_and_truncate_guards.sql).
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:db}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
+    username: ${DB_USER:kcpc_app}
+    password: ${DB_PASSWORD:}
+  # Flyway runs schema DDL as the schema-owning kcpc_migrator role - a separate, higher-privilege
+  # connection used only at startup, never by request-serving code.
+  flyway:
+    url: jdbc:postgresql://${DB_HOST:db}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
+    user: ${FLYWAY_DB_USER:kcpc_migrator}
+    password: ${FLYWAY_DB_PASSWORD:}

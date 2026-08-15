@@ -1,0 +1,107 @@
+package com.kcpc.mkt;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.kcpc.mkt.idea.domain.Idea;
+import com.kcpc.mkt.idea.repository.IdeaRepository;
+import com.kcpc.mkt.planning.domain.ContentPlan;
+import com.kcpc.mkt.planning.repository.ContentPlanRepository;
+import com.kcpc.mkt.support.TestApiClient;
+import com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+
+import javax.sql.DataSource;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * DB-001: proves the Postgres-level (not just application-level) append-only guarantees added in
+ * {@code V13__db_privilege_split_and_truncate_guards.sql} - hard DELETE rejection on
+ * {@code work_hold_records} (ERD-CON-062 rule 9, not covered by V9's UPDATE-lifecycle trigger)
+ * and the TRUNCATE guard on append-only tables (ERD-CON-058, which V12's row-level UPDATE/DELETE
+ * triggers structurally cannot cover - Postgres BEFORE triggers never fire on TRUNCATE).
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+class DbIntegrityEnforcementTest {
+
+    @LocalServerPort
+    int port;
+
+    @Autowired
+    IdeaRepository ideaRepository;
+    @Autowired
+    ContentPlanRepository contentPlanRepository;
+    @Autowired
+    WorkHoldRecordRepository workHoldRecordRepository;
+    @Autowired
+    DataSource dataSource;
+
+    private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+
+    @Test
+    void workHoldRecordHardDeleteIsRejectedAtTheDatabaseLevel() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+
+        JsonNode camUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"DbInt Camera\",\"email\":\"dbint-camera-" + unique
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
+                        + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"db integrity test fixture\"}");
+        String camId = camUser.get("userId").asText();
+
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"DB Integrity Hold Test " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+
+        Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
+        ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
+        String contentPlanId = plan.getId().toString();
+
+        String liveDate = LocalDate.now().plusDays(10).toString();
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
+                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
+                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/dbint-" + unique + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
+                "{\"cameramanUserId\":\"" + camId + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/hold", "{\"reason\":\"DB integrity test hold.\"}");
+
+        String holdRecordId = workHoldRecordRepository.findByWorkflowInstanceAndResumedAtIsNull(plan.getWorkflowInstance())
+                .orElseThrow().getId().toString();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM work_hold_records WHERE hold_record_id = ?::uuid", holdRecordId))
+                .hasMessageContaining("hard DELETE is prohibited");
+
+        Integer stillPresent = jdbc.queryForObject(
+                "SELECT count(*) FROM work_hold_records WHERE hold_record_id = ?::uuid", Integer.class, holdRecordId);
+        assertThat(stillPresent).isEqualTo(1);
+    }
+
+    @Test
+    void truncateIsRejectedOnAppendOnlyTables() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThatThrownBy(() -> jdbc.execute("TRUNCATE system_audit_log"))
+                .hasMessageContaining("append-only");
+        assertThatThrownBy(() -> jdbc.execute("TRUNCATE workflow_transition_history"))
+                .hasMessageContaining("append-only");
+        assertThatThrownBy(() -> jdbc.execute("TRUNCATE work_hold_records"))
+                .hasMessageContaining("append-only");
+    }
+}
