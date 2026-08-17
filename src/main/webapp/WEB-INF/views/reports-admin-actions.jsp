@@ -8,10 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Administrative Actions Report (Perm #16)</h1>
     <p class="muted">Read-only management summary derived from immutable audit data.</p>

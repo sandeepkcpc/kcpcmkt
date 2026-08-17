@@ -1,5 +1,6 @@
 package com.kcpc.mkt.web.mvc;
 
+import com.kcpc.mkt.common.error.ApiErrorResponse;
 import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
@@ -7,6 +8,7 @@ import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.marks.repository.PredefinedRoleMarksRepository;
+import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import com.kcpc.mkt.performance.repository.CreativePerformanceScorecardRepository;
@@ -16,7 +18,9 @@ import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPriority;
 import com.kcpc.mkt.planning.domain.OutputType;
 import com.kcpc.mkt.planning.domain.PlannedOutput;
+import com.kcpc.mkt.planning.domain.PlanningMode;
 import com.kcpc.mkt.planning.domain.ReelType;
+import com.kcpc.mkt.planning.dto.PlannedOutputGroupResponse;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputPublicationTargetMappingRepository;
@@ -43,19 +47,25 @@ import com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository;
 import com.kcpc.mkt.workflow.repository.WorkflowTransitionHistoryRepository;
 import com.kcpc.mkt.workflow.service.AdminActionService;
 import com.kcpc.mkt.workflow.service.HoldService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Arrays;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -69,6 +79,8 @@ import java.util.UUID;
 @Controller
 @org.springframework.web.bind.annotation.RequestMapping("/app/deliverables/{id}")
 public class DeliverableMvcController {
+
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final ContentPlanRepository contentPlanRepository;
     private final PredefinedRoleMarksRepository predefinedRoleMarksRepository;
@@ -90,6 +102,7 @@ public class DeliverableMvcController {
     private final WorkHoldRecordRepository holdRecordRepository;
     private final UserRepository userRepository;
     private final AuthorizationService authorizationService;
+    private final ObjectMapper objectMapper;
 
     private final PlanningService planningService;
     private final ShootingService shootingService;
@@ -117,7 +130,8 @@ public class DeliverableMvcController {
                                      ReviewCycleRepository reviewCycleRepository,
                                      WorkflowTransitionHistoryRepository transitionHistoryRepository,
                                      WorkHoldRecordRepository holdRecordRepository, UserRepository userRepository,
-                                     AuthorizationService authorizationService, PlanningService planningService,
+                                     AuthorizationService authorizationService, ObjectMapper objectMapper,
+                                     PlanningService planningService,
                                      ShootingService shootingService, EditingService editingService,
                                      PublishingService publishingService, PerformanceService performanceService,
                                      AdminActionService adminActionService, HoldService holdService) {
@@ -141,6 +155,7 @@ public class DeliverableMvcController {
         this.holdRecordRepository = holdRecordRepository;
         this.userRepository = userRepository;
         this.authorizationService = authorizationService;
+        this.objectMapper = objectMapper;
         this.planningService = planningService;
         this.shootingService = shootingService;
         this.editingService = editingService;
@@ -166,26 +181,56 @@ public class DeliverableMvcController {
     // ------------------------------------------------------------------ GET
 
     @GetMapping
-    public String view(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+    public String view(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
+                        jakarta.servlet.http.HttpServletRequest request) {
         ContentPlan plan = requirePlan(id);
         User user = principal.user();
         WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
         model.addAttribute("plan", plan);
         model.addAttribute("status", status);
         model.addAttribute("user", user);
+        model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
 
         predefinedRoleMarksRepository.findByContentPlan(plan).ifPresent(m -> model.addAttribute("marks", m));
         List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
         model.addAttribute("outputs", outputs);
-        model.addAttribute("outputTargetMappings", outputs.stream().collect(
-                java.util.stream.Collectors.toMap(PlannedOutput::getId, mappingRepository::findByPlannedOutput)));
+
+        // Planning Workspace groups outputs by reelGroupId: a REEL "+ Add Output" submission with
+        // multiple Reel Types (e.g. SHORT + LONG) stays one grouped row sharing one Publication
+        // Target set, while every other output is simply a "group of one" (ERD-TBL-011).
+        Map<UUID, List<PlannedOutput>> outputGroupMembers = new java.util.LinkedHashMap<>();
+        for (PlannedOutput o : outputs) {
+            outputGroupMembers.computeIfAbsent(o.getReelGroupId(), k -> new java.util.ArrayList<>()).add(o);
+        }
+        List<PlannedOutput> outputGroupRepresentatives =
+                outputGroupMembers.values().stream().map(members -> members.get(0)).toList();
+        model.addAttribute("outputGroupMembers", outputGroupMembers);
+        model.addAttribute("outputGroupRepresentatives", outputGroupRepresentatives);
+
+        Map<UUID, List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping>> outputTargetMappings =
+                new java.util.LinkedHashMap<>();
+        for (Map.Entry<UUID, List<PlannedOutput>> entry : outputGroupMembers.entrySet()) {
+            outputTargetMappings.put(entry.getKey(), mappingRepository.findByPlannedOutput(entry.getValue().get(0)));
+        }
+        model.addAttribute("outputTargetMappings", outputTargetMappings);
+        model.addAttribute("outputTargetsByPlatform", outputTargetMappings.entrySet().stream().collect(
+                java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().stream().collect(
+                        java.util.stream.Collectors.groupingBy(
+                                m -> m.getPublicationTarget().getPlatform().getPlatformName(),
+                                java.util.LinkedHashMap::new, java.util.stream.Collectors.toList())))));
         model.addAttribute("outputNaRecords", outputs.stream().collect(
                 java.util.stream.Collectors.toMap(PlannedOutput::getId, naRecordRepository::findByPlannedOutput)));
         model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
-        model.addAttribute("activePublicationTargets", publicationTargetRepository.findByActiveTrue());
+        model.addAttribute("modelUsers",
+                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model"));
+        List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
+        model.addAttribute("activePublicationTargets", activeTargets);
+        model.addAttribute("activePlatformNames", activeTargets.stream()
+                .map(t -> t.getPlatform().getPlatformName()).distinct().sorted().toList());
         model.addAttribute("outputTypes", OutputType.values());
         model.addAttribute("reelTypes", ReelType.values());
         model.addAttribute("priorities", ContentPriority.values());
+        model.addAttribute("planningOptionsJson", buildPlanningOptionsJson(activeTargets, request));
 
         model.addAttribute("shootingAssignments", shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
         model.addAttribute("editingAssignments", editingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
@@ -213,7 +258,7 @@ public class DeliverableMvcController {
                 holdRecordRepository.findByWorkflowInstanceAndResumedAtIsNull(plan.getWorkflowInstance());
         model.addAttribute("openHold", openHold.orElse(null));
         model.addAttribute("delayed", plan.getPlannedLiveDate() != null
-                && plan.getPlannedLiveDate().isBefore(LocalDate.now())
+                && plan.getPlannedLiveDate().isBefore(LocalDate.now(BUSINESS_ZONE))
                 && status != WorkflowStatus.COMP && status != WorkflowStatus.CAN);
 
         // Pending review cycles per gate (drives read-only vs review-gate rendering).
@@ -221,41 +266,50 @@ public class DeliverableMvcController {
         model.addAttribute("pendingShootReview", pendingCycle(plan, GateType.SHOOT_REVIEW));
         model.addAttribute("pendingEditReview", pendingCycle(plan, GateType.EDIT_REVIEW));
 
+        // Self-review barriers (Permission #3/#5/#7) only apply to authority exercised via an
+        // explicit PermissionGrant (Employees granted the permission individually) - matching
+        // PlanningService/ShootingService/EditingService's own `actingGrant.isPresent()` checks,
+        // CEO/Marketing Manager's native (blanket, ungranted) authority is exempt, so a preparer
+        // who happens to be CEO/Marketing Manager can still decide their own submission.
+        boolean nativeAuthority = authorizationService.hasNativeAuthority(user);
         boolean isPreparer = planningPreparerRepository.findByContentPlan(plan).stream()
                 .anyMatch(p -> p.getPreparer().getId().equals(user.getId()));
         boolean isShootParticipant = shootingParticipantRepository.findByContentPlan(plan).stream()
                 .anyMatch(p -> p.getCameraperson().getId().equals(user.getId()));
         boolean isEditParticipant = editingParticipantRepository.findByContentPlan(plan).stream()
                 .anyMatch(p -> p.getEditor().getId().equals(user.getId()));
+        boolean planningSelfReviewBlocked = isPreparer && !nativeAuthority;
+        boolean shootSelfReviewBlocked = isShootParticipant && !nativeAuthority;
+        boolean editSelfReviewBlocked = isEditParticipant && !nativeAuthority;
 
         // Permission-gated visibility flags - server re-validates unconditionally on every POST.
         model.addAttribute("canPlanningExecute", allowed(user, OperationalPermission.PERM_02_PLANNING_EXECUTION, LifecycleStage.PLANNING, plan));
         model.addAttribute("canAssignCameraperson", allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan));
-        boolean canDecidePlanning = allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan) && !isPreparer;
+        boolean canDecidePlanning = allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan) && !planningSelfReviewBlocked;
         model.addAttribute("canDecidePlanningReview", canDecidePlanning);
-        model.addAttribute("planningSelfReviewBlocked", isPreparer);
+        model.addAttribute("planningSelfReviewBlocked", planningSelfReviewBlocked);
 
-        model.addAttribute("isShootAssigneeOrNative", authorizationService.hasNativeAuthority(user)
+        model.addAttribute("isShootAssigneeOrNative", nativeAuthority
                 || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                         .anyMatch(a -> a.getCameraperson().getId().equals(user.getId())));
-        boolean canDecideShoot = allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan) && !isShootParticipant;
+        boolean canDecideShoot = allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan) && !shootSelfReviewBlocked;
         model.addAttribute("canDecideShootReview", canDecideShoot);
-        model.addAttribute("shootSelfReviewBlocked", isShootParticipant);
+        model.addAttribute("shootSelfReviewBlocked", shootSelfReviewBlocked);
 
         model.addAttribute("canAssignEditor", allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
-        model.addAttribute("isEditAssigneeOrNative", authorizationService.hasNativeAuthority(user)
+        model.addAttribute("isEditAssigneeOrNative", nativeAuthority
                 || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                         .anyMatch(a -> a.getEditor().getId().equals(user.getId())));
-        boolean canDecideEdit = allowed(user, OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, plan) && !isEditParticipant;
+        boolean canDecideEdit = allowed(user, OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, plan) && !editSelfReviewBlocked;
         model.addAttribute("canDecideEditReview", canDecideEdit);
-        model.addAttribute("editSelfReviewBlocked", isEditParticipant);
+        model.addAttribute("editSelfReviewBlocked", editSelfReviewBlocked);
 
         model.addAttribute("canPublishingExecute", allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan));
         model.addAttribute("canPerformanceUpdate", allowed(user, OperationalPermission.PERM_09_PERFORMANCE_UPDATE, LifecycleStage.PERFORMANCE, plan));
         model.addAttribute("canReschedule", allowed(user, OperationalPermission.PERM_10_RESCHEDULE, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("canReassign", allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("canCancel", allowed(user, OperationalPermission.PERM_12_CANCEL, LifecycleStage.ADMINISTRATIVE, plan));
-        model.addAttribute("isNative", authorizationService.hasNativeAuthority(user));
+        model.addAttribute("isNative", nativeAuthority);
 
         model.addAttribute("stageContexts", StageContext.values());
         model.addAttribute("taskStages", TaskStage.values());
@@ -274,18 +328,124 @@ public class DeliverableMvcController {
         return "redirect:/app/deliverables/" + id;
     }
 
+    /**
+     * Static reference data (Output/Reel Type enum names, active Platforms/Channels, the CSRF
+     * pair) that planning-outputs.js needs once, up front, to build a brand-new Planned Output
+     * row's Edit/+ Add Target forms client-side after an AJAX "+ Add Output" - without which the
+     * server would have to send back full HTML for JS to splice in, defeating the point of
+     * returning JSON. Embedded as a {@code <script type="application/json">} block (see
+     * deliverable-detail.jsp) rather than scattered data-* attributes since it's a handful of
+     * lists, not per-row state. {@code "<"} is escaped so a Channel handle containing
+     * {@code </script>} can never break out of the block.
+     */
+    private String buildPlanningOptionsJson(List<PublicationTarget> activeTargets,
+                                             jakarta.servlet.http.HttpServletRequest request) {
+        CsrfToken csrfToken = (CsrfToken) request.getAttribute("_csrf");
+        Map<String, Object> options = new java.util.LinkedHashMap<>();
+        options.put("csrfParamName", csrfToken.getParameterName());
+        options.put("csrfToken", csrfToken.getToken());
+        options.put("outputTypes", java.util.Arrays.stream(OutputType.values()).map(Enum::name).toList());
+        options.put("reelTypes", java.util.Arrays.stream(ReelType.values()).map(Enum::name).toList());
+        options.put("targets", activeTargets.stream().map(t -> Map.of(
+                "id", t.getId().toString(),
+                "platform", t.getPlatform().getPlatformName(),
+                "channel", t.getChannel().getChannelHandle())).toList());
+        try {
+            return objectMapper.writeValueAsString(options).replace("<", "\\u003c");
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize planning options", e);
+        }
+    }
+
+    /** Model(s) is a dropdown of Users holding the "Model" Business Role, not free text. */
+    private List<String> resolveModelNames(List<UUID> modelUserIds) {
+        if (modelUserIds == null || modelUserIds.isEmpty()) {
+            return List.of();
+        }
+        return modelUserIds.stream()
+                .map(userId -> userRepository.findById(userId).map(User::getFullName).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     // ------------------------------------------------------------- Planning
+
+    /** Single-form Planning submission: Parameters + Schedule (Standard or Urgent) in one POST. */
+    @PostMapping("/plan")
+    public String savePlan(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
+                            @RequestParam(required = false) ContentPriority contentPriority,
+                            @RequestParam(required = false) String skuReference,
+                            @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
+                            @RequestParam(required = false) List<UUID> modelUserIds,
+                            @RequestParam(required = false) String folderLink,
+                            @RequestParam PlanningMode planningMode,
+                            @RequestParam LocalDate plannedLiveDate,
+                            @RequestParam(required = false) LocalDate shootDate,
+                            @RequestParam(required = false) LocalDate editDate,
+                            @RequestParam(required = false) String urgencyReason,
+                            @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        List<String> talentNames = resolveModelNames(modelUserIds);
+        try {
+            planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
+                    skuNotApplicable, talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    urgencyReason);
+            ra.addFlashAttribute("successMessage", "Plan saved.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /**
+     * Planning Workspace UI: there is no separate "Save Plan" button - Planning Details is one
+     * {@code <form id="planning-details-form">} with no submit button of its own, and the single
+     * "Submit for Planning Review" button at the bottom of the page (after Planned Outputs,
+     * Publication Scope and Shoot Assignment) references it via the HTML5 {@code form="..."}
+     * button attribute, so one click saves the plan and submits it for review together. The two
+     * underlying actions stay in separate transactions (each already {@code @Transactional} on
+     * its own service method) - a submission failure (e.g. a still-missing mandatory field) never
+     * rolls back the save, so nothing the user entered is lost.
+     */
+    @PostMapping("/plan-submit")
+    public String savePlanAndSubmit(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
+                                     @RequestParam(required = false) ContentPriority contentPriority,
+                                     @RequestParam(required = false) String skuReference,
+                                     @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
+                                     @RequestParam(required = false) List<UUID> modelUserIds,
+                                     @RequestParam(required = false) String folderLink,
+                                     @RequestParam PlanningMode planningMode,
+                                     @RequestParam LocalDate plannedLiveDate,
+                                     @RequestParam(required = false) LocalDate shootDate,
+                                     @RequestParam(required = false) LocalDate editDate,
+                                     @RequestParam(required = false) String urgencyReason,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        List<String> talentNames = resolveModelNames(modelUserIds);
+        try {
+            planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
+                    skuNotApplicable, talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    urgencyReason);
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+            return redirect(id);
+        }
+        try {
+            planningService.submitPlanningReview(principal.user(), id);
+            ra.addFlashAttribute("successMessage", "Plan saved and submitted for Planning Review.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", "Plan saved, but not submitted: " + e.getMessage());
+        }
+        return redirect(id);
+    }
 
     @PostMapping("/parameters")
     public String updateParameters(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
                                     @RequestParam(required = false) ContentPriority contentPriority,
                                     @RequestParam(required = false) String skuReference,
                                     @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
-                                    @RequestParam(required = false) String talentNamesCsv,
+                                    @RequestParam(required = false) List<UUID> modelUserIds,
                                     @RequestParam(required = false) String folderLink,
                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
-        List<String> talentNames = talentNamesCsv == null || talentNamesCsv.isBlank() ? List.of()
-                : Arrays.stream(talentNamesCsv.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        List<String> talentNames = resolveModelNames(modelUserIds);
         try {
             planningService.updateParameters(principal.user(), id, categoryText, contentPriority, skuReference,
                     skuNotApplicable, talentNames, folderLink);
@@ -325,28 +485,137 @@ public class DeliverableMvcController {
     }
 
     @PostMapping("/outputs")
-    public String addOutput(@PathVariable UUID id, @RequestParam OutputType outputType,
-                             @RequestParam(required = false) ReelType reelType,
+    public Object addOutput(@PathVariable UUID id, @RequestParam OutputType outputType,
+                             @RequestParam(required = false) List<ReelType> reelTypes,
                              @RequestParam(required = false) String titleDescription,
-                             @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+                             @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                             @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                             jakarta.servlet.http.HttpServletRequest request) {
         try {
-            planningService.addPlannedOutput(principal.user(), id, outputType, reelType, titleDescription);
-            ra.addFlashAttribute("successMessage", "Planned output added.");
+            List<PlannedOutput> created = planningService.addPlannedOutputs(principal.user(), id, outputType,
+                    reelTypes, titleDescription);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(PlannedOutputGroupResponse.of(created));
+            }
+            ra.addFlashAttribute("successMessage",
+                    created.size() > 1 ? created.size() + " planned outputs added." : "Planned output added.");
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
     }
 
-    @PostMapping("/outputs/{outputId}/targets")
-    public String mapTargets(@PathVariable UUID id, @PathVariable UUID outputId,
+    /** ERD-TBL-011: {@code groupId} is a Planned Output's reelGroupId - any member represents the whole group. */
+    private UUID requireGroupRepresentative(UUID groupId) {
+        return plannedOutputRepository.findByReelGroupId(groupId).stream().findFirst()
+                .map(PlannedOutput::getId)
+                .orElseThrow(() -> DomainException.notFound("Planned Output group not found: " + groupId));
+    }
+
+    /**
+     * publication-scope.js submits the "+ Add Target" and per-chip Remove forms via {@code fetch}
+     * (marked with this header) instead of a normal submit, so Publication Scope edits never
+     * reload the page - the request/response shape is otherwise identical to the plain form POST,
+     * which stays the fully-functional no-JS fallback.
+     */
+    private static boolean isAjax(String requestedWith) {
+        return "fetch".equals(requestedWith);
+    }
+
+    private ResponseEntity<ApiErrorResponse> ajaxError(DomainException e, jakarta.servlet.http.HttpServletRequest request) {
+        return ResponseEntity.status(e.getHttpStatus())
+                .body(ApiErrorResponse.of(e.getErrorCode(), e.getMessage(), request.getRequestURI()));
+    }
+
+    @PostMapping("/outputs/{groupId}/targets")
+    public Object mapTargets(@PathVariable UUID id, @PathVariable UUID groupId,
                               @RequestParam(required = false) List<UUID> publicationTargetIds,
-                              @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+                              @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                              @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                              jakarta.servlet.http.HttpServletRequest request) {
         try {
-            planningService.mapPublicationScope(principal.user(), outputId,
+            planningService.mapPublicationScope(principal.user(), requireGroupRepresentative(groupId),
                     publicationTargetIds == null ? List.of() : publicationTargetIds);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
             ra.addFlashAttribute("successMessage", "Publication scope updated.");
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /**
+     * Reconciles the group's Reel Type membership to the submitted checkbox set (adding/removing
+     * Planned Output rows as needed) instead of editing a single output in place, since the
+     * grouped row's identity is the whole set of Reel Types, not any one member (see
+     * {@link PlanningService#syncReelGroup}).
+     */
+    @PostMapping("/outputs/{groupId}/edit")
+    public Object editOutput(@PathVariable UUID id, @PathVariable UUID groupId, @RequestParam OutputType outputType,
+                              @RequestParam(required = false) List<ReelType> reelTypes,
+                              @RequestParam(required = false) String titleDescription,
+                              @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                              @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                              jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            List<PlannedOutput> updated = planningService.syncReelGroup(principal.user(), groupId, outputType,
+                    reelTypes, titleDescription);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(PlannedOutputGroupResponse.of(updated));
+            }
+            ra.addFlashAttribute("successMessage", "Planned output updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    @PostMapping("/outputs/{groupId}/remove")
+    public Object removeOutput(@PathVariable UUID id, @PathVariable UUID groupId,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            planningService.removeReelGroup(principal.user(), groupId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Planned output removed.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    @PostMapping("/outputs/{groupId}/targets/{targetId}/remove")
+    public Object removeTarget(@PathVariable UUID id, @PathVariable UUID groupId, @PathVariable UUID targetId,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            planningService.unmapPublicationTarget(principal.user(), requireGroupRepresentative(groupId), targetId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Publication target removed.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);

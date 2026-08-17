@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,10 +9,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/admin/users">Users</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>${targetUser.fullName}</h1>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
@@ -59,14 +57,14 @@
     <div class="panel">
         <h2>Granted Operational Permissions</h2>
         <table class="data-table">
-            <thead><tr><th>#</th><th>Permission</th><th>Scope</th><th>Valid</th><th>Active</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Permission</th><th>Scope</th><th>Valid (IST)</th><th>Active</th><th></th></tr></thead>
             <tbody>
             <c:forEach var="g" items="${grants}">
                 <tr>
                     <td>${g.permission.number()}</td>
                     <td>${g.permission}</td>
                     <td>${g.scopeType}</td>
-                    <td>${g.effectiveFrom} &ndash; <c:out value="${g.effectiveUntil}" default="(none)"/></td>
+                    <td>${kcpc:ist(g.effectiveFrom)} &ndash; ${empty g.effectiveUntil ? '(none)' : kcpc:ist(g.effectiveUntil)}</td>
                     <td>${g.active and empty g.revokedAt ? 'Active' : 'Revoked/Expired'}</td>
                     <td>
                         <c:if test="${g.active and empty g.revokedAt}">

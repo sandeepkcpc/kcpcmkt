@@ -8,11 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/home">Home</a>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/ideas/new">Submit Idea</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Idea Queue</h1>
     <c:if test="${not empty errorMessage}">

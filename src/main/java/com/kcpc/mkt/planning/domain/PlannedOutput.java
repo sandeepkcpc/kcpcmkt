@@ -3,6 +3,7 @@ package com.kcpc.mkt.planning.domain;
 import com.kcpc.mkt.common.entity.BaseEntity;
 import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.common.error.ErrorCode;
+import com.kcpc.mkt.common.util.UuidV7;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -15,6 +16,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /** ERD-TBL-011: 1..N Planned Outputs under a single Content ID. */
 @Entity
@@ -37,6 +39,17 @@ public class PlannedOutput extends BaseEntity {
     @Column(name = "title_description", length = 200)
     private String titleDescription;
 
+    /**
+     * Groups Planned Outputs that were created together as one REEL "+ Add Output" submission
+     * (one row per selected Reel Type - VERY_SHORT/SHORT/LONG - all sharing this id) so they can
+     * be displayed as a single row and made to share one common Publication Target set. A Planned
+     * Output created alone (including every non-REEL output) is simply a "group of one": this
+     * defaults to a fresh id of its own unless a caller explicitly shares one across a batch via
+     * {@link #setReelGroupId}.
+     */
+    @Column(name = "reel_group_id", nullable = false)
+    private UUID reelGroupId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -47,6 +60,7 @@ public class PlannedOutput extends BaseEntity {
     public PlannedOutput(ContentPlan contentPlan, OutputType outputType, ReelType reelType, String titleDescription) {
         this.contentPlan = contentPlan;
         this.titleDescription = titleDescription;
+        this.reelGroupId = UuidV7.generate();
         setTypeAndReelType(outputType, reelType);
     }
 
@@ -78,5 +92,17 @@ public class PlannedOutput extends BaseEntity {
 
     public String getTitleDescription() {
         return titleDescription;
+    }
+
+    public void setTitleDescription(String titleDescription) {
+        this.titleDescription = titleDescription;
+    }
+
+    public UUID getReelGroupId() {
+        return reelGroupId;
+    }
+
+    public void setReelGroupId(UUID reelGroupId) {
+        this.reelGroupId = reelGroupId;
     }
 }

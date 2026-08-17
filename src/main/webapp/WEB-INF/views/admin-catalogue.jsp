@@ -8,10 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Publishing Catalogue (Perm #17)</h1>
     <p class="muted">Two masters: Platforms &middot; Company Channels. A Publication Target is a Platform &times; Company Channel pairing.</p>

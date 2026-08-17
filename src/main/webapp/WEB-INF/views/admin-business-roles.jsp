@@ -8,16 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
-<nav class="app-nav">
-    <a href="${pageContext.request.contextPath}/app/admin/users">Users</a>
-    <a href="${pageContext.request.contextPath}/app/admin/business-roles" class="active">Business Roles</a>
-    <a href="${pageContext.request.contextPath}/app/admin/permissions">Permissions</a>
-    <a href="${pageContext.request.contextPath}/app/admin/catalogue">Publishing Catalogue</a>
-</nav>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Administration &raquo; Business Roles</h1>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
@@ -36,6 +27,12 @@
                         <form method="post" action="${pageContext.request.contextPath}/app/admin/business-roles/${r.id}/deactivate">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                             <button type="submit" class="secondary">Deactivate</button>
+                        </form>
+                    </c:if>
+                    <c:if test="${!r.active}">
+                        <form method="post" action="${pageContext.request.contextPath}/app/admin/business-roles/${r.id}/activate">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <button type="submit" class="success">Activate</button>
                         </form>
                     </c:if>
                 </td>

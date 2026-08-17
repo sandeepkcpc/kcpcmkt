@@ -135,7 +135,7 @@ public class EditingService {
         requireAssigneeOrNative(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Content Asset Folder Link is required before Edit Review");
+                    "Drive Link is required before Edit Review");
         }
 
         List<EditingAssignment> activeAssignments = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan);

@@ -8,16 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
-<nav class="app-nav">
-    <a href="${pageContext.request.contextPath}/app/admin/users" class="active">Users</a>
-    <a href="${pageContext.request.contextPath}/app/admin/business-roles">Business Roles</a>
-    <a href="${pageContext.request.contextPath}/app/admin/permissions">Permissions</a>
-    <a href="${pageContext.request.contextPath}/app/admin/catalogue">Publishing Catalogue</a>
-</nav>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Administration &raquo; Users</h1>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>

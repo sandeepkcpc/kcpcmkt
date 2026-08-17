@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,16 +9,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
-<nav class="app-nav">
-    <a href="${pageContext.request.contextPath}/app/admin/users">Users</a>
-    <a href="${pageContext.request.contextPath}/app/admin/business-roles">Business Roles</a>
-    <a href="${pageContext.request.contextPath}/app/admin/permissions" class="active">Permissions</a>
-    <a href="${pageContext.request.contextPath}/app/admin/catalogue">Publishing Catalogue</a>
-</nav>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Administration &raquo; Permissions</h1>
     <p class="muted">Every currently active Operational-Permission grant, across all users. To
@@ -28,7 +20,7 @@
     <table class="data-table">
         <thead>
             <tr><th>User</th><th>Email</th><th>#</th><th>Permission</th><th>Scope</th><th>Detail</th>
-                <th>Granted By</th><th>Effective From</th><th>Expires</th></tr>
+                <th>Granted By</th><th>Effective From (IST)</th><th>Expires (IST)</th></tr>
         </thead>
         <tbody>
         <c:forEach var="g" items="${grants}">
@@ -40,8 +32,8 @@
                 <td>${g.scopeType}</td>
                 <td>${g.scopeDetail}</td>
                 <td>${g.grantorName}</td>
-                <td>${g.effectiveFrom}</td>
-                <td><c:out value="${g.effectiveUntil}" default="(none)"/></td>
+                <td>${kcpc:ist(g.effectiveFrom)}</td>
+                <td>${empty g.effectiveUntil ? '(none)' : kcpc:ist(g.effectiveUntil)}</td>
             </tr>
         </c:forEach>
         <c:if test="${empty grants}"><tr><td colspan="9" class="muted">No active permission grants.</td></tr></c:if>

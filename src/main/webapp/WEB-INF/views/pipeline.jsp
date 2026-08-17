@@ -8,62 +8,95 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <form method="post" action="${pageContext.request.contextPath}/logout" class="logout-form">
-        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-        <button type="submit" class="link-button">Sign out</button>
-    </form>
-</header>
-<nav class="app-nav">
-    <a class="active" href="${pageContext.request.contextPath}/app/pipeline">Content Pipeline</a>
-    <a href="${pageContext.request.contextPath}/app/ideas">Idea Queue</a>
-    <a href="${pageContext.request.contextPath}/app/ideas/new">Submit Idea</a>
-    <a href="${pageContext.request.contextPath}/app/reports/workload">Team Workload</a>
-    <a href="${pageContext.request.contextPath}/app/reports/team-kpis">Team KPI</a>
-    <a href="${pageContext.request.contextPath}/app/reports/kpis">30-KPI Console</a>
-    <a href="${pageContext.request.contextPath}/app/reports/delayed">Delayed Deliverables</a>
-    <a href="${pageContext.request.contextPath}/app/reports/admin-actions">Admin Actions</a>
-    <a href="${pageContext.request.contextPath}/app/audit">Audit History</a>
-    <a href="${pageContext.request.contextPath}/app/export">Export</a>
-    <c:if test="${accessClass == 'CEO_OWNER'}">
-        <a href="${pageContext.request.contextPath}/app/admin/users">Users</a>
-        <a href="${pageContext.request.contextPath}/app/admin/business-roles">Business Roles</a>
-        <a href="${pageContext.request.contextPath}/app/admin/permissions">Permissions</a>
-        <a href="${pageContext.request.contextPath}/app/admin/catalogue">Publishing Catalogue</a>
-    </c:if>
-</nav>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Content Pipeline</h1>
-    <p class="muted">${user.fullName} &middot; ${accessClass}</p>
-    <table class="data-table">
-        <thead>
-        <tr><th>Content ID</th><th>Title</th><th>Status</th><th>Priority</th><th>Flags</th><th>Live Date</th><th></th></tr>
-        </thead>
-        <tbody>
-        <c:forEach var="p" items="${plans}">
+    <p class="muted">${user.fullName} &middot; ${accessClass} &middot; one row per Content ID</p>
+    <div class="pipeline-scroll">
+        <table class="pipeline-table">
+            <thead>
             <tr>
-                <td>${p.contentId}</td>
-                <td>${p.idea.title}</td>
-                <td><span class="status-badge">${p.workflowInstance.currentStatusCode.statusName}</span></td>
-                <td>${p.contentPriority}</td>
-                <td>
-                    <c:if test="${not empty p.plannedLiveDate and p.plannedLiveDate lt today
-                                  and p.workflowInstance.currentStatusCode != 'COMP'
-                                  and p.workflowInstance.currentStatusCode != 'CAN'}">
-                        <span class="flag-chip flag-delayed">Delayed</span>
-                    </c:if>
-                    <c:if test="${onHoldWorkflowInstanceIds.contains(p.workflowInstance.id)}">
-                        <span class="flag-chip flag-hold">Hold</span>
-                    </c:if>
-                </td>
-                <td>${p.plannedLiveDate}</td>
-                <td><a href="${pageContext.request.contextPath}/app/deliverables/${p.id}">Open</a></td>
+                <th class="pipeline-col-id">Content ID</th>
+                <th>SKU</th>
+                <th>Idea</th>
+                <th>Reference Link / Note</th>
+                <th>Category</th>
+                <th>Channels</th>
+                <th>Actor</th>
+                <th>Camera Person</th>
+                <th>Models</th>
+                <th>Video Editor</th>
+                <th>Drive Link</th>
+                <th>Planned Live Date</th>
+                <th>Shoot Date</th>
+                <th>Edit Date</th>
+                <th>Live Date</th>
+                <th>Platforms</th>
+                <th>Performance</th>
+                <th>Status</th>
             </tr>
-        </c:forEach>
-        <c:if test="${empty plans}"><tr><td colspan="7" class="muted">No deliverables yet.</td></tr></c:if>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+            <c:forEach var="row" items="${pipelineRows}">
+                <tr>
+                    <td class="pipeline-col-id">
+                        <a href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}">${row.contentId}</a>
+                    </td>
+                    <td>${row.sku}</td>
+                    <td class="pipeline-col-wrap" title="${row.ideaTitle}">${row.ideaTitle}</td>
+                    <td class="pipeline-col-wrap">
+                        <c:choose>
+                            <c:when test="${row.referenceLinkIsUrl}">
+                                <a href="${row.referenceLink}" target="_blank" rel="noopener noreferrer" title="${row.referenceLink}">${row.referenceLink}</a>
+                            </c:when>
+                            <c:when test="${not empty row.referenceLink}">
+                                <span title="${row.referenceLink}">${row.referenceLink}</span>
+                            </c:when>
+                            <c:otherwise><span class="muted">—</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td title="${row.category}">${row.category}</td>
+                    <td class="pipeline-col-wrap" title="${row.channels}">${row.channels}</td>
+                    <td title="${row.actor}">${row.actor}</td>
+                    <td class="pipeline-col-wrap" title="${row.cameraPersons}">${row.cameraPersons}</td>
+                    <td class="pipeline-col-wrap" title="${row.models}">${row.models}</td>
+                    <td class="pipeline-col-wrap" title="${row.videoEditors}">${row.videoEditors}</td>
+                    <td>
+                        <c:choose>
+                            <c:when test="${not empty row.driveLink}">
+                                <a class="pipeline-link-icon" href="${row.driveLink}" target="_blank" rel="noopener noreferrer"
+                                   title="Open Drive Link" aria-label="Open Drive Link">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                    </svg>
+                                </a>
+                            </c:when>
+                            <c:otherwise><span class="pipeline-link-muted" title="No Drive Link set">—</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td>${row.plannedLiveDate}</td>
+                    <td>${row.shootDate}</td>
+                    <td>${row.editDate}</td>
+                    <td>${row.liveDate}</td>
+                    <td class="pipeline-col-wrap" title="${row.platforms}">${row.platforms}</td>
+                    <td>
+                        <c:choose>
+                            <c:when test="${row.performanceLinkEligible}">
+                                <a class="performance-cell clickable"
+                                   href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}#performance">${row.performanceState}</a>
+                            </c:when>
+                            <c:otherwise><span class="muted">${row.performanceState}</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td><span class="status-badge">${row.status}</span></td>
+                </tr>
+            </c:forEach>
+            <c:if test="${empty pipelineRows}"><tr><td colspan="18" class="muted">No deliverables yet.</td></tr></c:if>
+            </tbody>
+        </table>
+    </div>
 </main>
 </body>
 </html>

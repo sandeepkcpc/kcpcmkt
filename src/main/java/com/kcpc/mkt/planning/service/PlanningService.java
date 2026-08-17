@@ -3,6 +3,7 @@ package com.kcpc.mkt.planning.service;
 import com.kcpc.mkt.audit.service.AuditService;
 import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.common.error.ErrorCode;
+import com.kcpc.mkt.common.util.UuidV7;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
@@ -104,7 +105,7 @@ public class PlanningService {
         }
     }
 
-    /** BRS-REQ-021: Category (free-text), Priority, SKU, Models/Talent, Folder Link. */
+    /** BRS-REQ-021: Category (free-text), Priority, SKU, Models/Talent, Drive Link. */
     @Transactional
     public ContentPlan updateParameters(User user, UUID contentPlanId, String categoryText, ContentPriority priority,
                                          String skuReference, boolean skuNotApplicable, List<String> talentNames,
@@ -131,6 +132,29 @@ public class PlanningService {
         auditService.record(user, Optional.empty(), "PLANNING", "PLANNING_PARAMETERS_UPDATED", "content_plans",
                 plan.getId(), null);
         return plan;
+    }
+
+    /**
+     * Single-form Planning submission: Parameters and Schedule (Standard or Urgent) saved as one
+     * user action instead of two separate form posts. Delegates to {@link #updateParameters} and
+     * {@link #setStandardSchedule}/{@link #setUrgentSchedule} unchanged - same authority checks,
+     * same validation, same audit trail (one entry per underlying save), just invoked together.
+     */
+    @Transactional
+    public ContentPlan savePlan(User user, UUID contentPlanId, String categoryText, ContentPriority priority,
+                                 String skuReference, boolean skuNotApplicable, List<String> talentNames,
+                                 String folderLink, PlanningMode planningMode, LocalDate plannedLiveDate,
+                                 LocalDate shootDate, LocalDate editDate, String urgencyReason) {
+        updateParameters(user, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentNames,
+                folderLink);
+        if (planningMode == PlanningMode.URGENT) {
+            if (shootDate == null || editDate == null || urgencyReason == null || urgencyReason.isBlank()) {
+                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                        "Urgent Planning Mode requires Shoot Date, Edit Date and Urgency Reason");
+            }
+            return setUrgentSchedule(user, contentPlanId, plannedLiveDate, shootDate, editDate, urgencyReason);
+        }
+        return setStandardSchedule(user, contentPlanId, plannedLiveDate, shootDate, editDate);
     }
 
     /**
@@ -189,22 +213,169 @@ public class PlanningService {
         return output;
     }
 
+    /**
+     * Planning Workspace "+ Add Output" UI: a single PlannedOutput can only carry one Reel Type
+     * (ERD-CON-008), so selecting multiple Reel Types (e.g. SHORT and LONG) for a REEL output
+     * creates one separate PlannedOutput per selected type - not one output with multiple types -
+     * so each can later be completed, targeted and tracked independently. All outputs created by
+     * one such submission share a single reelGroupId so they render as one grouped row and are
+     * made to share one common Publication Target set (see {@link #mapPublicationScope}).
+     */
+    @Transactional
+    public List<PlannedOutput> addPlannedOutputs(User user, UUID contentPlanId, OutputType outputType,
+                                                  List<ReelType> reelTypes, String titleDescription) {
+        ContentPlan plan = requireContentPlan(contentPlanId);
+        requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
+        List<ReelType> typesToCreate = outputType == OutputType.REEL
+                ? (reelTypes == null ? List.of() : reelTypes.stream().distinct().toList())
+                : java.util.Collections.singletonList(null);
+        if (typesToCreate.isEmpty()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Select at least one Reel Type when Output Type is Reel (ERD-CON-008/AC-024.1)");
+        }
+        UUID sharedGroupId = UuidV7.generate();
+        List<PlannedOutput> created = new java.util.ArrayList<>();
+        for (ReelType reelType : typesToCreate) {
+            PlannedOutput output = new PlannedOutput(plan, outputType, reelType, titleDescription);
+            output.setReelGroupId(sharedGroupId);
+            plannedOutputRepository.save(output);
+            created.add(output);
+            auditService.record(user, Optional.empty(), "PLANNING", "PLANNED_OUTPUT_ADDED", "planned_outputs",
+                    output.getId(), null);
+        }
+        return created;
+    }
+
+    /**
+     * Applies additively to every Planned Output sharing the given output's reelGroupId - a REEL
+     * group (e.g. SHORT + LONG created together) always has exactly one common Publication Target
+     * set, never a per-Reel-Type override, so a mapping added via any group member is propagated
+     * to all of them. Non-grouped outputs are a "group of one" and this is a no-op difference.
+     */
     @Transactional
     public void mapPublicationScope(User user, UUID plannedOutputId, List<UUID> publicationTargetIds) {
         PlannedOutput output = plannedOutputRepository.findById(plannedOutputId)
                 .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
         requirePlanningExecutionAuthority(user, output.getContentPlan().getWorkflowInstance());
+        List<PlannedOutput> groupMembers = plannedOutputRepository.findByReelGroupId(output.getReelGroupId());
         for (UUID targetId : publicationTargetIds) {
             PublicationTarget target = publicationTargetRepository.findById(targetId)
                     .orElseThrow(() -> DomainException.notFound("Publication Target not found: " + targetId));
-            boolean exists = mappingRepository.findByPlannedOutput(output).stream()
-                    .anyMatch(m -> m.getPublicationTarget().getId().equals(targetId));
-            if (!exists) {
-                mappingRepository.save(new PlannedOutputPublicationTargetMapping(output, target));
+            for (PlannedOutput member : groupMembers) {
+                boolean exists = mappingRepository.findByPlannedOutput(member).stream()
+                        .anyMatch(m -> m.getPublicationTarget().getId().equals(targetId));
+                if (!exists) {
+                    mappingRepository.save(new PlannedOutputPublicationTargetMapping(member, target));
+                }
             }
         }
         auditService.record(user, Optional.empty(), "PLANNING", "PUBLICATION_SCOPE_MAPPED", "planned_outputs",
                 output.getId(), null);
+    }
+
+    /**
+     * Planning Workspace grouped-row "Edit": reconciles a REEL group's Reel Type membership to the
+     * submitted set (creating new PlannedOutput rows and deleting dropped ones as needed) and
+     * applies the Output Type/Description to every member, all inside one transaction so a partial
+     * group update can never be observed. A newly added Reel Type immediately inherits the group's
+     * existing shared Publication Target mappings, so "one shared target set per group" never has a
+     * gap. Non-REEL edits are simply a group of one being synced to itself.
+     */
+    @Transactional
+    public List<PlannedOutput> syncReelGroup(User user, UUID reelGroupId, OutputType outputType,
+                                              List<ReelType> reelTypes, String titleDescription) {
+        List<PlannedOutput> currentMembers = plannedOutputRepository.findByReelGroupId(reelGroupId);
+        if (currentMembers.isEmpty()) {
+            throw DomainException.notFound("Planned Output group not found: " + reelGroupId);
+        }
+        PlannedOutput anyMember = currentMembers.get(0);
+        requirePlanningExecutionAuthority(user, anyMember.getContentPlan().getWorkflowInstance());
+
+        List<ReelType> desiredTypes = outputType == OutputType.REEL
+                ? (reelTypes == null ? List.of() : reelTypes.stream().distinct().toList())
+                : java.util.Collections.singletonList(null);
+        if (desiredTypes.isEmpty()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Select at least one Reel Type when Output Type is Reel (ERD-CON-008/AC-024.1)");
+        }
+
+        List<PublicationTarget> sharedTargets = mappingRepository.findByPlannedOutput(anyMember).stream()
+                .map(PlannedOutputPublicationTargetMapping::getPublicationTarget).toList();
+
+        java.util.Map<ReelType, PlannedOutput> byReelType = new java.util.HashMap<>();
+        for (PlannedOutput member : currentMembers) {
+            byReelType.put(member.getReelType(), member);
+        }
+
+        List<PlannedOutput> result = new java.util.ArrayList<>();
+        for (ReelType type : desiredTypes) {
+            PlannedOutput existing = byReelType.remove(type);
+            if (existing != null) {
+                existing.setTypeAndReelType(outputType, type);
+                existing.setTitleDescription(titleDescription);
+                plannedOutputRepository.save(existing);
+                result.add(existing);
+            } else {
+                PlannedOutput fresh = new PlannedOutput(anyMember.getContentPlan(), outputType, type, titleDescription);
+                fresh.setReelGroupId(reelGroupId);
+                plannedOutputRepository.save(fresh);
+                for (PublicationTarget target : sharedTargets) {
+                    mappingRepository.save(new PlannedOutputPublicationTargetMapping(fresh, target));
+                }
+                result.add(fresh);
+                auditService.record(user, Optional.empty(), "PLANNING", "PLANNED_OUTPUT_ADDED", "planned_outputs",
+                        fresh.getId(), null);
+            }
+        }
+        for (PlannedOutput removed : byReelType.values()) {
+            for (PlannedOutputPublicationTargetMapping mapping : mappingRepository.findByPlannedOutput(removed)) {
+                mappingRepository.delete(mapping);
+            }
+            plannedOutputRepository.delete(removed);
+            auditService.record(user, Optional.empty(), "PLANNING", "PLANNED_OUTPUT_REMOVED", "planned_outputs",
+                    removed.getId(), null);
+        }
+        auditService.record(user, Optional.empty(), "PLANNING", "PLANNED_OUTPUT_UPDATED", "planned_outputs",
+                reelGroupId, null);
+        return result;
+    }
+
+    /** Removes every Planned Output sharing reelGroupId (a whole grouped row) plus their target mappings. */
+    @Transactional
+    public void removeReelGroup(User user, UUID reelGroupId) {
+        List<PlannedOutput> members = plannedOutputRepository.findByReelGroupId(reelGroupId);
+        if (members.isEmpty()) {
+            throw DomainException.notFound("Planned Output group not found: " + reelGroupId);
+        }
+        requirePlanningExecutionAuthority(user, members.get(0).getContentPlan().getWorkflowInstance());
+        for (PlannedOutput member : members) {
+            for (PlannedOutputPublicationTargetMapping mapping : mappingRepository.findByPlannedOutput(member)) {
+                mappingRepository.delete(mapping);
+            }
+            plannedOutputRepository.delete(member);
+        }
+        auditService.record(user, Optional.empty(), "PLANNING", "PLANNED_OUTPUT_REMOVED", "planned_outputs",
+                reelGroupId, null);
+    }
+
+    /**
+     * Applies to every Planned Output sharing the given output's reelGroupId, mirroring
+     * {@link #mapPublicationScope}'s group-wide propagation.
+     */
+    @Transactional
+    public void unmapPublicationTarget(User user, UUID plannedOutputId, UUID publicationTargetId) {
+        PlannedOutput output = plannedOutputRepository.findById(plannedOutputId)
+                .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
+        requirePlanningExecutionAuthority(user, output.getContentPlan().getWorkflowInstance());
+        List<PlannedOutput> groupMembers = plannedOutputRepository.findByReelGroupId(output.getReelGroupId());
+        for (PlannedOutput member : groupMembers) {
+            mappingRepository.findByPlannedOutput(member).stream()
+                    .filter(m -> m.getPublicationTarget().getId().equals(publicationTargetId))
+                    .findFirst()
+                    .ifPresent(mappingRepository::delete);
+        }
+        auditService.record(user, Optional.empty(), "PLANNING", "PUBLICATION_SCOPE_TARGET_REMOVED", "planned_outputs",
+                plannedOutputId, null);
     }
 
     /** BRS-REQ-022: initial shooting assignment during Planning, Permission #4, one or more Camerapersons. */
@@ -237,7 +408,7 @@ public class PlanningService {
         if (!plan.isReadyForPlanningReview()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                     "Planning parameters are incomplete: Content Priority, Planned Live/Shoot/Edit Dates and "
-                            + "Folder Link are all mandatory before Planning Review submission (ERD-CON-026)");
+                            + "Drive Link are all mandatory before Planning Review submission (ERD-CON-026)");
         }
         int cycleNumber = nextCycleNumber(workflowInstance, GateType.PLANNING_REVIEW);
         ReviewCycle cycle = reviewCycleRepository.save(

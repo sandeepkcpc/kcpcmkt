@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,12 +9,8 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/home">Home</a>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
-<main class="app-main">
+<jsp:include page="fragments/nav.jsp" />
+<main class="app-main app-main-wide">
     <h1>${plan.contentId} &middot; ${plan.idea.title}</h1>
     <div class="status-strip">
         <span class="status-badge">${status.statusName}</span>
@@ -37,9 +34,9 @@
                             <c:forEach var="sc" items="${stageContexts}"><option value="${sc}">${sc}</option></c:forEach>
                         </select>
                     </label>
-                    <label>New Shoot Date <input type="date" name="newShootDate"></label>
-                    <label>New Edit Date <input type="date" name="newEditDate"></label>
-                    <label>New Live Date <input type="date" name="newLiveDate"></label>
+                    <label>New Shoot Date <input type="date" name="newShootDate" min="${today}"></label>
+                    <label>New Edit Date <input type="date" name="newEditDate" min="${today}"></label>
+                    <label>New Live Date <input type="date" name="newLiveDate" min="${today}"></label>
                     <label>Reason * <input type="text" name="reason" required></label>
                     <button type="submit">Confirm Reschedule</button>
                 </form>
@@ -129,29 +126,32 @@
     <%-- ============================ OVERVIEW ============================ --%>
     <div class="panel">
         <h2>Overview</h2>
-        <p><strong>Priority:</strong> ${plan.contentPriority} &middot;
-           <strong>Planning Mode:</strong> ${plan.planningMode}
-           <c:if test="${plan.planningMode == 'URGENT'}"> &mdash; ${plan.urgencyReason}</c:if></p>
-        <p><strong>Live Date:</strong> ${plan.plannedLiveDate} &middot;
-           <strong>Shoot Date:</strong> ${plan.plannedShootDate} &middot;
-           <strong>Edit Date:</strong> ${plan.plannedEditDate}</p>
-        <p><strong>Folder Link:</strong>
-            <c:choose>
-                <c:when test="${not empty plan.folderLink}">${plan.folderLink}</c:when>
-                <c:otherwise><span class="muted">(not set)</span></c:otherwise>
-            </c:choose>
-        </p>
-        <p><strong>Cameraperson(s):</strong>
-            <c:forEach var="a" items="${shootingAssignments}" varStatus="s">${a.cameraperson.fullName}<c:if test="${!s.last}">, </c:if></c:forEach>
-            <c:if test="${empty shootingAssignments}"><span class="muted">(none)</span></c:if>
-        </p>
-        <p><strong>Editor(s):</strong>
-            <c:forEach var="a" items="${editingAssignments}" varStatus="s">${a.editor.fullName}<c:if test="${!s.last}">, </c:if></c:forEach>
-            <c:if test="${empty editingAssignments}"><span class="muted">(none)</span></c:if>
-        </p>
-        <c:if test="${not empty marks}">
-            <p><strong>Predefined Marks:</strong> Cameraperson ${marks.predefinedCameramanMark} &middot; Editor ${marks.predefinedEditorMark}</p>
-        </c:if>
+        <div class="overview-grid">
+            <p><strong>Priority:</strong> ${plan.contentPriority}</p>
+            <p><strong>Planning Mode:</strong> ${plan.planningMode}
+               <c:if test="${plan.planningMode == 'URGENT'}"> &mdash; ${plan.urgencyReason}</c:if></p>
+            <p><strong>Live Date:</strong> ${plan.plannedLiveDate}</p>
+            <p><strong>Shoot Date:</strong> ${plan.plannedShootDate}</p>
+            <p><strong>Edit Date:</strong> ${plan.plannedEditDate}</p>
+            <p><strong>Drive Link:</strong>
+                <c:choose>
+                    <c:when test="${not empty plan.folderLink}">${plan.folderLink}</c:when>
+                    <c:otherwise><span class="muted">(not set)</span></c:otherwise>
+                </c:choose>
+            </p>
+            <p><strong>Cameraperson(s):</strong>
+                <c:forEach var="a" items="${shootingAssignments}" varStatus="s">${a.cameraperson.fullName}<c:if test="${!s.last}">, </c:if></c:forEach>
+                <c:if test="${empty shootingAssignments}"><span class="muted">(none)</span></c:if>
+            </p>
+            <c:if test="${not empty editingAssignments}">
+                <p><strong>Editor(s):</strong>
+                    <c:forEach var="a" items="${editingAssignments}" varStatus="s">${a.editor.fullName}<c:if test="${!s.last}">, </c:if></c:forEach>
+                </p>
+            </c:if>
+            <c:if test="${not empty marks}">
+                <p><strong>Predefined Marks:</strong> Cameraperson ${marks.predefinedCameramanMark} &middot; Editor ${marks.predefinedEditorMark}</p>
+            </c:if>
+        </div>
     </div>
 
     <%-- ============================ PLANNING ============================ --%>
@@ -160,98 +160,207 @@
             <h2>Planning Workspace</h2>
             <c:choose>
                 <c:when test="${canPlanningExecute and status == 'PL'}">
-                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/parameters">
+                    <h3>1. Planning Details</h3>
+                    <form id="planning-details-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/plan-submit">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <label>Category (optional) <input type="text" name="categoryText" value="${plan.categoryText}"></label>
-                        <label>Priority
-                            <select name="contentPriority">
-                                <c:forEach var="p" items="${priorities}">
-                                    <option value="${p}" ${p == plan.contentPriority ? 'selected' : ''}>${p}</option>
-                                </c:forEach>
-                            </select>
-                        </label>
-                        <div class="field-row">
-                            <div><label>SKU Reference <input type="text" name="skuReference" value="${plan.skuReference}"></label></div>
-                            <div><label>SKU N/A <input type="checkbox" name="skuNotApplicable" value="true" style="width:auto"
-                                                        ${plan.skuNotApplicable ? 'checked' : ''}></label></div>
-                        </div>
-                        <label>Talent (comma-separated names)
-                            <input type="text" name="talentNamesCsv"
-                                   value="<c:forEach var="t" items="${talentEntries}" varStatus="s">${t.talentName}<c:if test="${!s.last}">, </c:if></c:forEach>">
-                        </label>
-                        <label>Content Asset Folder Link <input type="text" name="folderLink" value="${plan.folderLink}"></label>
-                        <button type="submit">Save Parameters</button>
-                    </form>
-
-                    <h3>Schedule</h3>
-                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/schedule/standard">
-                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <div class="field-row">
-                            <div><label>Planned Live Date * <input type="date" name="plannedLiveDate" required></label></div>
-                            <div><label>Shoot Date override <input type="date" name="shootDateOverride"></label></div>
-                            <div><label>Edit Date override <input type="date" name="editDateOverride"></label></div>
-                        </div>
-                        <button type="submit">Save Standard Schedule</button>
-                    </form>
-                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/schedule/urgent">
-                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <p class="note-box">Use Urgent when the Planned Live Date is fewer than 5 days away, or intentionally at any distance.</p>
-                        <div class="field-row">
-                            <div><label>Planned Live Date * <input type="date" name="plannedLiveDate" required></label></div>
-                            <div><label>Shoot Date * <input type="date" name="shootDate" required></label></div>
-                            <div><label>Edit Date * <input type="date" name="editDate" required></label></div>
-                        </div>
-                        <label>Urgency Reason * <input type="text" name="urgencyReason" required></label>
-                        <button type="submit">Save Urgent Schedule</button>
-                    </form>
-
-                    <h3>Planned Outputs</h3>
-                    <table class="data-table">
-                        <thead><tr><th>Type</th><th>Reel Type</th><th>Description</th><th>Targets</th></tr></thead>
-                        <tbody>
-                        <c:forEach var="o" items="${outputs}">
-                            <tr>
-                                <td>${o.outputType}</td>
-                                <td>${o.reelType}</td>
-                                <td>${o.titleDescription}</td>
-                                <td>
-                                    <c:forEach var="m" items="${outputTargetMappings[o.id]}">
-                                        ${m.publicationTarget.platform.platformName}/${m.publicationTarget.channel.channelHandle}<br/>
+                        <div class="form-grid">
+                            <label>Category (optional) <input type="text" name="categoryText" value="${plan.categoryText}"></label>
+                            <label>Priority
+                                <select name="contentPriority">
+                                    <c:forEach var="p" items="${priorities}">
+                                        <option value="${p}" ${p == plan.contentPriority ? 'selected' : ''}>${p}</option>
                                     </c:forEach>
-                                    <details>
-                                        <summary>Map targets</summary>
-                                        <form class="action-form" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.id}/targets">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <select name="publicationTargetIds" multiple size="5">
-                                                <c:forEach var="pt" items="${activePublicationTargets}">
-                                                    <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
+                                </select>
+                            </label>
+                            <label>SKU Reference
+                                <input type="text" name="skuReference" value="${plan.skuReference}">
+                                <span class="checkbox-inline">
+                                    <input type="checkbox" name="skuNotApplicable" value="true"
+                                           ${plan.skuNotApplicable ? 'checked' : ''}> N/A
+                                </span>
+                            </label>
+
+                            <div class="kcpc-model-picker">
+                                <label>Model(s)</label>
+                                <div class="kcpc-model-input">
+                                    <div class="kcpc-model-chips"></div>
+                                    <input type="text" class="kcpc-model-search" placeholder="Search model...">
+                                </div>
+                                <div class="kcpc-model-checklist">
+                                    <c:forEach var="mu" items="${modelUsers}">
+                                        <c:set var="isSelected" value="false" />
+                                        <c:forEach var="t" items="${talentEntries}">
+                                            <c:if test="${t.talentName == mu.fullName}"><c:set var="isSelected" value="true" /></c:if>
+                                        </c:forEach>
+                                        <label class="model-check-item">
+                                            <input type="checkbox" name="modelUserIds" value="${mu.id}"
+                                                   data-name="${mu.fullName}" ${isSelected ? 'checked' : ''}> ${mu.fullName}
+                                        </label>
+                                    </c:forEach>
+                                </div>
+                            </div>
+                            <label>Drive Link <input type="text" name="folderLink" value="${plan.folderLink}"></label>
+                            <label>Planning Mode
+                                <select name="planningMode">
+                                    <option value="STANDARD" ${plan.planningMode == 'STANDARD' ? 'selected' : ''}>Standard</option>
+                                    <option value="URGENT" ${plan.planningMode == 'URGENT' ? 'selected' : ''}>Urgent</option>
+                                </select>
+                            </label>
+
+                            <h3 class="grid-span-all">Schedule</h3>
+                            <p class="note-box grid-span-all">Standard: Shoot/Edit Date default to Live Date minus 5/2
+                                days unless overridden below. Urgent: required when the Planned Live Date is fewer than
+                                5 days away (or intentionally at any distance) — Shoot Date, Edit Date and Urgency
+                                Reason become mandatory.</p>
+
+                            <label>Planned Live Date * <input type="date" name="plannedLiveDate" min="${today}" required></label>
+                            <label>Shoot Date <input type="date" name="shootDate" min="${today}"></label>
+                            <label>Edit Date <input type="date" name="editDate" min="${today}"></label>
+
+                            <label class="grid-span-all">Urgency Reason (required for Urgent)
+                                <input type="text" name="urgencyReason"></label>
+                        </div>
+                    </form>
+
+                    <h3>2. Planned Outputs</h3>
+                    <table class="data-table" id="planned-outputs-table"
+                           data-context-path="${pageContext.request.contextPath}" data-plan-id="${plan.id}">
+                        <thead><tr><th>Output</th><th>Type</th><th>Publication Targets</th><th>Action</th></tr></thead>
+                        <tbody id="planned-outputs-tbody">
+                        <c:forEach var="o" items="${outputGroupRepresentatives}">
+                            <c:set var="groupMembers" value="${outputGroupMembers[o.reelGroupId]}" />
+                            <c:set var="mappingCount" value="${outputTargetMappings[o.reelGroupId].size()}" />
+                            <tr data-group-id="${o.reelGroupId}">
+                                <td class="output-title-cell">${empty o.titleDescription ? '—' : o.titleDescription}</td>
+                                <td class="output-type-cell">${o.outputType}
+                                    <c:if test="${o.outputType == 'REEL'}">
+                                        <c:forEach var="member" items="${groupMembers}">
+                                            <span class="reeltype-chip">${member.reelType}</span>
+                                        </c:forEach>
+                                    </c:if>
+                                </td>
+                                <td>
+                                    <div class="target-list" data-group-id="${o.reelGroupId}">
+                                        <c:choose>
+                                            <c:when test="${mappingCount == 0}">
+                                                <span class="muted-summary">(none yet)</span>
+                                            </c:when>
+                                            <c:otherwise>
+                                                <c:forEach var="grp" items="${outputTargetsByPlatform[o.reelGroupId]}">
+                                                    <div class="target-row">
+                                                        <span class="target-platform">${grp.key}</span>
+                                                        <span class="target-channels">
+                                                            <c:forEach var="m" items="${grp.value}">
+                                                                <span class="channel-chip" data-target-id="${m.publicationTarget.id}">${m.publicationTarget.channel.channelHandle}
+                                                                    <form method="post" class="chip-remove-form"
+                                                                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.reelGroupId}/targets/${m.publicationTarget.id}/remove">
+                                                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                                        <button type="submit" class="chip-remove"
+                                                                                title="Remove ${m.publicationTarget.channel.channelHandle}">&times;</button>
+                                                                    </form>
+                                                                </span>
+                                                            </c:forEach>
+                                                        </span>
+                                                    </div>
                                                 </c:forEach>
-                                            </select>
-                                            <button type="submit">Save Targets</button>
+                                            </c:otherwise>
+                                        </c:choose>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="action-stack">
+                                        <details>
+                                            <summary>Edit</summary>
+                                            <form class="action-form edit-output-form" method="post" data-group-id="${o.reelGroupId}"
+                                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.reelGroupId}/edit">
+                                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                <label>Output Type
+                                                    <select class="kcpc-output-type-select" name="outputType">
+                                                        <c:forEach var="t" items="${outputTypes}">
+                                                            <option value="${t}" ${t == o.outputType ? 'selected' : ''}>${t}</option>
+                                                        </c:forEach>
+                                                    </select>
+                                                </label>
+                                                <div class="kcpc-reeltype-group">
+                                                    <label>Reel Type (Reel only — select one or more)</label>
+                                                    <div class="kcpc-reeltype-checklist">
+                                                        <c:forEach var="rt" items="${reelTypes}">
+                                                            <c:set var="checked" value="false" />
+                                                            <c:forEach var="member" items="${groupMembers}">
+                                                                <c:if test="${rt == member.reelType}"><c:set var="checked" value="true" /></c:if>
+                                                            </c:forEach>
+                                                            <label class="reeltype-check-item">
+                                                                <input type="checkbox" name="reelTypes" value="${rt}" ${checked ? 'checked' : ''}> ${rt}
+                                                            </label>
+                                                        </c:forEach>
+                                                    </div>
+                                                    <p class="muted">All Reel Types in this group share one Publication Target
+                                                        set below — per-Reel-Type targets aren't supported.</p>
+                                                </div>
+                                                <label>Description <input type="text" name="titleDescription" value="${o.titleDescription}"></label>
+                                                <button type="submit">Save</button>
+                                            </form>
+                                            <form class="action-form add-target-form" method="post" data-group-id="${o.reelGroupId}"
+                                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.reelGroupId}/targets">
+                                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                <label>+ Add Target — Platform
+                                                    <select class="kcpc-platform-select">
+                                                        <option value="">Select Platform</option>
+                                                        <c:forEach var="platformName" items="${activePlatformNames}">
+                                                            <option value="${platformName}">${platformName}</option>
+                                                        </c:forEach>
+                                                    </select>
+                                                </label>
+                                                <label>Channels</label>
+                                                <div class="kcpc-channel-checklist">
+                                                    <c:forEach var="pt" items="${activePublicationTargets}">
+                                                        <label class="channel-check-item" data-platform="${pt.platform.platformName}">
+                                                            <input type="checkbox" name="publicationTargetIds" value="${pt.id}"
+                                                                   data-platform="${pt.platform.platformName}"
+                                                                   data-channel="${pt.channel.channelHandle}"> ${pt.channel.channelHandle}
+                                                        </label>
+                                                    </c:forEach>
+                                                </div>
+                                                <button type="submit">+ Add Target</button>
+                                            </form>
+                                        </details>
+                                        <form class="action-form remove-output-form" method="post" data-group-id="${o.reelGroupId}"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.reelGroupId}/remove">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <button type="submit" class="secondary">Remove</button>
                                         </form>
-                                    </details>
+                                    </div>
                                 </td>
                             </tr>
                         </c:forEach>
+                        <tr id="planned-outputs-empty-row" class="${empty outputGroupRepresentatives ? '' : 'hidden'}">
+                            <td colspan="4" class="muted">No Planned Outputs yet.</td>
+                        </tr>
                         </tbody>
                     </table>
+                    <script type="application/json" id="kcpc-planning-options">${planningOptionsJson}</script>
                     <details>
                         <summary>+ Add Output</summary>
-                        <form class="action-form" method="post"
+                        <form class="action-form add-output-form" method="post"
                               action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                             <label>Output Type
-                                <select name="outputType">
+                                <select class="kcpc-output-type-select" name="outputType">
                                     <c:forEach var="t" items="${outputTypes}"><option value="${t}">${t}</option></c:forEach>
                                 </select>
                             </label>
-                            <label>Reel Type (Reel only)
-                                <select name="reelType">
-                                    <option value="">(n/a)</option>
-                                    <c:forEach var="rt" items="${reelTypes}"><option value="${rt}">${rt}</option></c:forEach>
-                                </select>
-                            </label>
+                            <div class="kcpc-reeltype-group">
+                                <label>Reel Type (Reel only — select one or both)</label>
+                                <div class="kcpc-reeltype-checklist">
+                                    <c:forEach var="rt" items="${reelTypes}">
+                                        <label class="reeltype-check-item">
+                                            <input type="checkbox" name="reelTypes" value="${rt}"> ${rt}
+                                        </label>
+                                    </c:forEach>
+                                </div>
+                                <p class="muted">Selecting both Short and Long creates two separate Planned Outputs (one per
+                                    Reel Type), so each can be tracked and completed independently.</p>
+                            </div>
                             <label>Description <input type="text" name="titleDescription"></label>
                             <button type="submit">Add Output</button>
                         </form>
@@ -263,23 +372,27 @@
             </c:choose>
 
             <c:if test="${canAssignCameraperson and status == 'PL'}">
-                <h3>Cameraperson Assignment</h3>
+                <h3>3. Shoot Assignment</h3>
                 <form class="action-form" method="post"
                       action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <select name="cameramanUserId">
-                        <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
-                    </select>
-                    <button type="submit">Assign</button>
+                    <label>Cameraperson(s)</label>
+                    <div class="assign-row">
+                        <select name="cameramanUserId">
+                            <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
+                        </select>
+                        <button type="submit">Assign</button>
+                    </div>
                 </form>
             </c:if>
 
             <c:if test="${status == 'PL' and canPlanningExecute}">
-                <h3>Submit for Review</h3>
-                <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/planning-review/submit">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <button type="submit">Submit for Planning Review</button>
-                </form>
+                <h3>4. Submit for Review</h3>
+                <p class="note-box">Submits the Planning Details fields above (Section 1) together with this
+                    Content ID for Planning Review.</p>
+                <div class="btn-row">
+                    <button type="submit" form="planning-details-form">Submit for Planning Review</button>
+                </div>
             </c:if>
 
             <c:if test="${status == 'PLRV'}">
@@ -325,7 +438,7 @@
                 <c:if test="${isShootAssigneeOrNative and empty openHold}">
                     <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/review/submit">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <p class="muted">Requires the Content Asset Folder Link to be set in Planning.</p>
+                        <p class="muted">Requires the Drive Link to be set in Planning.</p>
                         <button type="submit">Submit for Shoot Review</button>
                     </form>
                 </c:if>
@@ -377,10 +490,12 @@
                 <p class="note-box">Editor assignment is available only after Shoot Approval.</p>
                 <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <select name="editorUserId">
-                        <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
-                    </select>
-                    <button type="submit">Confirm Assignment</button>
+                    <div class="assign-row">
+                        <select name="editorUserId">
+                            <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
+                        </select>
+                        <button type="submit">Confirm Assignment</button>
+                    </div>
                 </form>
             </c:if>
             <c:if test="${status == 'EA' and isEditAssigneeOrNative}">
@@ -494,13 +609,13 @@
 
             <h3>Actual Publication Events</h3>
             <table class="data-table">
-                <thead><tr><th>Type</th><th>Target</th><th>Timestamp</th><th>Evidence</th><th></th></tr></thead>
+                <thead><tr><th>Type</th><th>Target</th><th>Timestamp (IST)</th><th>Evidence</th><th></th></tr></thead>
                 <tbody>
                 <c:forEach var="e" items="${events}">
                     <tr>
                         <td>${e.eventType}</td>
                         <td>${e.publicationTarget.platform.platformName} / ${e.publicationTarget.channel.channelHandle}</td>
-                        <td>${e.actualPublicationTimestamp}</td>
+                        <td>${kcpc:ist(e.actualPublicationTimestamp)}</td>
                         <td>${e.evidenceUrl}</td>
                         <td>
                             <c:if test="${canPublishingExecute}">
@@ -527,7 +642,7 @@
     <%-- ============================ PERFORMANCE ============================ --%>
     <c:if test="${status == 'PP' or status == 'PFUP' or status == 'COMP'}">
         <div class="panel">
-            <h2>Performance</h2>
+            <h2 id="performance">Performance</h2>
             <c:forEach var="ob" items="${obligations}">
                 <h3>Obligation — Due ${ob.performanceDueDate} (non-reschedulable) ${ob.completed ? '— COMPLETED' : ''}</h3>
                 <c:set var="sc" value="${scorecardsByObligation[ob.id]}"/>
@@ -584,7 +699,7 @@
         <h2>Timeline</h2>
         <ul class="timeline">
             <c:forEach var="t" items="${timeline}">
-                <li><span class="ts">${t.transitionTimestamp}</span>
+                <li><span class="ts">${kcpc:ist(t.transitionTimestamp)}</span>
                     ${t.fromStatusCode} &rarr; ${t.toStatusCode} (${t.triggerCommand}) by ${t.triggeredBy.fullName}
                     <c:if test="${not empty t.transitionReason}"> — ${t.transitionReason}</c:if>
                 </li>
@@ -593,5 +708,7 @@
         </ul>
     </div>
 </main>
+<script src="${pageContext.request.contextPath}/js/publication-scope.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
 </body>
 </html>

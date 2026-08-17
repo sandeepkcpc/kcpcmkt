@@ -94,7 +94,7 @@ class MvcScreenSmokeTest {
         assertRedirect(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")));
 
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
-        assertRedirect(ceo.postForm(base + "/outputs/" + output.getId() + "/targets",
+        assertRedirect(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
                 Map.of("publicationTargetIds", PUBLICATION_TARGET_ID)));
 
         assertRedirect(ceo.postForm(base + "/planning-review/submit", Map.of()));

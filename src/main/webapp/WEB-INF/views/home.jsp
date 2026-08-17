@@ -8,15 +8,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/ideas">Idea Queue</a>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/ideas/new">Submit Idea</a>
-    <form method="post" action="${pageContext.request.contextPath}/logout" class="logout-form">
-        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-        <button type="submit" class="link-button">Sign out</button>
-    </form>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>Welcome, ${user.fullName}</h1>
     <p>Business Role: ${user.businessRole.roleName} &middot; Access Class: ${accessClass}</p>

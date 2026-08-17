@@ -137,6 +137,8 @@ button[type="submit"] {
 }
 .data-table th { background: #f9fafb; }
 
+.hidden { display: none !important; }
+
 .status-badge {
     display: inline-block;
     padding: 0.15rem 0.5rem;
@@ -221,6 +223,58 @@ button[type="submit"] {
     margin-bottom: 1.25rem;
     max-width: 760px;
 }
+/* Deliverable Detail: use the full available width instead of a narrow fixed column, while
+   keeping individual fields a readable size rather than stretching a single input full-screen. */
+.app-main-wide .panel { max-width: none; }
+.app-main-wide .panel .field-row { max-width: 900px; }
+.app-main-wide .panel > form > label:not(.form-grid label) > input:not([type="checkbox"]),
+.app-main-wide .panel > form > label:not(.form-grid label) > select,
+.app-main-wide .panel > form > label:not(.form-grid label) > textarea { max-width: 500px; }
+
+/* Multi-column field grid (Planning Workspace etc.): 3 columns on desktop, 2 on tablet, 1 on
+   mobile, instead of every field stacking one-per-row down a long narrow column. */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem 1.25rem;
+    margin-top: 0.75rem;
+}
+.form-grid label { margin-top: 0; }
+.form-grid .grid-span-all { grid-column: 1 / -1; }
+.form-grid .checkbox-inline { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 400; margin-left: 0.75rem; }
+.form-grid .checkbox-inline input { width: auto; }
+@media (max-width: 900px) {
+    .form-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+    .form-grid { grid-template-columns: 1fr; }
+}
+
+/* Overview panel: read-only fields (Priority, Dates, Drive Link, Cameraperson(s)/Editor(s), ...)
+   in the same 3-column grid as the Planning forms, instead of one field per stacked line. */
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem 1.25rem;
+}
+.overview-grid p { margin: 0; }
+@media (max-width: 900px) {
+    .overview-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+    .overview-grid { grid-template-columns: 1fr; }
+}
+
+/* Compact, right-aligned action button (Save Plan, Submit for Planning Review) instead of a
+   full-width bar. */
+.btn-row { margin-top: 1rem; text-align: right; }
+.btn-row button[type="submit"] { width: auto; margin-top: 0; padding: 0.6rem 1.75rem; }
+
+/* Inline dropdown + action button (Cameraperson Assignment etc.) instead of the select taking a
+   full row on its own with the button stacked below it. */
+.assign-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; max-width: 500px; }
+.assign-row select { width: auto; flex: 1; min-width: 220px; }
+.assign-row button { width: auto; margin-top: 0; }
 .panel h2 { margin-top: 0; font-size: 1.05rem; }
 .panel h3 { font-size: 0.95rem; margin-bottom: 0.4rem; }
 .panel label { display: block; margin-top: 0.75rem; font-weight: 600; font-size: 0.85rem; }
@@ -243,6 +297,7 @@ button[type="submit"] {
     font-size: 0.9rem;
 }
 .panel button.secondary, .action-form button.secondary { background: #4b5563; }
+button[type="submit"].success { background: #1a7f4b; }
 .field-row { display: flex; gap: 1rem; }
 .field-row > div { flex: 1; }
 .checklist-item { font-size: 0.85rem; margin: 0.15rem 0; }
@@ -302,3 +357,232 @@ button[type="submit"] {
 .kpi-tile .kpi-value { font-size: 1.6rem; font-weight: 700; }
 .kpi-tile .kpi-label { font-size: 0.78rem; color: #6b7280; }
 .kpi-tile .kpi-na { color: #9ca3af; font-style: italic; }
+
+/* CEO Content Pipeline 18-column dashboard */
+.pipeline-scroll {
+    overflow: auto;
+    max-height: 75vh;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+}
+.pipeline-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    background: var(--kcpc-surface);
+}
+.pipeline-table th, .pipeline-table td {
+    text-align: left;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--kcpc-border);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pipeline-table th {
+    background: #f9fafb;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.pipeline-table td.pipeline-col-id, .pipeline-table th.pipeline-col-id {
+    position: sticky;
+    left: 0;
+    background: var(--kcpc-surface);
+    z-index: 1;
+    font-weight: 600;
+}
+.pipeline-table th.pipeline-col-id { background: #f9fafb; z-index: 3; }
+.pipeline-table td.pipeline-col-wrap { white-space: normal; }
+
+.pipeline-link-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 6px;
+    color: var(--kcpc-accent);
+}
+.pipeline-link-icon:hover { background: rgba(233, 69, 96, 0.1); }
+.pipeline-link-icon svg { width: 16px; height: 16px; }
+.pipeline-link-muted { color: #c1c5cc; }
+
+.performance-cell.clickable {
+    color: var(--kcpc-accent);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Publication Targets: one row per Platform, channels as chips on the same line - "Platform :
+   Channel Channel" - instead of a flat comma list or a count-labelled block per platform. */
+.target-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+.target-platform {
+    min-width: 90px;
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+.target-channels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.channel-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 5px 6px 5px 10px;
+    border-radius: 14px;
+    background: #f1f3ff;
+    color: #3730a3;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+.channel-chip form { display: inline-flex; margin: 0; }
+.chip-remove {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+    width: auto;
+    margin: 0;
+}
+.muted-summary { color: #6b7280; font-size: 0.82rem; }
+.ajax-error { color: #b91c1c; font-size: 0.78rem; margin-top: 4px; }
+
+/* Planned Outputs "Type" cell: one chip per Reel Type in a REEL group (e.g. SHORT + LONG created
+   together), since the row is now one per reelGroupId rather than one per PlannedOutput. */
+.reeltype-chip {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #ecfdf5;
+    color: #065f46;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.action-stack { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; min-width: 140px; }
+.action-stack .action-form { margin: 0; }
+.action-stack button.secondary { background: #4b5563; }
+
+/* Add Target: Platform -> Channel checklist (publication-scope.js narrows it by Platform once
+   JavaScript has run; without JS every Channel checkbox stays visible and the form still works). */
+.kcpc-channel-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0.4rem 0;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+.kcpc-channel-checklist .channel-check-item {
+    font-weight: 400;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.kcpc-channel-checklist .channel-check-item.hidden { display: none; }
+.kcpc-channel-checklist .channel-check-item input { width: auto; }
+
+/* Add Output / Edit: Reel Type field (label + checklist + hint), hidden while Output Type isn't
+   REEL (publication-scope.js also disables and clears its checkboxes then; without JS it stays
+   visible/enabled and the server ignores any Reel Type submitted against a non-REEL Output Type). */
+.kcpc-reeltype-group.hidden { display: none; }
+.kcpc-reeltype-checklist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+}
+.kcpc-reeltype-checklist .reeltype-check-item {
+    font-weight: 400;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.kcpc-reeltype-checklist .reeltype-check-item input { width: auto; }
+
+/* Model(s): searchable checkbox-backed multi-select shown as chips (model-picker.js). Without
+   JS this is just the plain .kcpc-model-checklist below, always visible - .kcpc-model-input (the
+   chip/search box) stays hidden until the script reveals it, and the checklist only collapses
+   into a toggleable dropdown once tagged .kcpc-model-checklist-js. */
+.kcpc-model-picker { display: flex; flex-direction: column; }
+.kcpc-model-input {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    min-height: 2.2rem;
+    padding: 0.3rem 0.5rem;
+    margin-top: 0.3rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    cursor: text;
+}
+.kcpc-model-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.model-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 3px 6px 3px 10px;
+    border-radius: 14px;
+    background: #f1f3ff;
+    color: #3730a3;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+.model-chip .chip-remove {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+    width: auto;
+    margin: 0;
+}
+.kcpc-model-search {
+    display: none;
+    flex: 1 1 120px;
+    min-width: 100px;
+    border: none;
+    outline: none;
+    padding: 2px 0;
+}
+.kcpc-model-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+.kcpc-model-checklist.kcpc-model-checklist-js:not(.open) { display: none; }
+.model-check-item { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.model-check-item input { width: auto; }
+.model-check-item.hidden { display: none; }

@@ -11,6 +11,7 @@ import com.kcpc.mkt.production.domain.EditingAssignment;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
+import com.kcpc.mkt.reporting.service.PipelineDashboardService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.WorkHoldRecord;
@@ -46,13 +47,15 @@ public class LandingMvcController {
     private final PersonalMarkAttributionRepository markAttributionRepository;
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkHoldRecordRepository workHoldRecordRepository;
+    private final PipelineDashboardService pipelineDashboardService;
 
     public LandingMvcController(IdeaRepository ideaRepository, ContentPlanRepository contentPlanRepository,
                                  ShootingAssignmentRepository shootingAssignmentRepository,
                                  EditingAssignmentRepository editingAssignmentRepository,
                                  PersonalMarkAttributionRepository markAttributionRepository,
                                  ReviewCycleRepository reviewCycleRepository,
-                                 WorkHoldRecordRepository workHoldRecordRepository) {
+                                 WorkHoldRecordRepository workHoldRecordRepository,
+                                 PipelineDashboardService pipelineDashboardService) {
         this.ideaRepository = ideaRepository;
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
@@ -60,6 +63,7 @@ public class LandingMvcController {
         this.markAttributionRepository = markAttributionRepository;
         this.reviewCycleRepository = reviewCycleRepository;
         this.workHoldRecordRepository = workHoldRecordRepository;
+        this.pipelineDashboardService = pipelineDashboardService;
     }
 
     /** Role-appropriate dispatch, kept as the shared post-login redirect target. */
@@ -98,14 +102,23 @@ public class LandingMvcController {
         return "my-work";
     }
 
+    /**
+     * CEO Content Pipeline 18-column dashboard (docs/changes/CEO_CONTENT_PIPELINE_18_COLUMN_CHANGE.md).
+     * Shared by CEO_OWNER and MARKETING_MANAGER, matching the existing role-appropriate landing
+     * split; EMPLOYEE-class users are redirected rather than shown this company-wide view.
+     */
     @GetMapping("/app/pipeline")
     public String pipeline(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
         User user = principal.user();
+        if (user.resolvedAccessClass() == AccessClass.EMPLOYEE) {
+            return "redirect:/app/home";
+        }
         model.addAttribute("user", user);
         model.addAttribute("accessClass", user.resolvedAccessClass());
 
-        List<ContentPlan> plans = contentPlanRepository.findAllByOrderByCreatedAtDesc();
+        List<ContentPlan> plans = contentPlanRepository.findAllWithPreparedByOrderByCreatedAtDesc();
         model.addAttribute("plans", plans);
+        model.addAttribute("pipelineRows", pipelineDashboardService.buildRows(plans));
         model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
 
         Set<String> statuses = new LinkedHashSet<>();

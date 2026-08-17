@@ -4,14 +4,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>KCPC Bandhani — 30-KPI Console</title>
+    <title>KCPC Bandhani — KPI Console</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/pipeline">Pipeline</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>KPI Console — KPI-001 &hellip; KPI-030</h1>
     <p class="muted">Computed on demand from operational tables. No persistent KPI tables.</p>

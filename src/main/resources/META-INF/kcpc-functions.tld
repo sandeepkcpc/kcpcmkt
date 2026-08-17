@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<taglib xmlns="https://jakarta.ee/xml/ns/jakartaee"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-jsptaglibrary_3_0.xsd"
+        version="3.0">
+    <tlib-version>1.0</tlib-version>
+    <short-name>kcpc</short-name>
+    <uri>https://kcpc.internal/tags/functions</uri>
+
+    <function>
+        <description>SAD-ADR-003: format a UTC-stored Instant for IST (Asia/Kolkata) business display.</description>
+        <name>ist</name>
+        <function-class>com.kcpc.mkt.common.util.DisplayTime</function-class>
+        <function-signature>java.lang.String ist(java.time.Instant)</function-signature>
+    </function>
+</taglib>

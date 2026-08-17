@@ -120,7 +120,7 @@ public class ShootingService {
         requireAssigneeOrNative(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Content Asset Folder Link is required before Shoot Review");
+                    "Drive Link is required before Shoot Review");
         }
 
         List<ShootingAssignment> activeAssignments = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);

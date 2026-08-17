@@ -258,6 +258,18 @@ public class AdminMvcController {
         return "redirect:/app/admin/business-roles";
     }
 
+    @PostMapping("/business-roles/{id}/activate")
+    public String activateBusinessRole(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                        RedirectAttributes ra) {
+        try {
+            businessRoleAdminService.activate(principal.user(), id);
+            ra.addFlashAttribute("successMessage", "Business Role activated.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/business-roles";
+    }
+
     // ---------------------------------------------------------- Catalogue
 
     @GetMapping("/catalogue")

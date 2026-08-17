@@ -129,6 +129,68 @@ public class TestApiClient {
         return response;
     }
 
+    /**
+     * Same as {@link #postForm(String, java.util.Map)} but for fields that repeat the same name
+     * with multiple values in one submission - e.g. a browser submitting several checked
+     * checkboxes that share a {@code name} attribute ({@code Map<String, String>} cannot express
+     * that; each key can only hold one value).
+     */
+    public HttpResponse<String> postFormMulti(String path, java.util.Map<String, java.util.List<String>> formFields)
+            throws IOException, InterruptedException {
+        StringBuilder body = new StringBuilder();
+        if (csrfToken != null) {
+            body.append("_csrf=").append(java.net.URLEncoder.encode(csrfToken, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        for (var entry : formFields.entrySet()) {
+            for (String value : entry.getValue()) {
+                if (!body.isEmpty()) {
+                    body.append('&');
+                }
+                body.append(java.net.URLEncoder.encode(entry.getKey(), java.nio.charset.StandardCharsets.UTF_8))
+                        .append('=')
+                        .append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        HttpClient noRedirectClient = HttpClient.newBuilder().cookieHandler(cookieManager)
+                .followRedirects(HttpClient.Redirect.NEVER).build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build();
+        HttpResponse<String> response = noRedirectClient.send(request, HttpResponse.BodyHandlers.ofString());
+        debug("POST(form-multi)", path, response);
+        return response;
+    }
+
+    /**
+     * Same as {@link #postForm(String, java.util.Map)} but with the {@code X-Requested-With:
+     * fetch} header the browser-side JS adds - drives the same MVC endpoints down their
+     * AJAX branch (JSON/plain status response instead of a redirect+flash message).
+     */
+    public HttpResponse<String> postFormAjax(String path, java.util.Map<String, String> formFields)
+            throws IOException, InterruptedException {
+        StringBuilder body = new StringBuilder();
+        if (csrfToken != null) {
+            body.append("_csrf=").append(java.net.URLEncoder.encode(csrfToken, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        for (var entry : formFields.entrySet()) {
+            if (!body.isEmpty()) {
+                body.append('&');
+            }
+            body.append(java.net.URLEncoder.encode(entry.getKey(), java.nio.charset.StandardCharsets.UTF_8))
+                    .append('=')
+                    .append(java.net.URLEncoder.encode(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Requested-With", "fetch")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        debug("POST(form-ajax)", path, response);
+        return response;
+    }
+
     private void debug(String method, String path, HttpResponse<String> response) {
         if (Boolean.getBoolean("testApiClient.debug")) {
             System.out.println("DEBUG " + method + " " + path + " csrfToken=" + csrfToken

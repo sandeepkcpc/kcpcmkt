@@ -110,7 +110,7 @@ public class SecurityConfig {
                 // redirects to /login unconditionally), so no request cache is needed.
                 .requestCache(rc -> rc.requestCache(new NullRequestCache()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/css/**", "/webjars/**", "/swagger-ui/**", "/WEB-INF/**").permitAll()
+                        .requestMatchers("/login", "/css/**", "/js/**", "/webjars/**", "/swagger-ui/**", "/WEB-INF/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(mvcAuthEntryPoint)

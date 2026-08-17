@@ -54,6 +54,11 @@ public class BusinessRole extends BaseEntity {
         this.deactivatedAt = Instant.now();
     }
 
+    public void activate() {
+        this.active = true;
+        this.deactivatedAt = null;
+    }
+
     public String getRoleName() {
         return roleName;
     }

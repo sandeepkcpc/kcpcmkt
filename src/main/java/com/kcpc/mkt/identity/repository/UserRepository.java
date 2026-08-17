@@ -11,4 +11,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmailIgnoreCase(String email);
 
     List<User> findByActiveTrueOrderByFullNameAsc();
+
+    List<User> findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc(String roleName);
 }

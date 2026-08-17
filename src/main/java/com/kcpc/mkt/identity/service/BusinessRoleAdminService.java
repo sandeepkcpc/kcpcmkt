@@ -62,4 +62,16 @@ public class BusinessRoleAdminService {
                 role.getId(), null);
         return role;
     }
+
+    @Transactional
+    public BusinessRole activate(User ceo, UUID businessRoleId) {
+        requireCeo(ceo);
+        BusinessRole role = businessRoleRepository.findById(businessRoleId)
+                .orElseThrow(() -> DomainException.notFound("Business Role not found: " + businessRoleId));
+        role.activate();
+        businessRoleRepository.save(role);
+        auditService.record(ceo, Optional.empty(), "USER_ADMIN", "BUSINESS_ROLE_ACTIVATED", "business_roles",
+                role.getId(), null);
+        return role;
+    }
 }

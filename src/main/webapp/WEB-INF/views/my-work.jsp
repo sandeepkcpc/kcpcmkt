@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,18 +9,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <form method="post" action="${pageContext.request.contextPath}/logout" class="logout-form">
-        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-        <button type="submit" class="link-button">Sign out</button>
-    </form>
-</header>
-<nav class="app-nav">
-    <a class="active" href="${pageContext.request.contextPath}/app/my-work">My Work</a>
-    <a href="${pageContext.request.contextPath}/app/ideas">Idea Queue</a>
-    <a href="${pageContext.request.contextPath}/app/ideas/new">Submit Idea</a>
-</nav>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>My Work</h1>
     <p class="muted">${user.fullName} &middot; ${accessClass}</p>
@@ -72,14 +62,14 @@
 
     <h2>My Review Feedback</h2>
     <table class="data-table">
-        <thead><tr><th>Gate</th><th>Decision</th><th>Reason</th><th>Decided</th></tr></thead>
+        <thead><tr><th>Gate</th><th>Decision</th><th>Reason</th><th>Decided (IST)</th></tr></thead>
         <tbody>
         <c:forEach var="rc" items="${myReviewFeedback}">
             <tr>
                 <td>${rc.gateType}</td>
                 <td>${rc.decision}</td>
                 <td>${rc.decisionReason}</td>
-                <td>${rc.decidedAt}</td>
+                <td>${kcpc:ist(rc.decidedAt)}</td>
             </tr>
         </c:forEach>
         <c:if test="${empty myReviewFeedback}"><tr><td colspan="4" class="muted">No review feedback yet.</td></tr></c:if>
@@ -88,14 +78,14 @@
 
     <h2>My Marks</h2>
     <table class="data-table">
-        <thead><tr><th>Content ID</th><th>Role</th><th>Mark</th><th>Attributed</th></tr></thead>
+        <thead><tr><th>Content ID</th><th>Role</th><th>Mark</th><th>Attributed (IST)</th></tr></thead>
         <tbody>
         <c:forEach var="m" items="${myMarks}">
             <tr>
                 <td>${m.contentPlan.contentId}</td>
                 <td>${m.roleType}</td>
                 <td>${m.attributedMarkValue}</td>
-                <td>${m.attributedAt}</td>
+                <td>${kcpc:ist(m.attributedAt)}</td>
             </tr>
         </c:forEach>
         <c:if test="${empty myMarks}"><tr><td colspan="4" class="muted">No marks attributed yet.</td></tr></c:if>

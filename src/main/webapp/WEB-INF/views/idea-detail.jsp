@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,11 +9,7 @@
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>
-<header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/home">Home</a>
-    <a class="header-link" href="${pageContext.request.contextPath}/app/ideas">Idea Queue</a>
-</header>
+<jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>${idea.businessIdeaCode} &middot; ${idea.title}
         <span class="status-badge">${idea.workflowInstance.currentStatusCode.statusName}</span></h1>
@@ -28,7 +25,7 @@
                 <c:otherwise><span class="muted">(none)</span></c:otherwise>
             </c:choose>
         </p>
-        <p><strong>Submitted by:</strong> ${idea.submittedBy.fullName} &middot; ${idea.submittedAt}</p>
+        <p><strong>Submitted by:</strong> ${idea.submittedBy.fullName} &middot; ${kcpc:ist(idea.submittedAt)}</p>
         <p><strong>Remarks:</strong>
             <c:choose>
                 <c:when test="${not empty idea.notesRemarks}">${idea.notesRemarks}</c:when>
