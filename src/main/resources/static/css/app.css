@@ -46,7 +46,6 @@ form input {
 
 button[type="submit"] {
     margin-top: 1.5rem;
-    width: 100%;
     padding: 0.6rem;
     background: var(--kcpc-accent);
     color: #fff;
@@ -54,6 +53,18 @@ button[type="submit"] {
     border-radius: 6px;
     font-size: 1rem;
     cursor: pointer;
+}
+/* The login card is the one deliberate full-width button in the app - everywhere else (every
+   authenticated page lives inside .app-main) gets compact + right-aligned instead, since a plain
+   width:100% here used to silently stretch every submit button across the whole app to fill
+   whatever container it sat in (.panel, .form-card, a bare <form>, ...). margin-left: auto on a
+   width:auto block element is the standard CSS technique for right-aligning without a wrapper. */
+.auth-card button[type="submit"] { width: 100%; }
+.app-main button[type="submit"] {
+    display: block;
+    width: auto;
+    min-width: 160px;
+    margin-left: auto;
 }
 
 .alert-error {
@@ -129,6 +140,9 @@ button[type="submit"] {
     background: var(--kcpc-surface);
     border: 1px solid var(--kcpc-border);
 }
+/* Planned Outputs table sits directly under the Planning Details form (no heading between them
+   anymore) - a little breathing room so the two don't visually run together. */
+#planned-outputs-table { margin-top: 1.5rem; }
 .data-table th, .data-table td {
     text-align: left;
     padding: 0.6rem 0.75rem;
@@ -297,6 +311,7 @@ button[type="submit"] {
     font-size: 0.9rem;
 }
 .panel button.secondary, .action-form button.secondary { background: #4b5563; }
+.panel button:disabled, .action-form button:disabled { background: #9ca3af; cursor: not-allowed; }
 button[type="submit"].success { background: #1a7f4b; }
 .field-row { display: flex; gap: 1rem; }
 .field-row > div { flex: 1; }
@@ -526,8 +541,71 @@ button[type="submit"].success { background: #1a7f4b; }
 /* Model(s): searchable checkbox-backed multi-select shown as chips (model-picker.js). Without
    JS this is just the plain .kcpc-model-checklist below, always visible - .kcpc-model-input (the
    chip/search box) stays hidden until the script reveals it, and the checklist only collapses
-   into a toggleable dropdown once tagged .kcpc-model-checklist-js. */
-.kcpc-model-picker { display: flex; flex-direction: column; }
+   into a toggleable dropdown once tagged .kcpc-model-checklist-js.
+   .kcpc-assignment-picker (Shoot/Edit/Publishing Assignment, assignment-picker.js) reuses every
+   rule below via the shared inner class names (kcpc-model-input/-chips/-search/-checklist,
+   model-chip, model-check-item) but is deliberately its OWN root class, never kcpc-model-picker -
+   model-picker.js selects `.kcpc-model-picker` globally, and giving an assignment picker that
+   class would make model-picker.js ALSO initialize on it (a real bug found in review: it built a
+   second, non-AJAX "ghost" chip alongside the real one, and removing the ghost never touched the
+   actual assignment). */
+.kcpc-model-picker, .kcpc-assignment-picker { display: flex; flex-direction: column; }
+/* Shoot/Edit/Publishing Assignment picker sits directly under whatever came before it (no heading
+   anymore) - a little breathing room so it doesn't visually run into e.g. "+ Add Output" above it.
+   Scoped to .kcpc-assignment-picker only, not the shared .kcpc-model-picker rule above, so the
+   Planning Details "Model(s)" field (a .form-grid item, never had a heading of its own) is untouched. */
+.kcpc-assignment-picker { margin-top: 1.5rem; }
+/* ENG-045: Planning's Cameraperson(s)/Shoot Lead picker sits between Planned Outputs and the
+   final "Submit for Planning Review" button, outside the .form-grid context that gives the
+   Model(s) field its own spacing - needs the same breathing room .kcpc-assignment-picker gets. */
+.planning-shoot-picker { margin-top: 1.5rem; }
+
+/* ENG-042: Assignee(s) chip-picker and the Team Lead dropdown side by side in one 2-column grid row,
+   collapsing to 1 column on narrow screens. The checklist dropdown and the single "Assign ...(s)"
+   button both span the full width on the row(s) below. .assignment-add-form (ENG-041's single-button
+   merge - the checklist and Lead <select> submit together) is a *direct* grid item's sibling here:
+   it gets `display: contents` so IT doesn't occupy a grid cell of its own - its children (the Lead
+   field, checklist, and button) become grid items in their own right, while the chip/search field
+   stays a real, un-nested sibling <div> (chips are each their own small <form>, and HTML forms can't
+   nest, so they can never live inside .assignment-add-form). */
+.assignment-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem 1.25rem;
+    align-items: start;
+}
+.assignment-picker-grid > .assignment-add-form { display: contents; }
+.assignment-picker-field label { margin-top: 0; }
+.assignment-picker-grid .kcpc-model-checklist,
+.assignment-picker-grid .assignment-add-submit { grid-column: 1 / -1; }
+@media (max-width: 700px) {
+    .assignment-picker-grid { grid-template-columns: 1fr; }
+}
+
+/* Planning/Shoot/Edit Review Decision: Decision + Reason side by side instead of stacked, and the
+   "Submit Decision" button pulled out of the global `button[type="submit"] { width: 100% }` rule
+   (meant for the narrow auth-card login form, but unscoped so it leaks everywhere) - compact and
+   right-aligned instead of a full-width bar. */
+.review-decision-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: end;
+}
+.review-decision-grid label { margin-top: 0; }
+@media (max-width: 700px) {
+    .review-decision-grid { grid-template-columns: 1fr; }
+}
+.review-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+.review-actions button {
+    width: auto;
+    min-width: 160px;
+}
+
 .kcpc-model-input {
     display: none;
     flex-wrap: wrap;
@@ -541,6 +619,7 @@ button[type="submit"].success { background: #1a7f4b; }
     cursor: text;
 }
 .kcpc-model-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.kcpc-model-chips form { display: inline-flex; margin: 0; }
 .model-chip {
     display: inline-flex;
     align-items: center;
@@ -586,3 +665,236 @@ button[type="submit"].success { background: #1a7f4b; }
 .model-check-item { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 0.4rem; }
 .model-check-item input { width: auto; }
 .model-check-item.hidden { display: none; }
+
+/* ENG-047: Shoot Instructions, entered alongside Cameraperson(s)/Shoot Lead during Planning. */
+.planning-shoot-instructions { margin-top: 1rem; }
+
+/* ENG-049: Review Decision / Shoot Instructions / Comments read as three distinct blocks, not one
+   flat run of fields - a heading with a bottom rule per block, sized to match the Decision label
+   above it (form label's 0.85rem/600) instead of the browser's larger default h3 styling, so the
+   three block headings read as one consistent hierarchy. */
+.stage-block-heading {
+    margin-top: 2rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--kcpc-border);
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+/* ENG-049.1: Shoot/Edit/Publishing Description's heading now lives inside .stage-description-header
+   alongside the Edit button (see below) instead of standing alone, so it's no longer the first
+   .stage-block-heading sibling on the panel - Comments (still standalone) keeps the default 2rem
+   gap, and the header takes the tighter "first block" spacing directly. */
+.stage-description-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+.stage-description-header .stage-block-heading {
+    margin: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+/* ENG-046: Shoot/Edit/Publishing Description + Jira-style Comments thread. */
+.stage-description-form textarea,
+.stage-comment-form textarea,
+.planning-shoot-instructions {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    margin-top: 0.25rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: vertical;
+}
+.stage-save-flash { margin-left: 0.75rem; color: #1a7f4b; font-size: 0.85rem; font-weight: 600; }
+
+/* ENG-049: Description defaults to a clean read view (heading + a small "Edit" button on one row,
+   text below) instead of an always-open textarea; the edit form (textarea + Cancel/Save) only
+   appears once "Edit" is clicked, replacing the text rather than sitting under it. */
+.stage-description-text { margin: 0.5rem 0 0; font-size: 0.9rem; white-space: pre-wrap; }
+/* ENG-049.2: Edit as a subtle text-link (pencil icon + "Edit"), not a bordered button - it's a
+   minor secondary action next to the heading, so it should read even quieter than Cancel/Save/
+   Comment. Faded by default, darker + underlined on hover. Selector is `button.stage-description-
+   edit-btn` (not just the bare class) purely for specificity - `.panel button`/`.action-form button`
+   (an element+class selector) would otherwise win over a single-class selector and repaint it red.
+   `margin: 0`/`min-height: 0` reset `.panel button`'s `margin-top: 1rem`, which would otherwise
+   inflate `.stage-description-header`'s row height the same way it did on the Comments "..." menu
+   (ENG-050) - fixed here proactively for the same reason. */
+button.stage-description-edit-btn {
+    flex-shrink: 0;
+    width: auto;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    padding: 0.2rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #6b7280;
+    text-decoration: none;
+    cursor: pointer;
+}
+button.stage-description-edit-btn:hover {
+    color: var(--kcpc-ink);
+    text-decoration: underline;
+    background: #f4f5f7;
+}
+
+.stage-comments { margin-top: 0.5rem; }
+.stage-comments-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: 0.75rem;
+}
+/* ENG-049/050: a flat, divided thread (Jira-style) instead of a boxed card per comment - compact
+   ~8px top/bottom padding per comment, no extra margin. */
+.stage-comment { position: relative; padding: 8px 0; margin: 0; border-bottom: 1px solid var(--kcpc-border); }
+.stage-comment:last-child { border-bottom: none; }
+.stage-comment:hover { background: #fafafa; }
+.stage-comment-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.8rem;
+    line-height: 1.25;
+    color: #6b7280;
+    margin-bottom: 3px;
+    min-height: 0;
+}
+.stage-comment-meta-text { flex: 1 1 auto; min-width: 0; }
+.stage-comment-meta strong { color: var(--kcpc-ink); }
+.stage-comment-edited { font-style: italic; }
+.stage-comment-text { margin: 0; font-size: 0.9rem; line-height: 1.35; white-space: pre-wrap; }
+.stage-comment-form { margin-top: 0.5rem; }
+
+/* ENG-050: "..." menu on your own comment (Edit/Delete) - Jira-style, kept out of the flow so it
+   doesn't push the timestamp around. Deliberately colorless/borderless (not the app's red action
+   button) so it stays a quiet affordance and the comment text keeps the visual focus. Selector is
+   `button.stage-comment-menu-btn` (not just the bare class) purely for specificity - `.panel
+   button`/`.action-form button` (an existing element+class rule) would otherwise outrank a bare
+   class selector and repaint it button-red, same issue the standalone Edit link already hit.
+   `margin: 0` is likewise required, not cosmetic: `.panel button`'s `margin-top: 1rem` was never
+   overridden here, so it was inflating the whole `.stage-comment-meta` flex row's rendered height
+   to ~42px (confirmed live via devtools) even though the button's own content is tiny - the actual
+   root cause of the "too much gap" report, not the comment/meta padding values themselves. */
+.stage-comment-menu { position: relative; flex-shrink: 0; margin-left: auto; }
+button.stage-comment-menu-btn {
+    background: transparent;
+    border: 0;
+    width: auto;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0 4px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    color: #6b7280;
+}
+button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { background: #f3f4f6; color: #111827; }
+.stage-comment-menu-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 2px;
+    background: #fff;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+    min-width: 96px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+}
+/* ENG-050.1: .stage-comments-list scrolls (overflow-y: auto; max-height: 320px) - an
+   overflow:auto/hidden ancestor clips any position:absolute descendant that extends past its
+   bounds, so no z-index fixes a dropdown opened on the last visible comment (it just gets cut off,
+   z-index or not). stage-discussion.js reparents the opened dropdown straight into <body> and
+   switches it to position:fixed (a JS "portal"), which escapes that clip entirely; this class is
+   what that reparenting applies - the coordinates themselves are computed/positioned in JS from the
+   trigger button's on-screen rect. */
+.stage-comment-menu-dropdown.portal {
+    position: fixed;
+    top: auto;
+    margin-top: 0;
+}
+.stage-comment-menu-dropdown button {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--kcpc-ink);
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+}
+.stage-comment-menu-dropdown button:hover { background: #f4f5f7; }
+.stage-comment-delete-trigger { color: #b42318; }
+.stage-comment-delete-confirm-text { display: block; font-size: 0.85rem; margin-top: 0.4rem; }
+.stage-comment-edit-form, .stage-comment-delete-form { margin-top: 0.4rem; }
+
+/* ENG-049: button hierarchy - Submit Decision (default, primary red) stays the one prominent
+   action; Cancel/Save/Comment (and now the comment Edit/Delete inline forms) are visually
+   secondary and more compact so they don't compete with it. The "..." trigger and its dropdown are
+   styled separately above (quieter than a bordered button, matching the standalone Edit link). */
+.stage-description-cancel-btn,
+.stage-description-form .review-actions button,
+.stage-comment-form button,
+.stage-comment-edit-form .review-actions button,
+.stage-comment-delete-form .review-actions button {
+    background: transparent;
+    color: var(--kcpc-ink);
+    border: 1px solid var(--kcpc-border);
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+}
+.stage-description-form .review-actions button:hover,
+.stage-comment-form button:hover,
+.stage-description-cancel-btn:hover,
+.stage-comment-edit-form .review-actions button:hover,
+.stage-comment-delete-form .review-actions button:hover { background: #f4f5f7; }
+.stage-comment-delete-form .stage-comment-delete-confirm-btn {
+    background: #b42318;
+    color: #fff;
+    border-color: #b42318;
+}
+.stage-comment-delete-form .stage-comment-delete-confirm-btn:hover { background: #932016; }
+/* Cancel + Save (and the delete confirm's Cancel/Yes) sit side by side (unlike every other lone
+   .review-actions button on this page) - `gap` spaces them instead of each self-pushing via
+   margin-left:auto, which would fly them apart to opposite edges instead of pairing them up. */
+.stage-description-form .review-actions {
+    gap: 0.5rem;
+}
+.stage-comment-edit-form .review-actions,
+.stage-comment-delete-form .review-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+.stage-description-form .review-actions button,
+.stage-comment-edit-form .review-actions button,
+.stage-comment-delete-form .review-actions button {
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
+}
+
+/* My Work: Description column shouldn't stretch the whole table for a couple of long instructions. */
+.my-work-description { max-width: 280px; white-space: pre-wrap; }

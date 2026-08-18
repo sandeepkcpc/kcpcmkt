@@ -26,6 +26,14 @@
             return;
         }
         var selectedPlatform = select.value;
+
+        // The whole Channels section (label + checklist) stays hidden until a Platform is
+        // chosen - not just each non-matching item - so "Select Platform" shows no empty box.
+        var group = form.querySelector('.kcpc-channel-group');
+        if (group) {
+            group.classList.toggle('hidden', selectedPlatform === '');
+        }
+
         var items = checklist.querySelectorAll('.channel-check-item');
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
@@ -463,9 +471,12 @@
         platformLabel.appendChild(platformSelect);
         addTargetForm.appendChild(platformLabel);
 
+        var channelGroup = document.createElement('div');
+        channelGroup.className = 'kcpc-channel-group hidden'; // hidden until a Platform is chosen, like the server-rendered rows
+
         var channelsLabel = document.createElement('label');
         channelsLabel.textContent = 'Channels';
-        addTargetForm.appendChild(channelsLabel);
+        channelGroup.appendChild(channelsLabel);
 
         var channelChecklist = document.createElement('div');
         channelChecklist.className = 'kcpc-channel-checklist';
@@ -483,7 +494,8 @@
             item.appendChild(document.createTextNode(' ' + t.channel));
             channelChecklist.appendChild(item);
         });
-        addTargetForm.appendChild(channelChecklist);
+        channelGroup.appendChild(channelChecklist);
+        addTargetForm.appendChild(channelGroup);
 
         var addTargetButton = document.createElement('button');
         addTargetButton.type = 'submit';
@@ -512,7 +524,24 @@
         tr.appendChild(targetsTd);
         tr.appendChild(actionTd);
 
-        return { tr: tr, titleTd: titleTd, typeTd: typeTd };
+        return { tr: tr, titleTd: titleTd, typeTd: typeTd, editForm: editForm };
+    }
+
+    /** Syncs an edit-output-form's own fields (Output Type/Reel Type/Description) to server data. */
+    function syncEditForm(form, data) {
+        var select = form.querySelector('.kcpc-output-type-select');
+        if (select) {
+            select.value = data.outputType;
+            toggleReelType(select);
+        }
+        var checkboxes = form.querySelectorAll('.kcpc-reeltype-checklist input[type="checkbox"]');
+        for (var i = 0; i < checkboxes.length; i++) {
+            checkboxes[i].checked = !!data.reelTypes && data.reelTypes.indexOf(checkboxes[i].value) !== -1;
+        }
+        var descInput = form.querySelector('input[name="titleDescription"]');
+        if (descInput) {
+            descInput.value = data.titleDescription || '';
+        }
     }
 
     function handleAddOutputSubmit(form) {
@@ -534,6 +563,7 @@
             var refs = buildOutputRowSkeleton(data.groupId);
             renderTitleCell(refs.titleTd, data.titleDescription);
             renderOutputTypeCell(refs.typeTd, data.outputType, data.reelTypes);
+            syncEditForm(refs.editForm, data); // the new row's own Edit form must match what was actually created
 
             var emptyRow = document.getElementById('planned-outputs-empty-row');
             emptyRow && emptyRow.classList.add('hidden');
@@ -568,20 +598,7 @@
         }).then(function (data) {
             renderTitleCell(tr.querySelector('.output-title-cell'), data.titleDescription);
             renderOutputTypeCell(tr.querySelector('.output-type-cell'), data.outputType, data.reelTypes);
-
-            var select = form.querySelector('.kcpc-output-type-select');
-            if (select) {
-                select.value = data.outputType;
-                toggleReelType(select);
-            }
-            var checkboxes = form.querySelectorAll('.kcpc-reeltype-checklist input[type="checkbox"]');
-            for (var i = 0; i < checkboxes.length; i++) {
-                checkboxes[i].checked = !!data.reelTypes && data.reelTypes.indexOf(checkboxes[i].value) !== -1;
-            }
-            var descInput = form.querySelector('input[name="titleDescription"]');
-            if (descInput) {
-                descInput.value = data.titleDescription || '';
-            }
+            syncEditForm(form, data);
             clearLoading(button);
         }).catch(function (err) {
             clearLoading(button);

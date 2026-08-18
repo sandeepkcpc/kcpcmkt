@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ShootingAssignmentRepository extends JpaRepository<ShootingAssignment, UUID> {
@@ -17,4 +18,6 @@ public interface ShootingAssignmentRepository extends JpaRepository<ShootingAssi
     List<ShootingAssignment> findByCamerapersonAndActiveTrue(User cameraperson);
 
     List<ShootingAssignment> findByContentPlan_IdInAndActiveTrue(Collection<UUID> contentPlanIds);
+
+    Optional<ShootingAssignment> findByContentPlanAndCamerapersonAndActiveTrue(ContentPlan contentPlan, User cameraperson);
 }

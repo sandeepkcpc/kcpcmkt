@@ -4,9 +4,10 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * CEO Content Pipeline 18-column dashboard row (docs/changes/CEO_CONTENT_PIPELINE_18_COLUMN_CHANGE.md).
- * One row per Content ID regardless of how many child records (Planned Outputs, assignees,
- * targets, publication events) it has - multi-valued fields arrive pre-joined as display strings.
+ * CEO Content Pipeline dashboard row (docs/changes/CEO_CONTENT_PIPELINE_18_COLUMN_CHANGE.md,
+ * dates section superseded by the Planned/Actual split below). One row per Content ID regardless
+ * of how many child records (Planned Outputs, assignees, targets, publication events) it has -
+ * multi-valued fields arrive pre-joined as display strings.
  *
  * <p>Plain class with {@code getX()} accessors, not a {@code record}: read directly by JSP EL -
  * see {@link KpiValue}'s class doc for why a record's no-prefix accessors break classic JSP EL
@@ -27,10 +28,12 @@ public class PipelineRow {
     private final String models;
     private final String videoEditors;
     private final String driveLink;
+    private final LocalDate plannedShootDate;
+    private final LocalDate plannedEditDate;
     private final LocalDate plannedLiveDate;
-    private final LocalDate shootDate;
-    private final LocalDate editDate;
-    private final String liveDate;
+    private final String actualShootDate;
+    private final String actualEditDate;
+    private final String actualLiveDate;
     private final String platforms;
     private final String performanceState;
     private final boolean performanceLinkEligible;
@@ -39,8 +42,9 @@ public class PipelineRow {
     public PipelineRow(UUID contentPlanId, String contentId, String sku, String ideaTitle, String referenceLink,
                         boolean referenceLinkIsUrl, String category, String channels, String actor,
                         String cameraPersons, String models, String videoEditors, String driveLink,
-                        LocalDate plannedLiveDate, LocalDate shootDate, LocalDate editDate, String liveDate,
-                        String platforms, String performanceState, boolean performanceLinkEligible, String status) {
+                        LocalDate plannedShootDate, LocalDate plannedEditDate, LocalDate plannedLiveDate,
+                        String actualShootDate, String actualEditDate, String actualLiveDate, String platforms,
+                        String performanceState, boolean performanceLinkEligible, String status) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.sku = sku;
@@ -54,10 +58,12 @@ public class PipelineRow {
         this.models = models;
         this.videoEditors = videoEditors;
         this.driveLink = driveLink;
+        this.plannedShootDate = plannedShootDate;
+        this.plannedEditDate = plannedEditDate;
         this.plannedLiveDate = plannedLiveDate;
-        this.shootDate = shootDate;
-        this.editDate = editDate;
-        this.liveDate = liveDate;
+        this.actualShootDate = actualShootDate;
+        this.actualEditDate = actualEditDate;
+        this.actualLiveDate = actualLiveDate;
         this.platforms = platforms;
         this.performanceState = performanceState;
         this.performanceLinkEligible = performanceLinkEligible;
@@ -116,20 +122,28 @@ public class PipelineRow {
         return driveLink;
     }
 
+    public LocalDate getPlannedShootDate() {
+        return plannedShootDate;
+    }
+
+    public LocalDate getPlannedEditDate() {
+        return plannedEditDate;
+    }
+
     public LocalDate getPlannedLiveDate() {
         return plannedLiveDate;
     }
 
-    public LocalDate getShootDate() {
-        return shootDate;
+    public String getActualShootDate() {
+        return actualShootDate;
     }
 
-    public LocalDate getEditDate() {
-        return editDate;
+    public String getActualEditDate() {
+        return actualEditDate;
     }
 
-    public String getLiveDate() {
-        return liveDate;
+    public String getActualLiveDate() {
+        return actualLiveDate;
     }
 
     public String getPlatforms() {

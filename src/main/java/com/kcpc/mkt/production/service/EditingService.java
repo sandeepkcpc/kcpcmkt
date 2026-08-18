@@ -76,7 +76,12 @@ public class EditingService {
                 .orElseThrow(() -> DomainException.notFound("Content Plan not found: " + contentPlanId));
     }
 
-    /** ERD-CON-013 / SAD-DES-018: initial Editor assignment blocked prior to Shoot Approval (SAP). */
+    /**
+     * ERD-CON-013 / SAD-DES-018: initial Editor assignment blocked prior to Shoot Approval (SAP).
+     * Idempotent: re-assigning an Editor who already holds an active assignment on this plan returns the
+     * existing row rather than inserting a duplicate (the chip-picker UI can safely re-POST a still-checked
+     * box).
+     */
     @Transactional
     public EditingAssignment assignEditor(User assigner, UUID contentPlanId, User editor) {
         ContentPlan plan = requirePlan(contentPlanId);
@@ -88,6 +93,11 @@ public class EditingService {
         }
         authorizationService.requireAuthority(assigner, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
                 LifecycleStage.EDITING, workflowInstance);
+        Optional<EditingAssignment> existing =
+                editingAssignmentRepository.findByContentPlanAndEditorAndActiveTrue(plan, editor);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
         EditingAssignment assignment = editingAssignmentRepository.save(new EditingAssignment(plan, editor, assigner));
         if (status == WorkflowStatus.SAP) {
             workflowService.transition(workflowInstance, WorkflowStatus.EA, assigner, Optional.empty(),
@@ -98,15 +108,115 @@ public class EditingService {
         return assignment;
     }
 
-    private void requireAssigneeOrNative(User actor, ContentPlan plan) {
-        if (authorizationService.hasNativeAuthority(actor)) {
-            return;
+    /** Removes an active editing assignment, mirroring the same status/Permission #6 window as assign. */
+    @Transactional
+    public void removeEditor(User actor, UUID contentPlanId, UUID editorUserId) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        WorkflowStatus status = workflowInstance.getCurrentStatusCode();
+        if (status != WorkflowStatus.SAP && status != WorkflowStatus.EA) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Editing assignment can only be removed after Shoot Approval (ERD-CON-013)");
         }
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
+                LifecycleStage.EDITING, workflowInstance);
+        EditingAssignment assignment = editingAssignmentRepository.findByContentPlan(plan).stream()
+                .filter(EditingAssignment::isActive)
+                .filter(a -> a.getEditor().getId().equals(editorUserId))
+                .findFirst()
+                .orElseThrow(() -> DomainException.notFound("No active editing assignment for this Editor"));
+        assignment.end();
+        editingAssignmentRepository.save(assignment);
+        auditService.record(actor, Optional.empty(), "EDITING", "EDITOR_UNASSIGNED", "editing_assignments",
+                assignment.getId(), null);
+    }
+
+    /**
+     * Edit Lead (not in the frozen ERD - see ENG-036): {@code editorUserId == null} clears the
+     * Lead. Otherwise it must be one of the plan's currently active Editors - the Lead dropdown is
+     * a subset of Editor(s), never an independent selection.
+     */
+    @Transactional
+    public void setEditLead(User actor, UUID contentPlanId, UUID editorUserId) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        WorkflowStatus status = workflowInstance.getCurrentStatusCode();
+        if (status != WorkflowStatus.SAP && status != WorkflowStatus.EA) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Edit Lead can only be set after Shoot Approval (ERD-CON-013)");
+        }
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
+                LifecycleStage.EDITING, workflowInstance);
+        List<EditingAssignment> active = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        // The partial unique index (V16) checks per-statement, not deferred to commit - the old
+        // Lead's clear must actually flush to the DB before the new Lead's set is issued, or
+        // Postgres would momentarily see two active Leads and reject it.
+        active.forEach(a -> a.setLead(false));
+        editingAssignmentRepository.saveAll(active);
+        editingAssignmentRepository.flush();
+        if (editorUserId != null) {
+            EditingAssignment target = active.stream()
+                    .filter(a -> a.getEditor().getId().equals(editorUserId))
+                    .findFirst()
+                    .orElseThrow(() -> DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                            "Edit Lead must be one of the currently assigned Editors"));
+            target.setLead(true);
+            editingAssignmentRepository.save(target);
+        }
+        auditService.record(actor, Optional.empty(), "EDITING",
+                editorUserId != null ? "EDIT_LEAD_SET" : "EDIT_LEAD_CLEARED", "editing_assignments",
+                plan.getId(), null);
+    }
+
+    /**
+     * Single-button "Assign Editor(s)" (ENG-041): assigns every newly-staged Editor and sets the
+     * Edit Lead in one request. Composed by calling {@link #assignEditor} and {@link #setEditLead}
+     * directly (self-invocation on the same bean bypasses their own {@code @Transactional} proxies)
+     * so both steps commit or roll back together as one transaction, exactly as the user asked - not
+     * two sequential AJAX calls under one button.
+     */
+    @Transactional
+    public void assignEditTeam(User actor, UUID contentPlanId, List<User> editors, UUID leadUserId) {
+        if (editors != null) {
+            for (User editor : editors) {
+                assignEditor(actor, contentPlanId, editor);
+            }
+        }
+        setEditLead(actor, contentPlanId, leadUserId);
+    }
+
+    /**
+     * ENG-046: one Edit Description shared by the whole Editor team on this plan (not per
+     * individual assignee), editable any time by whoever holds PERM_06_EDIT_ASSIGNMENT (the same
+     * authority that governs Edit Assignment itself) - not restricted to a particular workflow
+     * status, since CEO/MM should be able to update instructions for an already-assigned team too.
+     */
+    @Transactional
+    public ContentPlan updateEditDescription(User actor, UUID contentPlanId, String description) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
+                LifecycleStage.EDITING, plan.getWorkflowInstance());
+        plan.setEditDescription(description);
+        contentPlanRepository.save(plan);
+        auditService.record(actor, Optional.empty(), "EDITING", "EDIT_DESCRIPTION_UPDATED", "content_plans",
+                plan.getId(), null);
+        return plan;
+    }
+
+    /**
+     * No CEO-Granted Operational Permission exists for the edit-start/submit-for-review acts
+     * themselves (only Assignment #6 and Review #7 are catalogued) - gated to an actively assigned
+     * Editor only, NOT native CEO/MM authority (see docs/IMPLEMENTATION_DECISIONS.md ENG-013,
+     * revised by ENG-043: CEO/MM's native authority covers management actions - Assign, Review
+     * decisions, monitoring - not hands-on execution of an Employee's own task, so it deliberately
+     * does not bypass this check).
+     */
+    private void requireActiveAssignee(User actor, ContentPlan plan) {
         boolean isAssignee = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                 .anyMatch(a -> a.getEditor().getId().equals(actor.getId()));
         if (!isAssignee) {
             throw DomainException.forbidden(ErrorCode.PERM_ACCESS_CLASS_DENIED,
-                    "Only an assigned Editor or CEO/MM can perform this action");
+                    "Only an assigned Editor can perform this action");
         }
     }
 
@@ -118,7 +228,7 @@ public class EditingService {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     "Editing can only start once Edit Assigned");
         }
-        requireAssigneeOrNative(actor, plan);
+        requireActiveAssignee(actor, plan);
         workflowService.transition(workflowInstance, WorkflowStatus.ED, actor, Optional.empty(), "START_EDITING", null);
         auditService.record(actor, Optional.empty(), "EDITING", "EDITING_STARTED", "content_plans", plan.getId(), null);
     }
@@ -132,7 +242,7 @@ public class EditingService {
                     "Edit Review can only be submitted while Editing");
         }
         holdService.requireNoOpenHold(workflowInstance);
-        requireAssigneeOrNative(submitter, plan);
+        requireActiveAssignee(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                     "Drive Link is required before Edit Review");

@@ -55,6 +55,7 @@ class CeoPipelineDashboardTest {
     private static final String HR_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000003"; // EMPLOYEE access class
     private static final String MARKETING_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000002";
     private static final String MODEL_ROLE_ID = "01926e3e-0001-7000-8000-000000000009";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String INSTAGRAM_PLATFORM_ID = "01926e3e-0008-7000-8000-000000000001";
     private static final String TARGET_INSTAGRAM_KCPC = "01926e3e-000a-7000-8000-000000000001";
     private static final String TARGET_YOUTUBE_KCPC = "01926e3e-000a-7000-8000-000000000002";
@@ -65,10 +66,25 @@ class CeoPipelineDashboardTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        String cam1 = createUser(ceo, "Pipeline Cam One", "pl-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam1Email = "pl-cam1-" + unique + "@kcpcbandhani.local";
+        String cam1 = createUser(ceo, "Pipeline Cam One", cam1Email, CAMERA_PERSON_ROLE_ID);
         String cam2 = createUser(ceo, "Pipeline Cam Two", "pl-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String ed1 = createUser(ceo, "Pipeline Ed One", "pl-ed1-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String ed1Email = "pl-ed1-" + unique + "@kcpcbandhani.local";
+        String ed1 = createUser(ceo, "Pipeline Ed One", ed1Email, VIDEO_EDITOR_ROLE_ID);
         String ed2 = createUser(ceo, "Pipeline Ed Two", "pl-ed2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String pubEmail = "pl-pub-" + unique + "@kcpcbandhani.local";
+        String pubId = createUser(ceo, "Pipeline Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        // ENG-043: Start/Submit-style execution acts now require the actor to be the actively
+        // assigned Cameraperson/Editor/Publisher - CEO/MM native authority no longer bypasses this.
+        TestApiClient cam1Client = new TestApiClient(port);
+        cam1Client.login(cam1Email, "Passw0rd!");
+        TestApiClient ed1Client = new TestApiClient(port);
+        ed1Client.login(ed1Email, "Passw0rd!");
+        TestApiClient pubClient = new TestApiClient(port);
+        pubClient.login(pubEmail, "Passw0rd!");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test publisher grant\"}");
         String model1 = createUser(ceo, "Aisha " + unique, "pl-model1-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);
         String model2 = createUser(ceo, "Neha " + unique, "pl-model2-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);
         String model3 = createUser(ceo, "Riya " + unique, "pl-model3-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);
@@ -104,8 +120,8 @@ class CeoPipelineDashboardTest {
                 "folderLink", java.util.List.of("https://drive.example.com/pipeline-" + unique),
                 "modelUserIds", java.util.List.of(model1, model2, model3))));
 
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        assertRedirect(ceo.postForm(base + "/schedule/standard", Map.of("plannedLiveDate", liveDate)));
+        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
+        assertRedirect(ceo.postForm(base + "/schedule/standard", Map.of("plannedLiveDate", plannedLiveDate)));
 
         assertRedirect(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam1)));
         assertRedirect(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam2)));
@@ -122,31 +138,32 @@ class CeoPipelineDashboardTest {
 
         assertRedirect(ceo.postForm(base + "/planning-review/submit", Map.of()));
         assertRedirect(ceo.postForm(base + "/planning-review/decision", Map.of("approve", "true")));
-        assertRedirect(ceo.postForm(base + "/shooting/start", Map.of()));
-        assertRedirect(ceo.postForm(base + "/shooting/review/submit", Map.of()));
+        assertRedirect(cam1Client.postForm(base + "/shooting/start", Map.of()));
+        assertRedirect(cam1Client.postForm(base + "/shooting/review/submit", Map.of()));
         assertRedirect(ceo.postForm(base + "/shooting/review/decision",
                 Map.of("approve", "true", "qualifyingRecipientUserIds", cam1)));
 
         assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", ed1)));
         assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", ed2)));
-        assertRedirect(ceo.postForm(base + "/editing/start", Map.of()));
-        assertRedirect(ceo.postForm(base + "/editing/review/submit", Map.of()));
+        assertRedirect(ed1Client.postForm(base + "/editing/start", Map.of()));
+        assertRedirect(ed1Client.postForm(base + "/editing/review/submit", Map.of()));
         assertRedirect(ceo.postForm(base + "/editing/review/decision",
                 Map.of("approve", "true", "qualifyingRecipientUserIds", ed1)));
 
-        assertRedirect(ceo.postForm(base + "/publishing/start", Map.of()));
+        assertRedirect(ceo.postForm(base + "/publishing-assignments", Map.of("publisherUserId", pubId)));
+        assertRedirect(pubClient.postForm(base + "/publishing/start", Map.of()));
         String pastDate = LocalDate.now().minusDays(3).toString();
         // Every mapped target's publication obligation must resolve (event or N/A) before the
         // workflow advances past Publishing into Performance Pending (BR-025) - record all three.
-        assertRedirect(ceo.postForm(base + "/publishing/events",
+        assertRedirect(pubClient.postForm(base + "/publishing/events",
                 Map.of("plannedOutputId", output.getId().toString(), "publicationTargetId", TARGET_INSTAGRAM_KCPC,
                         "eventType", "ORIGINAL", "actualPublicationTimestamp", pastDate,
                         "evidenceUrl", "https://instagram.com/p/pipeline-" + unique)));
-        assertRedirect(ceo.postForm(base + "/publishing/events",
+        assertRedirect(pubClient.postForm(base + "/publishing/events",
                 Map.of("plannedOutputId", output.getId().toString(), "publicationTargetId", TARGET_YOUTUBE_KCPC,
                         "eventType", "ORIGINAL", "actualPublicationTimestamp", pastDate,
                         "evidenceUrl", "https://youtube.com/watch?v=pipeline-" + unique)));
-        assertRedirect(ceo.postForm(base + "/publishing/events",
+        assertRedirect(pubClient.postForm(base + "/publishing/events",
                 Map.of("plannedOutputId", output.getId().toString(), "publicationTargetId", newTarget.getId().toString(),
                         "eventType", "ORIGINAL", "actualPublicationTimestamp", pastDate,
                         "evidenceUrl", "https://instagram.com/p/pipeline-alt-" + unique)));
@@ -156,10 +173,12 @@ class CeoPipelineDashboardTest {
         assertThat(pipeline.statusCode()).isEqualTo(200);
         String body = pipeline.body();
 
-        // Exactly the 18 required headers, in order, plus the one-row-per-Content-ID contract.
+        // Exactly the 20 required headers, in order (Planned dates together, then Actual dates),
+        // plus the one-row-per-Content-ID contract.
         assertThat(body).containsSubsequence("Content ID", "SKU", "Idea", "Reference Link / Note", "Category",
-                "Channels", "Actor", "Camera Person", "Models", "Video Editor", "Drive Link", "Planned Live Date",
-                "Shoot Date", "Edit Date", "Live Date", "Platforms", "Performance", "Status");
+                "Channels", "Head", "Camera Person", "Models", "Video Editor", "Drive Link",
+                "Planned Shoot Date", "Planned Edit Date", "Planned Live Date",
+                "Actual Shoot Date", "Actual Edit Date", "Actual Live Date", "Platforms", "Performance", "Status");
         assertThat(countOccurrences(body, plan.getContentId())).isEqualTo(1);
 
         assertThat(body).contains("<a href=\"/app/deliverables/" + planId + "\">" + plan.getContentId() + "</a>");
@@ -173,17 +192,24 @@ class CeoPipelineDashboardTest {
         assertThat(body).contains("Aisha").contains("Neha").contains("Riya");
         assertThat(body).contains("Pipeline Ed One").contains("Pipeline Ed Two");
         assertThat(body).contains("aria-label=\"Open Drive Link\"").contains("pipeline-link-icon");
-        assertThat(body).contains(liveDate); // Planned Live Date
+        assertThat(body).contains(plannedLiveDate); // Planned Live Date
         assertThat(body).contains("Instagram").contains("YouTube");
         assertThat(body).contains(">Pending<"); // Performance state at PP
         assertThat(body).contains("performance-cell clickable")
                 .contains("href=\"/app/deliverables/" + planId + "#performance\"");
         assertThat(body).contains("Performance Pending"); // human-readable Status, not raw "PP"
         assertThat(body).doesNotContain(">PP<", ">COMP<", ">CAN<");
-        // Live Date (actual) has no canonical single value in the data model yet (see change
-        // record) - a neutral "Published" placeholder is shown once a publication event exists,
-        // never an arbitrarily-picked date.
-        assertThat(body).contains(">Published<");
+
+        // Actual Shoot/Edit Date = the date the Shoot/Edit Review gate was approved, i.e. today
+        // (both decisions above were just made). Actual Live Date = the earliest ORIGINAL
+        // publication event's date, i.e. pastDate (all three events above used that same date).
+        // Scoped to this Content ID's own row - the dashboard renders every plan in the test DB,
+        // so an unscoped count would also pick up unrelated fixtures' dates.
+        int rowStart = body.indexOf(plan.getContentId());
+        String row = body.substring(rowStart, body.indexOf("</tr>", rowStart));
+        String today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString();
+        assertThat(countOccurrences(row, ">" + today + "<")).isEqualTo(2); // Actual Shoot Date + Actual Edit Date
+        assertThat(row).contains(">" + pastDate + "<"); // Actual Live Date
 
         // Employee cannot bypass authorization to reach the CEO/MM pipeline view.
         String hrUserId = createUser(ceo, "Pipeline HR Employee", "pl-hr-" + unique + "@kcpcbandhani.local", HR_MANAGER_ROLE_ID);
@@ -221,10 +247,11 @@ class CeoPipelineDashboardTest {
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         String base = "/app/deliverables/" + plan.getId();
 
-        // Explicit SKU N/A (BRS-governed semantics) - no shoot/edit/live dates, no assignees, no
-        // planned outputs/targets, no publication events, no Actor yet: proves the dashboard
-        // never breaks on a Content ID that has only just entered Planning.
-        assertRedirect(ceo.postForm(base + "/parameters", Map.of("contentPriority", "LOW", "skuNotApplicable", "true")));
+        // SKU N/A (BRS-governed semantics) - now derived server-side from a blank skuReference,
+        // no separate checkbox - no shoot/edit/live dates, no assignees, no planned outputs/targets,
+        // no publication events, no Actor yet: proves the dashboard never breaks on a Content ID
+        // that has only just entered Planning.
+        assertRedirect(ceo.postForm(base + "/parameters", Map.of("contentPriority", "LOW")));
 
         HttpResponse<String> pipeline = ceo.get("/app/pipeline");
         assertThat(pipeline.statusCode()).isEqualTo(200);

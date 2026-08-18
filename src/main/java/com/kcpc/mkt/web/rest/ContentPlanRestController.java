@@ -10,6 +10,7 @@ import com.kcpc.mkt.planning.dto.ContentPlanResponse;
 import com.kcpc.mkt.planning.dto.PlannedOutputRequest;
 import com.kcpc.mkt.planning.dto.PlanningReviewDecisionRequest;
 import com.kcpc.mkt.planning.dto.PublicationScopeRequest;
+import com.kcpc.mkt.planning.dto.SetShootLeadRequest;
 import com.kcpc.mkt.planning.dto.StandardScheduleRequest;
 import com.kcpc.mkt.planning.dto.UrgentScheduleRequest;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
@@ -100,6 +101,23 @@ public class ContentPlanRestController {
         User cameraperson = userRepository.findById(request.cameramanUserId())
                 .orElseThrow(() -> DomainException.notFound("User not found: " + request.cameramanUserId()));
         planningService.assignCameraperson(principal.user(), id, cameraperson);
+        return ResponseEntity.ok().build();
+    }
+
+    /** Not in the frozen API spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-035 (Model(s)-style Shoot Assignment chip-picker). */
+    @PostMapping("/{id}/shooting-assignments/{camerapersonUserId}/remove")
+    public ResponseEntity<Void> removeCameraperson(@PathVariable UUID id, @PathVariable UUID camerapersonUserId,
+                                                    @AuthenticationPrincipal KcpcUserPrincipal principal) {
+        planningService.removeCameraperson(principal.user(), id, camerapersonUserId);
+        return ResponseEntity.ok().build();
+    }
+
+    /** Not in the frozen API spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-036 (Shoot Lead). */
+    @PostMapping("/{id}/shooting-assignments/lead")
+    public ResponseEntity<Void> setShootLead(@PathVariable UUID id,
+                                              @RequestBody(required = false) SetShootLeadRequest request,
+                                              @AuthenticationPrincipal KcpcUserPrincipal principal) {
+        planningService.setShootLead(principal.user(), id, request == null ? null : request.cameramanUserId());
         return ResponseEntity.ok().build();
     }
 

@@ -378,7 +378,12 @@ public class PlanningService {
                 plannedOutputId, null);
     }
 
-    /** BRS-REQ-022: initial shooting assignment during Planning, Permission #4, one or more Camerapersons. */
+    /**
+     * BRS-REQ-022: initial shooting assignment during Planning, Permission #4, one or more Camerapersons.
+     * Idempotent: re-assigning a Cameraperson who already holds an active assignment on this plan returns
+     * the existing row rather than inserting a duplicate (the chip-picker UI can safely re-POST a
+     * still-checked box).
+     */
     @Transactional
     public ShootingAssignment assignCameraperson(User assigner, UUID contentPlanId, User cameraperson) {
         ContentPlan plan = requireContentPlan(contentPlanId);
@@ -388,11 +393,163 @@ public class PlanningService {
         }
         authorizationService.requireAuthority(assigner, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, plan.getWorkflowInstance());
+        Optional<ShootingAssignment> existing =
+                shootingAssignmentRepository.findByContentPlanAndCamerapersonAndActiveTrue(plan, cameraperson);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
         ShootingAssignment assignment = shootingAssignmentRepository.save(
                 new ShootingAssignment(plan, cameraperson, assigner));
         auditService.record(assigner, Optional.empty(), "PLANNING", "CAMERAPERSON_ASSIGNED", "shooting_assignments",
                 assignment.getId(), null);
         return assignment;
+    }
+
+    /** Removes an active shooting assignment, mirroring the same Stage-3/Permission #4 window as assign. */
+    @Transactional
+    public void removeCameraperson(User actor, UUID contentPlanId, UUID camerapersonUserId) {
+        ContentPlan plan = requireContentPlan(contentPlanId);
+        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.PL) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Shooting assignment can only be removed during Planning (Stage 3)");
+        }
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
+                LifecycleStage.PLANNING, plan.getWorkflowInstance());
+        ShootingAssignment assignment = shootingAssignmentRepository.findByContentPlan(plan).stream()
+                .filter(ShootingAssignment::isActive)
+                .filter(a -> a.getCameraperson().getId().equals(camerapersonUserId))
+                .findFirst()
+                .orElseThrow(() -> DomainException.notFound("No active shooting assignment for this Cameraperson"));
+        assignment.end();
+        shootingAssignmentRepository.save(assignment);
+        auditService.record(actor, Optional.empty(), "PLANNING", "CAMERAPERSON_UNASSIGNED", "shooting_assignments",
+                assignment.getId(), null);
+    }
+
+    /**
+     * Shoot Lead (not in the frozen ERD - see ENG-036): {@code camerapersonUserId == null} clears
+     * the Lead. Otherwise it must be one of the plan's currently active Camerapersons - the Lead
+     * dropdown is a subset of Assignee(s), never an independent selection.
+     */
+    @Transactional
+    public void setShootLead(User actor, UUID contentPlanId, UUID camerapersonUserId) {
+        ContentPlan plan = requireContentPlan(contentPlanId);
+        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.PL) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Shoot Lead can only be set during Planning (Stage 3)");
+        }
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
+                LifecycleStage.PLANNING, plan.getWorkflowInstance());
+        List<ShootingAssignment> active = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        // The partial unique index (V16) checks per-statement, not deferred to commit - the old
+        // Lead's clear must actually flush to the DB before the new Lead's set is issued, or
+        // Postgres would momentarily see two active Leads and reject it.
+        active.forEach(a -> a.setLead(false));
+        shootingAssignmentRepository.saveAll(active);
+        shootingAssignmentRepository.flush();
+        if (camerapersonUserId != null) {
+            ShootingAssignment target = active.stream()
+                    .filter(a -> a.getCameraperson().getId().equals(camerapersonUserId))
+                    .findFirst()
+                    .orElseThrow(() -> DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                            "Shoot Lead must be one of the currently assigned Camerapersons"));
+            target.setLead(true);
+            shootingAssignmentRepository.save(target);
+        }
+        auditService.record(actor, Optional.empty(), "PLANNING",
+                camerapersonUserId != null ? "SHOOT_LEAD_SET" : "SHOOT_LEAD_CLEARED", "shooting_assignments",
+                plan.getId(), null);
+    }
+
+    /**
+     * Single-button "Assign Cameraperson(s)" (ENG-041): assigns every newly-staged Cameraperson and
+     * sets the Shoot Lead in one request. Composed by calling {@link #assignCameraperson} and
+     * {@link #setShootLead} directly (self-invocation on the same bean bypasses their own
+     * {@code @Transactional} proxies) so both steps commit or roll back together as one transaction,
+     * exactly as the user asked - not two sequential AJAX calls under one button.
+     */
+    @Transactional
+    public void assignShootTeam(User actor, UUID contentPlanId, List<User> camerapersons, UUID leadUserId) {
+        if (camerapersons != null) {
+            for (User cameraperson : camerapersons) {
+                assignCameraperson(actor, contentPlanId, cameraperson);
+            }
+        }
+        setShootLead(actor, contentPlanId, leadUserId);
+    }
+
+    /**
+     * ENG-045: reconciles EVERY active Cameraperson assignment to exactly the submitted set -
+     * removes (ends) anyone previously active but no longer selected, in addition to adding anyone
+     * newly selected, then sets the Shoot Lead. Unlike {@link #assignShootTeam} (ENG-041,
+     * additive-only, used by the standalone chip-picker's own dedicated add/remove endpoints), this
+     * is what the combined "Submit for Planning Review" flow uses now that Planning has no separate
+     * remove action of its own - unchecking someone in the form IS how you remove them, and it only
+     * takes effect once the whole form is submitted (see {@link #savePlanAssignAndSubmit}).
+     */
+    @Transactional
+    public void reconcileShootTeam(User actor, UUID contentPlanId, List<User> camerapersons, UUID leadUserId) {
+        ContentPlan plan = requireContentPlan(contentPlanId);
+        List<ShootingAssignment> active = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        for (ShootingAssignment assignment : active) {
+            boolean stillSelected = camerapersons.stream()
+                    .anyMatch(u -> u.getId().equals(assignment.getCameraperson().getId()));
+            if (!stillSelected) {
+                removeCameraperson(actor, contentPlanId, assignment.getCameraperson().getId());
+            }
+        }
+        for (User cameraperson : camerapersons) {
+            assignCameraperson(actor, contentPlanId, cameraperson);
+        }
+        setShootLead(actor, contentPlanId, leadUserId);
+    }
+
+    /**
+     * ENG-046: one Shoot Description shared by the whole Cameraperson team on this plan (not per
+     * individual assignee), editable any time by whoever holds PERM_04_SHOOT_ASSIGNMENT (the same
+     * authority that governs Shoot Assignment itself) - not restricted to a particular workflow
+     * status, since CEO/MM should be able to update instructions for an already-assigned team too.
+     */
+    @Transactional
+    public ContentPlan updateShootDescription(User actor, UUID contentPlanId, String description) {
+        ContentPlan plan = requireContentPlan(contentPlanId);
+        requireShootDescriptionAuthority(actor, plan.getWorkflowInstance());
+        String previous = plan.getShootDescription();
+        plan.setShootDescription(description);
+        contentPlanRepository.save(plan);
+        // ENG-048: old + new value, not just a bare "updated" marker - so a Planning Approver's
+        // edit during Planning Review is traceable later, never a silent overwrite.
+        String auditReason = "Old: \"" + (previous == null ? "" : previous) + "\" -> New: \""
+                + (description == null ? "" : description) + "\"";
+        auditService.record(actor, Optional.empty(), "SHOOTING", "SHOOT_DESCRIPTION_UPDATED", "content_plans",
+                plan.getId(), auditReason);
+        return plan;
+    }
+
+    /**
+     * ENG-048: Shoot Instructions is editable by whoever holds Shoot Assignment authority
+     * (PERM_04, unchanged - see {@code updateShootDescription}'s original javadoc) OR whoever
+     * holds Planning Review authority (PERM_03) - a Planning Approver needs to be able to correct
+     * the Cameraperson team's instructions at approval time without also needing PERM_04, per the
+     * user's explicit "Authorized Approver description edit/update bhi kar sake."
+     */
+    private void requireShootDescriptionAuthority(User actor, WorkflowInstance workflowInstance) {
+        if (authorizationService.hasNativeAuthority(actor)) {
+            return;
+        }
+        boolean hasAssignmentAuthority;
+        try {
+            authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
+                    LifecycleStage.PLANNING, workflowInstance);
+            hasAssignmentAuthority = true;
+        } catch (DomainException e) {
+            hasAssignmentAuthority = false;
+        }
+        if (hasAssignmentAuthority) {
+            return;
+        }
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_03_PLANNING_REVIEW,
+                LifecycleStage.PLANNING, workflowInstance);
     }
 
     /** ERD-CON-026: Stage-3 parameters must be complete before Planning Review submission. */
@@ -418,6 +575,44 @@ public class PlanningService {
         auditService.record(submitter, Optional.empty(), "PLANNING", "PLANNING_REVIEW_SUBMITTED", "content_plans",
                 plan.getId(), null);
         return cycle;
+    }
+
+    /**
+     * ENG-045: the single "Submit for Planning Review" click also creates/updates/removes Shoot
+     * Assignment now - Planning Details save, Cameraperson(s) reconciliation, Shoot Lead, and the
+     * Planning Review submission itself all happen in ONE transaction. Composed by calling
+     * {@link #savePlan}, {@link #reconcileShootTeam} and {@link #submitPlanningReview} directly
+     * (self-invocation on the same bean bypasses their own {@code @Transactional} proxies, exactly
+     * like {@code assignShootTeam} already does for its own two steps) so if any step fails -
+     * including the submit-readiness check - NOTHING is saved, not even the Planning Details fields.
+     * This replaces the previous two-transaction design, where a submit-readiness failure still left
+     * the save in place ("Plan saved, but not submitted") - the user explicitly asked for full
+     * atomicity instead ("Agar assignment save fail ho, to planning review submit bhi nahi hona
+     * chahiye... sab ek hi transaction me hona chahiye"). ENG-047: Shoot Instructions (the
+     * per-stage shared Description, ENG-046) now also enters here alongside Cameraperson(s)/Shoot
+     * Lead, since the user explicitly asked for it to be set at the same time as the initial
+     * assignment - it remains separately editable later too (see {@link #updateShootDescription}),
+     * this is just an additional entry point writing the same field.
+     */
+    @Transactional
+    public ReviewCycle savePlanAssignAndSubmit(User submitter, UUID contentPlanId, String categoryText,
+                                                ContentPriority priority, String skuReference, boolean skuNotApplicable,
+                                                List<String> talentNames, String folderLink, PlanningMode planningMode,
+                                                LocalDate plannedLiveDate, LocalDate shootDate, LocalDate editDate,
+                                                String urgencyReason, List<User> camerapersons, UUID leadUserId,
+                                                boolean touchShootAssignment, String shootDescription) {
+        savePlan(submitter, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentNames,
+                folderLink, planningMode, plannedLiveDate, shootDate, editDate, urgencyReason);
+        // touchShootAssignment is false when the submitter lacks PERM_04 (the Cameraperson(s)/Shoot
+        // Lead/Shoot Instructions fields never rendered for them) - reconcileShootTeam always calls
+        // setShootLead (and, with an empty list, would remove every existing Cameraperson) which
+        // would otherwise either wrongly wipe assignments or throw a PERM_04 authorization error
+        // for a PERM_02-only preparer who never touched Shoot Assignment at all.
+        if (touchShootAssignment) {
+            reconcileShootTeam(submitter, contentPlanId, camerapersons, leadUserId);
+            updateShootDescription(submitter, contentPlanId, shootDescription);
+        }
+        return submitPlanningReview(submitter, contentPlanId);
     }
 
     /**

@@ -79,6 +79,22 @@ public class ContentPlan extends BaseEntity {
     @Column(name = "folder_link", columnDefinition = "text")
     private String folderLink;
 
+    /**
+     * ENG-046: one common Description per stage per Content Plan (not per individual assignee) -
+     * shoot/edit/publishing instructions for whoever is assigned to that stage. Plain nullable
+     * columns here rather than a separate table: each stage maps 1:1 to this ContentPlan, the
+     * value is a single mutable field (not a growing list, unlike the comments below), and
+     * "retained through stage transitions" falls out for free since a column is never deleted.
+     */
+    @Column(name = "shoot_description", columnDefinition = "text")
+    private String shootDescription;
+
+    @Column(name = "edit_description", columnDefinition = "text")
+    private String editDescription;
+
+    @Column(name = "publishing_description", columnDefinition = "text")
+    private String publishingDescription;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "prepared_by_user_id")
     private User preparedBy;
@@ -171,6 +187,18 @@ public class ContentPlan extends BaseEntity {
         this.folderLink = folderLink;
     }
 
+    public void setShootDescription(String shootDescription) {
+        this.shootDescription = shootDescription;
+    }
+
+    public void setEditDescription(String editDescription) {
+        this.editDescription = editDescription;
+    }
+
+    public void setPublishingDescription(String publishingDescription) {
+        this.publishingDescription = publishingDescription;
+    }
+
     public void setPreparedBy(User preparedBy) {
         this.preparedBy = preparedBy;
     }
@@ -231,6 +259,18 @@ public class ContentPlan extends BaseEntity {
 
     public String getFolderLink() {
         return folderLink;
+    }
+
+    public String getShootDescription() {
+        return shootDescription;
+    }
+
+    public String getEditDescription() {
+        return editDescription;
+    }
+
+    public String getPublishingDescription() {
+        return publishingDescription;
     }
 
     public User getPreparedBy() {

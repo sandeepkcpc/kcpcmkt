@@ -22,9 +22,11 @@ import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
+import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
 import com.kcpc.mkt.workflow.service.WorkflowTransitionService;
@@ -50,6 +52,7 @@ public class PublishingService {
     private final PublicationTargetNaRecordRepository naRecordRepository;
     private final PerformanceObligationRepository obligationRepository;
     private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
+    private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
@@ -61,6 +64,7 @@ public class PublishingService {
                               PublicationTargetNaRecordRepository naRecordRepository,
                               PerformanceObligationRepository obligationRepository,
                               PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
+                              PublishingAssignmentRepository publishingAssignmentRepository,
                               WorkflowTransitionService workflowService, AuthorizationService authorizationService,
                               AuditService auditService) {
         this.contentPlanRepository = contentPlanRepository;
@@ -71,6 +75,7 @@ public class PublishingService {
         this.naRecordRepository = naRecordRepository;
         this.obligationRepository = obligationRepository;
         this.evidenceCorrectionRepository = evidenceCorrectionRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
@@ -86,6 +91,23 @@ public class PublishingService {
                 LifecycleStage.PUBLISHING, workflowInstance);
     }
 
+    /**
+     * ENG-043: Publishing's hands-on execution acts (Start Publishing, recording an Actual
+     * Publication) require the actor to be an actively assigned Publisher on this Content Plan -
+     * PERM_08 alone (including CEO/MM's native-authority bypass of it) is not enough. CEO/MM's
+     * native authority covers management actions (Publisher assignment, Target N/A, evidence
+     * correction - all still gated on PERM_08 only, unaffected below) not hands-on execution of an
+     * Employee's own task. Mirrors ShootingService/EditingService#requireActiveAssignee.
+     */
+    private void requireActiveAssignee(User actor, ContentPlan plan) {
+        boolean isAssignee = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .anyMatch(a -> a.getPublisher().getId().equals(actor.getId()));
+        if (!isAssignee) {
+            throw DomainException.forbidden(ErrorCode.PERM_ACCESS_CLASS_DENIED,
+                    "Only an assigned Publisher can perform this action");
+        }
+    }
+
     @Transactional
     public void startPublishing(User actor, UUID contentPlanId) {
         ContentPlan plan = requirePlan(contentPlanId);
@@ -95,8 +117,76 @@ public class PublishingService {
                     "Publishing can only start once Ready for Publishing");
         }
         Optional<PermissionGrant> actingGrant = requirePublishingAuthority(actor, workflowInstance);
+        requireActiveAssignee(actor, plan);
         workflowService.transition(workflowInstance, WorkflowStatus.PUBG, actor, actingGrant, "START_PUBLISHING", null);
         auditService.record(actor, actingGrant, "PUBLISHING", "PUBLISHING_STARTED", "content_plans", plan.getId(), null);
+    }
+
+    /**
+     * Publisher(s) assignment (not in the frozen ERD - see docs/IMPLEMENTATION_DECISIONS.md ENG-035).
+     * ENG-044: restricted to native CEO/MM authority only, NOT `PERM_08_PUBLISHING_EXECUTION` grant
+     * holders - a Publisher's PERM_08 grant exists so they can execute their own assigned task (see
+     * {@link #startPublishing}/{@link #recordActualPublication}), never to assign/reassign/remove
+     * other Publishers on a plan. An active assignment here is a precondition for those execution
+     * methods (see {@link #requireActiveAssignee}). Idempotent: re-assigning a Publisher who already
+     * holds an active assignment returns the existing row.
+     */
+    @Transactional
+    public PublishingAssignment assignPublisher(User actor, UUID contentPlanId, User publisher) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.RFP) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Publisher assignment is only valid while Ready for Publishing");
+        }
+        authorizationService.requireNativeAuthority(actor, "Publisher assignment");
+        Optional<PublishingAssignment> existing =
+                publishingAssignmentRepository.findByContentPlanAndPublisherAndActiveTrue(plan, publisher);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        PublishingAssignment assignment = publishingAssignmentRepository.save(
+                new PublishingAssignment(plan, publisher, actor));
+        auditService.record(actor, Optional.empty(), "PUBLISHING", "PUBLISHER_ASSIGNED", "publishing_assignments",
+                assignment.getId(), null);
+        return assignment;
+    }
+
+    /** Removes an active Publisher assignment, mirroring the same RFP-only window and ENG-044 native-only gate as assign. */
+    @Transactional
+    public void removePublisher(User actor, UUID contentPlanId, UUID publisherUserId) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.RFP) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Publisher assignment can only be removed while Ready for Publishing");
+        }
+        authorizationService.requireNativeAuthority(actor, "Publisher assignment");
+        PublishingAssignment assignment = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .filter(a -> a.getPublisher().getId().equals(publisherUserId))
+                .findFirst()
+                .orElseThrow(() -> DomainException.notFound("No active publishing assignment for this Publisher"));
+        assignment.end();
+        publishingAssignmentRepository.save(assignment);
+        auditService.record(actor, Optional.empty(), "PUBLISHING", "PUBLISHER_UNASSIGNED", "publishing_assignments",
+                assignment.getId(), null);
+    }
+
+    /**
+     * ENG-046: one Publishing Description shared by the whole Publisher team on this plan (not per
+     * individual assignee), editable any time. Gated to native CEO/MM authority only - matching
+     * ENG-044's Publisher-assignment rule, not PERM_08 - since this is a management action
+     * (instructing whoever is assigned), not hands-on execution of an Employee's own task.
+     */
+    @Transactional
+    public ContentPlan updatePublishingDescription(User actor, UUID contentPlanId, String description) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        authorizationService.requireNativeAuthority(actor, "Publishing Description");
+        plan.setPublishingDescription(description);
+        contentPlanRepository.save(plan);
+        auditService.record(actor, Optional.empty(), "PUBLISHING", "PUBLISHING_DESCRIPTION_UPDATED", "content_plans",
+                plan.getId(), null);
+        return plan;
     }
 
     @Transactional
@@ -110,6 +200,7 @@ public class PublishingService {
                     "Actual Publication can only be recorded while Publishing is underway");
         }
         Optional<PermissionGrant> actingGrant = requirePublishingAuthority(actor, workflowInstance);
+        requireActiveAssignee(actor, plan);
         PlannedOutput plannedOutput = plannedOutputRepository.findById(plannedOutputId)
                 .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
         PublicationTarget target = publicationTargetRepository.findById(publicationTargetId)

@@ -64,8 +64,12 @@ class HighPriorityEdgeCaseTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam1 = createUser(ceo, "Multi Camera 1", "e2e-multicam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam1Email = "e2e-multicam1-" + unique + "@kcpcbandhani.local";
+        String cam1 = createUser(ceo, "Multi Camera 1", cam1Email, CAMERA_PERSON_ROLE_ID);
         String cam2 = createUser(ceo, "Multi Camera 2", "e2e-multicam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson.
+        TestApiClient cam1Client = new TestApiClient(port);
+        cam1Client.login(cam1Email, "Passw0rd!");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Multi Camera " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -88,8 +92,8 @@ class HighPriorityEdgeCaseTest {
 
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        cam1Client.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam1Client.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         JsonNode shootApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam1 + "\",\"" + cam2 + "\"]}");
         assertThat(shootApproved.get("status").asText()).isEqualTo("SAP");
@@ -110,9 +114,16 @@ class HighPriorityEdgeCaseTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam = createUser(ceo, "Multi Ed Camera", "e2e-multied-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String ed1 = createUser(ceo, "Multi Editor 1", "e2e-multied1-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String camEmail = "e2e-multied-cam-" + unique + "@kcpcbandhani.local";
+        String cam = createUser(ceo, "Multi Ed Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String ed1Email = "e2e-multied1-" + unique + "@kcpcbandhani.local";
+        String ed1 = createUser(ceo, "Multi Editor 1", ed1Email, VIDEO_EDITOR_ROLE_ID);
         String ed2 = createUser(ceo, "Multi Editor 2", "e2e-multied2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson/Editor.
+        TestApiClient camClient = new TestApiClient(port);
+        camClient.login(camEmail, "Passw0rd!");
+        TestApiClient ed1Client = new TestApiClient(port);
+        ed1Client.login(ed1Email, "Passw0rd!");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Multi Editor " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -132,16 +143,16 @@ class HighPriorityEdgeCaseTest {
 
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
 
         // Both Editors assigned (multiple assignments coexist), then both qualify at Edit Review.
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + ed1 + "\"}");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + ed2 + "\"}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        ed1Client.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
+        ed1Client.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         JsonNode editApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + ed1 + "\",\"" + ed2 + "\"]}");
         assertThat(editApproved.get("status").asText()).isEqualTo("RFP");

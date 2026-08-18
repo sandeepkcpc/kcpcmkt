@@ -191,6 +191,33 @@ public class TestApiClient {
         return response;
     }
 
+    /** Same as {@link #postFormMulti(String, java.util.Map)} but down the AJAX branch (see {@link #postFormAjax}). */
+    public HttpResponse<String> postFormMultiAjax(String path, java.util.Map<String, java.util.List<String>> formFields)
+            throws IOException, InterruptedException {
+        StringBuilder body = new StringBuilder();
+        if (csrfToken != null) {
+            body.append("_csrf=").append(java.net.URLEncoder.encode(csrfToken, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        for (var entry : formFields.entrySet()) {
+            for (String value : entry.getValue()) {
+                if (!body.isEmpty()) {
+                    body.append('&');
+                }
+                body.append(java.net.URLEncoder.encode(entry.getKey(), java.nio.charset.StandardCharsets.UTF_8))
+                        .append('=')
+                        .append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Requested-With", "fetch")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        debug("POST(form-multi-ajax)", path, response);
+        return response;
+    }
+
     private void debug(String method, String path, HttpResponse<String> response) {
         if (Boolean.getBoolean("testApiClient.debug")) {
             System.out.println("DEBUG " + method + " " + path + " csrfToken=" + csrfToken

@@ -36,6 +36,7 @@ import com.kcpc.mkt.production.service.ShootingService;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.workflow.domain.GateType;
@@ -64,6 +65,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -95,6 +97,7 @@ public class DeliverableMvcController {
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final EditingExecutionParticipantRepository editingParticipantRepository;
     private final ActualPublicationEventRepository eventRepository;
+    private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final PerformanceObligationRepository obligationRepository;
     private final CreativePerformanceScorecardRepository scorecardRepository;
     private final ReviewCycleRepository reviewCycleRepository;
@@ -111,6 +114,7 @@ public class DeliverableMvcController {
     private final PerformanceService performanceService;
     private final AdminActionService adminActionService;
     private final HoldService holdService;
+    private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
 
     public DeliverableMvcController(ContentPlanRepository contentPlanRepository,
                                      PredefinedRoleMarksRepository predefinedRoleMarksRepository,
@@ -125,6 +129,7 @@ public class DeliverableMvcController {
                                      EditingAssignmentRepository editingAssignmentRepository,
                                      EditingExecutionParticipantRepository editingParticipantRepository,
                                      ActualPublicationEventRepository eventRepository,
+                                     PublishingAssignmentRepository publishingAssignmentRepository,
                                      PerformanceObligationRepository obligationRepository,
                                      CreativePerformanceScorecardRepository scorecardRepository,
                                      ReviewCycleRepository reviewCycleRepository,
@@ -134,7 +139,8 @@ public class DeliverableMvcController {
                                      PlanningService planningService,
                                      ShootingService shootingService, EditingService editingService,
                                      PublishingService publishingService, PerformanceService performanceService,
-                                     AdminActionService adminActionService, HoldService holdService) {
+                                     AdminActionService adminActionService, HoldService holdService,
+                                     com.kcpc.mkt.discussion.service.StageCommentService stageCommentService) {
         this.contentPlanRepository = contentPlanRepository;
         this.predefinedRoleMarksRepository = predefinedRoleMarksRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -148,6 +154,7 @@ public class DeliverableMvcController {
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.editingParticipantRepository = editingParticipantRepository;
         this.eventRepository = eventRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.obligationRepository = obligationRepository;
         this.scorecardRepository = scorecardRepository;
         this.reviewCycleRepository = reviewCycleRepository;
@@ -163,6 +170,7 @@ public class DeliverableMvcController {
         this.performanceService = performanceService;
         this.adminActionService = adminActionService;
         this.holdService = holdService;
+        this.stageCommentService = stageCommentService;
     }
 
     private ContentPlan requirePlan(UUID id) {
@@ -223,6 +231,13 @@ public class DeliverableMvcController {
         model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
         model.addAttribute("modelUsers",
                 userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model"));
+        model.addAttribute("camerapersonUsers",
+                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Camera Person"));
+        model.addAttribute("videoEditorUsers",
+                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Video Editor"));
+        model.addAttribute("publisherUsers",
+                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Publisher"));
+        model.addAttribute("publishingAssignments", publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
         List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
         model.addAttribute("activePublicationTargets", activeTargets);
         model.addAttribute("activePlatformNames", activeTargets.stream()
@@ -289,27 +304,62 @@ public class DeliverableMvcController {
         model.addAttribute("canDecidePlanningReview", canDecidePlanning);
         model.addAttribute("planningSelfReviewBlocked", planningSelfReviewBlocked);
 
-        model.addAttribute("isShootAssigneeOrNative", nativeAuthority
-                || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+        // ENG-043: Start/Submit are hands-on execution, not management - restricted to an actively
+        // assigned Cameraperson/Editor/Publisher only. CEO/MM's native authority deliberately does
+        // NOT bypass this (unlike every other *OrNative/canX flag on this page), matching
+        // ShootingService/EditingService/PublishingService#requireActiveAssignee server-side.
+        model.addAttribute("isShootActiveAssignee",
+                shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                         .anyMatch(a -> a.getCameraperson().getId().equals(user.getId())));
         boolean canDecideShoot = allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan) && !shootSelfReviewBlocked;
         model.addAttribute("canDecideShootReview", canDecideShoot);
         model.addAttribute("shootSelfReviewBlocked", shootSelfReviewBlocked);
 
         model.addAttribute("canAssignEditor", allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
-        model.addAttribute("isEditAssigneeOrNative", nativeAuthority
-                || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+        model.addAttribute("isEditActiveAssignee",
+                editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                         .anyMatch(a -> a.getEditor().getId().equals(user.getId())));
         boolean canDecideEdit = allowed(user, OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, plan) && !editSelfReviewBlocked;
         model.addAttribute("canDecideEditReview", canDecideEdit);
         model.addAttribute("editSelfReviewBlocked", editSelfReviewBlocked);
 
         model.addAttribute("canPublishingExecute", allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan));
+        model.addAttribute("isPublishActiveAssignee",
+                publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                        .anyMatch(a -> a.getPublisher().getId().equals(user.getId())));
+        // ENG-044: Publisher(s) assignment (the picker/add/remove) is native CEO/MM only - a
+        // PERM_08 grant exists so a rank-and-file Publisher can execute their OWN assigned task,
+        // never to assign/reassign/remove other Publishers on this plan.
+        model.addAttribute("canAssignPublisher", nativeAuthority);
         model.addAttribute("canPerformanceUpdate", allowed(user, OperationalPermission.PERM_09_PERFORMANCE_UPDATE, LifecycleStage.PERFORMANCE, plan));
         model.addAttribute("canReschedule", allowed(user, OperationalPermission.PERM_10_RESCHEDULE, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("canReassign", allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("canCancel", allowed(user, OperationalPermission.PERM_12_CANCEL, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("isNative", nativeAuthority);
+
+        // ENG-046: Description is editable by whoever can Assign for that stage (Publishing:
+        // native-only, matching ENG-044); comment authorship matches whoever's currently the
+        // active assignee for that stage (or native), mirrored server-side in
+        // StageCommentService#requireCommentAuthority - these flags are UI-visibility only.
+        // ENG-048: Shoot Instructions is ALSO editable by a Planning Approver (PERM_03), not just
+        // PERM_04, mirrored in PlanningService#requireShootDescriptionAuthority - so it can be
+        // shown/edited on the Planning Review Decision screen too, not only during Planning itself.
+        model.addAttribute("canEditShootDescription", allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan)
+                || allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan));
+        model.addAttribute("canEditEditDescription", allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
+        model.addAttribute("canEditPublishingDescription", nativeAuthority);
+        boolean canCommentOnShoot = nativeAuthority || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .stream().anyMatch(a -> a.getCameraperson().getId().equals(user.getId()));
+        boolean canCommentOnEdit = nativeAuthority || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .stream().anyMatch(a -> a.getEditor().getId().equals(user.getId()));
+        boolean canCommentOnPublishing = nativeAuthority || publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .stream().anyMatch(a -> a.getPublisher().getId().equals(user.getId()));
+        model.addAttribute("canCommentOnShoot", canCommentOnShoot);
+        model.addAttribute("canCommentOnEdit", canCommentOnEdit);
+        model.addAttribute("canCommentOnPublishing", canCommentOnPublishing);
+        model.addAttribute("shootComments", stageCommentService.listComments(id, LifecycleStage.SHOOTING));
+        model.addAttribute("editComments", stageCommentService.listComments(id, LifecycleStage.EDITING));
+        model.addAttribute("publishingComments", stageCommentService.listComments(id, LifecycleStage.PUBLISHING));
 
         model.addAttribute("stageContexts", StageContext.values());
         model.addAttribute("taskStages", TaskStage.values());
@@ -370,12 +420,21 @@ public class DeliverableMvcController {
 
     // ------------------------------------------------------------- Planning
 
+    /**
+     * SKU Reference has no separate "N/A" checkbox in the UI (user request) - leaving the field
+     * blank simply IS N/A, derived here rather than asked for explicitly. {@code ContentPlan.setSku}
+     * still enforces ERD-CON-009 (mutual exclusion) unchanged; a non-blank value here always pairs
+     * with {@code skuNotApplicable=false}.
+     */
+    private static boolean isSkuBlank(String skuReference) {
+        return skuReference == null || skuReference.isBlank();
+    }
+
     /** Single-form Planning submission: Parameters + Schedule (Standard or Urgent) in one POST. */
     @PostMapping("/plan")
     public String savePlan(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
                             @RequestParam(required = false) ContentPriority contentPriority,
                             @RequestParam(required = false) String skuReference,
-                            @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
                             @RequestParam(required = false) List<UUID> modelUserIds,
                             @RequestParam(required = false) String folderLink,
                             @RequestParam PlanningMode planningMode,
@@ -387,7 +446,7 @@ public class DeliverableMvcController {
         List<String> talentNames = resolveModelNames(modelUserIds);
         try {
             planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
-                    skuNotApplicable, talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    isSkuBlank(skuReference), talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
                     urgencyReason);
             ra.addFlashAttribute("successMessage", "Plan saved.");
         } catch (DomainException e) {
@@ -397,20 +456,22 @@ public class DeliverableMvcController {
     }
 
     /**
-     * Planning Workspace UI: there is no separate "Save Plan" button - Planning Details is one
-     * {@code <form id="planning-details-form">} with no submit button of its own, and the single
-     * "Submit for Planning Review" button at the bottom of the page (after Planned Outputs,
-     * Publication Scope and Shoot Assignment) references it via the HTML5 {@code form="..."}
-     * button attribute, so one click saves the plan and submits it for review together. The two
-     * underlying actions stay in separate transactions (each already {@code @Transactional} on
-     * its own service method) - a submission failure (e.g. a still-missing mandatory field) never
-     * rolls back the save, so nothing the user entered is lost.
+     * ENG-045: Planning Workspace UI has one form and one button. Planning Details is
+     * {@code <form id="planning-details-form">} with no submit button of its own; the single
+     * "Submit for Planning Review" button at the bottom of the page references it via the HTML5
+     * {@code form="..."} attribute, and now ALSO carries the Cameraperson(s)/Shoot Lead fields (no
+     * separate "Assign Cameraperson(s)" button anymore - see the Shoot Assignment section, which
+     * moved into this same form). One click saves Planning Details, creates/updates the Shoot
+     * Assignment, and submits for review, all in ONE transaction
+     * ({@link PlanningService#savePlanAssignAndSubmit}) - if any step fails (including the
+     * submit-readiness check), nothing is saved at all, not even the Planning Details fields. This
+     * replaces the previous two-transaction design (save always persisted even when the
+     * submit-readiness check failed) per the user's explicit request for full atomicity.
      */
     @PostMapping("/plan-submit")
     public String savePlanAndSubmit(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
                                      @RequestParam(required = false) ContentPriority contentPriority,
                                      @RequestParam(required = false) String skuReference,
-                                     @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
                                      @RequestParam(required = false) List<UUID> modelUserIds,
                                      @RequestParam(required = false) String folderLink,
                                      @RequestParam PlanningMode planningMode,
@@ -418,21 +479,32 @@ public class DeliverableMvcController {
                                      @RequestParam(required = false) LocalDate shootDate,
                                      @RequestParam(required = false) LocalDate editDate,
                                      @RequestParam(required = false) String urgencyReason,
+                                     @RequestParam(required = false) List<UUID> cameramanUserIds,
+                                     @RequestParam(required = false) String leadUserId,
+                                     @RequestParam(required = false) String shootDescription,
                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         List<String> talentNames = resolveModelNames(modelUserIds);
         try {
-            planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
-                    skuNotApplicable, talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
-                    urgencyReason);
-        } catch (DomainException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
-            return redirect(id);
-        }
-        try {
-            planningService.submitPlanningReview(principal.user(), id);
+            ContentPlan plan = requirePlan(id);
+            boolean touchShootAssignment = allowed(principal.user(), OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
+                    LifecycleStage.PLANNING, plan);
+            List<User> camerapersons = new ArrayList<>();
+            UUID leadId = null;
+            if (touchShootAssignment) {
+                leadId = parseOptionalUuid(leadUserId);
+                if (cameramanUserIds != null) {
+                    for (UUID uid : cameramanUserIds) {
+                        camerapersons.add(userRepository.findById(uid)
+                                .orElseThrow(() -> DomainException.notFound("User not found")));
+                    }
+                }
+            }
+            planningService.savePlanAssignAndSubmit(principal.user(), id, categoryText, contentPriority, skuReference,
+                    isSkuBlank(skuReference), talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    urgencyReason, camerapersons, leadId, touchShootAssignment, shootDescription);
             ra.addFlashAttribute("successMessage", "Plan saved and submitted for Planning Review.");
         } catch (DomainException e) {
-            ra.addFlashAttribute("errorMessage", "Plan saved, but not submitted: " + e.getMessage());
+            ra.addFlashAttribute("errorMessage", "Nothing was saved: " + e.getMessage());
         }
         return redirect(id);
     }
@@ -441,14 +513,13 @@ public class DeliverableMvcController {
     public String updateParameters(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
                                     @RequestParam(required = false) ContentPriority contentPriority,
                                     @RequestParam(required = false) String skuReference,
-                                    @RequestParam(required = false, defaultValue = "false") boolean skuNotApplicable,
                                     @RequestParam(required = false) List<UUID> modelUserIds,
                                     @RequestParam(required = false) String folderLink,
                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         List<String> talentNames = resolveModelNames(modelUserIds);
         try {
             planningService.updateParameters(principal.user(), id, categoryText, contentPriority, skuReference,
-                    skuNotApplicable, talentNames, folderLink);
+                    isSkuBlank(skuReference), talentNames, folderLink);
             ra.addFlashAttribute("successMessage", "Planning parameters saved.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
@@ -523,6 +594,32 @@ public class DeliverableMvcController {
      */
     private static boolean isAjax(String requestedWith) {
         return "fetch".equals(requestedWith);
+    }
+
+    /**
+     * The assignment chip-pickers' no-JS batch-add form posts a plural field (e.g. {@code
+     * cameramanUserIds}); the legacy singular field (e.g. {@code cameramanUserId}, still used by the REST
+     * API and older callers) keeps working unchanged. Merges both into one de-duplicated list.
+     */
+    /**
+     * The Lead {@code <select>}'s blank "None" option submits as an empty string, not an absent
+     * parameter - a plain {@code @RequestParam(required = false) UUID} would fail converting ""
+     * to a UUID instead of resolving to null, so the Lead endpoints take the raw String and parse
+     * through here.
+     */
+    private static UUID parseOptionalUuid(String raw) {
+        return (raw == null || raw.isBlank()) ? null : UUID.fromString(raw);
+    }
+
+    private static List<UUID> mergeIds(UUID single, List<UUID> plural) {
+        java.util.LinkedHashSet<UUID> merged = new java.util.LinkedHashSet<>();
+        if (single != null) {
+            merged.add(single);
+        }
+        if (plural != null) {
+            merged.addAll(plural);
+        }
+        return new java.util.ArrayList<>(merged);
     }
 
     private ResponseEntity<ApiErrorResponse> ajaxError(DomainException e, jakarta.servlet.http.HttpServletRequest request) {
@@ -622,14 +719,107 @@ public class DeliverableMvcController {
     }
 
     @PostMapping("/shooting-assignments")
-    public String assignCameraperson(@PathVariable UUID id, @RequestParam UUID cameramanUserId,
-                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+    public Object assignCameraperson(@PathVariable UUID id, @RequestParam(required = false) UUID cameramanUserId,
+                                      @RequestParam(required = false) List<UUID> cameramanUserIds,
+                                      @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                      jakarta.servlet.http.HttpServletRequest request) {
+        List<UUID> ids = mergeIds(cameramanUserId, cameramanUserIds);
         try {
-            User cameraperson = userRepository.findById(cameramanUserId)
-                    .orElseThrow(() -> DomainException.notFound("User not found"));
-            planningService.assignCameraperson(principal.user(), id, cameraperson);
-            ra.addFlashAttribute("successMessage", "Cameraperson assigned.");
+            for (UUID uid : ids) {
+                User cameraperson = userRepository.findById(uid)
+                        .orElseThrow(() -> DomainException.notFound("User not found"));
+                planningService.assignCameraperson(principal.user(), id, cameraperson);
+            }
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage",
+                    ids.size() > 1 ? "Camerapersons assigned." : "Cameraperson assigned.");
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-035 (Model(s)-style chip-picker). */
+    @PostMapping("/shooting-assignments/remove")
+    public Object removeCameraperson(@PathVariable UUID id, @RequestParam UUID cameramanUserId,
+                                      @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                      jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            planningService.removeCameraperson(principal.user(), id, cameramanUserId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Cameraperson removed.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-036 (Shoot Lead). */
+    @PostMapping("/shooting-assignments/lead")
+    public Object setShootLead(@PathVariable UUID id, @RequestParam(required = false) String cameramanUserId,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                jakarta.servlet.http.HttpServletRequest request) {
+        UUID camId = parseOptionalUuid(cameramanUserId);
+        try {
+            planningService.setShootLead(principal.user(), id, camId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", camId != null ? "Shoot Lead set." : "Shoot Lead cleared.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /**
+     * Single-button "Assign Cameraperson(s)" (ENG-041): replaces the old two-button
+     * assign-then-set-lead flow the chip-picker used. One request assigns every newly-staged
+     * Cameraperson and sets the Shoot Lead together, in one transaction (see
+     * {@link com.kcpc.mkt.planning.service.PlanningService#assignShootTeam}). The older
+     * {@code /shooting-assignments} and {@code /shooting-assignments/lead} endpoints above are
+     * unchanged and still work independently for any other caller.
+     */
+    @PostMapping("/shooting-assignments/team")
+    public Object assignShootTeam(@PathVariable UUID id, @RequestParam(required = false) List<UUID> cameramanUserIds,
+                                   @RequestParam(required = false) String leadUserId,
+                                   @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                   @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                   jakarta.servlet.http.HttpServletRequest request) {
+        UUID leadId = parseOptionalUuid(leadUserId);
+        try {
+            List<User> camerapersons = new ArrayList<>();
+            if (cameramanUserIds != null) {
+                for (UUID uid : cameramanUserIds) {
+                    camerapersons.add(userRepository.findById(uid)
+                            .orElseThrow(() -> DomainException.notFound("User not found")));
+                }
+            }
+            planningService.assignShootTeam(principal.user(), id, camerapersons, leadId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Shoot team updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
@@ -700,16 +890,212 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
+    /** ENG-046: shared Shoot Description, editable any time by whoever holds PERM_04. */
+    @PostMapping("/shooting/description")
+    public Object updateShootDescription(@PathVariable UUID id, @RequestParam(required = false) String description,
+                                          @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                          @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                          jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            planningService.updateShootDescription(principal.user(), id, description);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Shoot Description updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** ENG-046: Shoot's discussion thread - CEO/MM or the currently assigned Cameraperson team only. */
+    @PostMapping("/shooting/comments")
+    public Object addShootComment(@PathVariable UUID id, @RequestParam String commentText,
+                                   @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                   @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                   jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            var comment = stageCommentService.addComment(principal.user(), id, LifecycleStage.SHOOTING, commentText);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(Map.of(
+                        "commentId", comment.getId(),
+                        "commenterName", comment.getCommenter().getFullName(),
+                        "createdAt", com.kcpc.mkt.common.util.DisplayTime.ist(comment.getCreatedAt()),
+                        "commentText", comment.getCommentText()));
+            }
+            ra.addFlashAttribute("successMessage", "Comment added.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /**
+     * ENG-050: edit/delete are stage-agnostic once you have the commentId (StageCommentService
+     * looks the comment up directly and checks ownership, not the stage) - one shared body behind
+     * three thin per-stage endpoints, matching this controller's existing stage-scoped route shape.
+     */
+    private Object doEditComment(UUID id, UUID commentId, String commentText, String requestedWith,
+                                  KcpcUserPrincipal principal, RedirectAttributes ra,
+                                  jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            var comment = stageCommentService.editComment(principal.user(), id, commentId, commentText);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(Map.of(
+                        "commentText", comment.getCommentText(),
+                        "editedAt", com.kcpc.mkt.common.util.DisplayTime.ist(comment.getEditedAt())));
+            }
+            ra.addFlashAttribute("successMessage", "Comment updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    private Object doDeleteComment(UUID id, UUID commentId, String requestedWith,
+                                    KcpcUserPrincipal principal, RedirectAttributes ra,
+                                    jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            stageCommentService.deleteComment(principal.user(), id, commentId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Comment deleted.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    @PostMapping("/shooting/comments/{commentId}/edit")
+    public Object editShootComment(@PathVariable UUID id, @PathVariable UUID commentId, @RequestParam String commentText,
+                                    @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                    @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                    jakarta.servlet.http.HttpServletRequest request) {
+        return doEditComment(id, commentId, commentText, requestedWith, principal, ra, request);
+    }
+
+    @PostMapping("/shooting/comments/{commentId}/delete")
+    public Object deleteShootComment(@PathVariable UUID id, @PathVariable UUID commentId,
+                                      @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                      jakarta.servlet.http.HttpServletRequest request) {
+        return doDeleteComment(id, commentId, requestedWith, principal, ra, request);
+    }
+
     // --------------------------------------------------------------- Edit
 
     @PostMapping("/editing/assignments")
-    public String assignEditor(@PathVariable UUID id, @RequestParam UUID editorUserId,
-                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+    public Object assignEditor(@PathVariable UUID id, @RequestParam(required = false) UUID editorUserId,
+                                @RequestParam(required = false) List<UUID> editorUserIds,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                jakarta.servlet.http.HttpServletRequest request) {
+        List<UUID> ids = mergeIds(editorUserId, editorUserIds);
         try {
-            User editor = userRepository.findById(editorUserId).orElseThrow(() -> DomainException.notFound("User not found"));
-            editingService.assignEditor(principal.user(), id, editor);
-            ra.addFlashAttribute("successMessage", "Editor assigned.");
+            for (UUID uid : ids) {
+                User editor = userRepository.findById(uid).orElseThrow(() -> DomainException.notFound("User not found"));
+                editingService.assignEditor(principal.user(), id, editor);
+            }
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", ids.size() > 1 ? "Editors assigned." : "Editor assigned.");
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-035 (Model(s)-style chip-picker). */
+    @PostMapping("/editing/assignments/remove")
+    public Object removeEditor(@PathVariable UUID id, @RequestParam UUID editorUserId,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            editingService.removeEditor(principal.user(), id, editorUserId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Editor removed.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-036 (Edit Lead). */
+    @PostMapping("/editing/assignments/lead")
+    public Object setEditLead(@PathVariable UUID id, @RequestParam(required = false) String editorUserId,
+                               @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                               @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                               jakarta.servlet.http.HttpServletRequest request) {
+        UUID edId = parseOptionalUuid(editorUserId);
+        try {
+            editingService.setEditLead(principal.user(), id, edId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", edId != null ? "Edit Lead set." : "Edit Lead cleared.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /**
+     * Single-button "Assign Editor(s)" (ENG-041): replaces the old two-button assign-then-set-lead
+     * flow the chip-picker used. One request assigns every newly-staged Editor and sets the Edit
+     * Lead together, in one transaction (see
+     * {@link com.kcpc.mkt.production.service.EditingService#assignEditTeam}). The older
+     * {@code /editing/assignments} and {@code /editing/assignments/lead} endpoints above are
+     * unchanged and still work independently for any other caller.
+     */
+    @PostMapping("/editing/assignments/team")
+    public Object assignEditTeam(@PathVariable UUID id, @RequestParam(required = false) List<UUID> editorUserIds,
+                                  @RequestParam(required = false) String leadUserId,
+                                  @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                  jakarta.servlet.http.HttpServletRequest request) {
+        UUID leadId = parseOptionalUuid(leadUserId);
+        try {
+            List<User> editors = new ArrayList<>();
+            if (editorUserIds != null) {
+                for (UUID uid : editorUserIds) {
+                    editors.add(userRepository.findById(uid).orElseThrow(() -> DomainException.notFound("User not found")));
+                }
+            }
+            editingService.assignEditTeam(principal.user(), id, editors, leadId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Edit team updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
@@ -753,6 +1139,68 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
+    /** ENG-046: shared Edit Description, editable any time by whoever holds PERM_06. */
+    @PostMapping("/editing/description")
+    public Object updateEditDescription(@PathVariable UUID id, @RequestParam(required = false) String description,
+                                         @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                         @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                         jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            editingService.updateEditDescription(principal.user(), id, description);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Edit Description updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** ENG-046: Edit's discussion thread - CEO/MM or the currently assigned Editor team only. */
+    @PostMapping("/editing/comments")
+    public Object addEditComment(@PathVariable UUID id, @RequestParam String commentText,
+                                  @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                  jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            var comment = stageCommentService.addComment(principal.user(), id, LifecycleStage.EDITING, commentText);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(Map.of(
+                        "commentId", comment.getId(),
+                        "commenterName", comment.getCommenter().getFullName(),
+                        "createdAt", com.kcpc.mkt.common.util.DisplayTime.ist(comment.getCreatedAt()),
+                        "commentText", comment.getCommentText()));
+            }
+            ra.addFlashAttribute("successMessage", "Comment added.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    @PostMapping("/editing/comments/{commentId}/edit")
+    public Object editEditComment(@PathVariable UUID id, @PathVariable UUID commentId, @RequestParam String commentText,
+                                   @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                   @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                   jakarta.servlet.http.HttpServletRequest request) {
+        return doEditComment(id, commentId, commentText, requestedWith, principal, ra, request);
+    }
+
+    @PostMapping("/editing/comments/{commentId}/delete")
+    public Object deleteEditComment(@PathVariable UUID id, @PathVariable UUID commentId,
+                                     @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                     jakarta.servlet.http.HttpServletRequest request) {
+        return doDeleteComment(id, commentId, requestedWith, principal, ra, request);
+    }
+
     // --------------------------------------------------------- Publishing
 
     @PostMapping("/publishing/start")
@@ -762,6 +1210,53 @@ public class DeliverableMvcController {
             publishingService.startPublishing(principal.user(), id);
             ra.addFlashAttribute("successMessage", "Publishing started.");
         } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-035 (Model(s)-style chip-picker). */
+    @PostMapping("/publishing-assignments")
+    public Object assignPublisher(@PathVariable UUID id, @RequestParam(required = false) UUID publisherUserId,
+                                   @RequestParam(required = false) List<UUID> publisherUserIds,
+                                   @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                   @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                   jakarta.servlet.http.HttpServletRequest request) {
+        List<UUID> ids = mergeIds(publisherUserId, publisherUserIds);
+        try {
+            for (UUID uid : ids) {
+                User publisher = userRepository.findById(uid).orElseThrow(() -> DomainException.notFound("User not found"));
+                publishingService.assignPublisher(principal.user(), id, publisher);
+            }
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", ids.size() > 1 ? "Publishers assigned." : "Publisher assigned.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Not in the frozen spec - see docs/IMPLEMENTATION_DECISIONS.md ENG-035 (Model(s)-style chip-picker). */
+    @PostMapping("/publishing-assignments/remove")
+    public Object removePublisher(@PathVariable UUID id, @RequestParam UUID publisherUserId,
+                                   @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                   @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                   jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            publishingService.removePublisher(principal.user(), id, publisherUserId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Publisher removed.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
@@ -819,6 +1314,68 @@ public class DeliverableMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
+    }
+
+    /** ENG-046: shared Publishing Description, editable any time by native CEO/MM only (matching ENG-044). */
+    @PostMapping("/publishing/description")
+    public Object updatePublishingDescription(@PathVariable UUID id, @RequestParam(required = false) String description,
+                                               @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                               @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                               jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            publishingService.updatePublishingDescription(principal.user(), id, description);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Publishing Description updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** ENG-046: Publishing's discussion thread - CEO/MM or the currently assigned Publisher team only. */
+    @PostMapping("/publishing/comments")
+    public Object addPublishingComment(@PathVariable UUID id, @RequestParam String commentText,
+                                        @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                        @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                        jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            var comment = stageCommentService.addComment(principal.user(), id, LifecycleStage.PUBLISHING, commentText);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok(Map.of(
+                        "commentId", comment.getId(),
+                        "commenterName", comment.getCommenter().getFullName(),
+                        "createdAt", com.kcpc.mkt.common.util.DisplayTime.ist(comment.getCreatedAt()),
+                        "commentText", comment.getCommentText()));
+            }
+            ra.addFlashAttribute("successMessage", "Comment added.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    @PostMapping("/publishing/comments/{commentId}/edit")
+    public Object editPublishingComment(@PathVariable UUID id, @PathVariable UUID commentId, @RequestParam String commentText,
+                                         @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                         @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                         jakarta.servlet.http.HttpServletRequest request) {
+        return doEditComment(id, commentId, commentText, requestedWith, principal, ra, request);
+    }
+
+    @PostMapping("/publishing/comments/{commentId}/delete")
+    public Object deletePublishingComment(@PathVariable UUID id, @PathVariable UUID commentId,
+                                           @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                           @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                           jakarta.servlet.http.HttpServletRequest request) {
+        return doDeleteComment(id, commentId, requestedWith, principal, ra, request);
     }
 
     // -------------------------------------------------------- Performance

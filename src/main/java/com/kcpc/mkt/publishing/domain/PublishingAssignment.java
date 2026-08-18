@@ -1,4 +1,4 @@
-package com.kcpc.mkt.production.domain;
+package com.kcpc.mkt.publishing.domain;
 
 import com.kcpc.mkt.common.entity.BaseEntity;
 import com.kcpc.mkt.identity.domain.User;
@@ -15,13 +15,15 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 
 /**
- * ERD-TBL-013: multi-Cameraperson shooting task assignments. Initial assignment during Planning
- * (Permission #4); later replacement is Reassign only (Permission #11) - see build-prompt §18.
+ * Multi-Publisher task assignments for the Publishing stage, mirroring
+ * {@link com.kcpc.mkt.production.domain.ShootingAssignment} / {@code EditingAssignment} (ERD-TBL-013/014).
+ * Not present in the frozen ERD - see docs/IMPLEMENTATION_DECISIONS.md ENG-035. Purely additive tracking;
+ * does not gate Start Publishing, which remains governed solely by PERM_08_PUBLISHING_EXECUTION.
  */
 @Entity
-@Table(name = "shooting_assignments")
+@Table(name = "publishing_assignments")
 @AttributeOverride(name = "id", column = @Column(name = "assignment_id"))
-public class ShootingAssignment extends BaseEntity {
+public class PublishingAssignment extends BaseEntity {
 
     // EAGER: read by self-service DTO mapping outside any open transaction - see ENG-005.
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
@@ -29,8 +31,8 @@ public class ShootingAssignment extends BaseEntity {
     private ContentPlan contentPlan;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
-    @JoinColumn(name = "cameraperson_user_id", nullable = false)
-    private User cameraperson;
+    @JoinColumn(name = "publisher_user_id", nullable = false)
+    private User publisher;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "assigned_by_user_id", nullable = false)
@@ -46,19 +48,12 @@ public class ShootingAssignment extends BaseEntity {
     @Column(name = "ended_at")
     private Instant endedAt;
 
-    // Not in the frozen ERD - see ENG-036. At most one active row per Content Plan may hold this
-    // (DB partial unique index); ending this row (see end()) does not clear it - a since-removed
-    // assignment's lead flag is preserved as a historical fact, but is_active=false excludes it
-    // from every "current Lead" lookup, so leadership is effectively cleared regardless.
-    @Column(name = "is_lead", nullable = false)
-    private boolean lead = false;
-
-    protected ShootingAssignment() {
+    protected PublishingAssignment() {
     }
 
-    public ShootingAssignment(ContentPlan contentPlan, User cameraperson, User assignedBy) {
+    public PublishingAssignment(ContentPlan contentPlan, User publisher, User assignedBy) {
         this.contentPlan = contentPlan;
-        this.cameraperson = cameraperson;
+        this.publisher = publisher;
         this.assignedBy = assignedBy;
     }
 
@@ -71,8 +66,8 @@ public class ShootingAssignment extends BaseEntity {
         return contentPlan;
     }
 
-    public User getCameraperson() {
-        return cameraperson;
+    public User getPublisher() {
+        return publisher;
     }
 
     public User getAssignedBy() {
@@ -81,14 +76,6 @@ public class ShootingAssignment extends BaseEntity {
 
     public boolean isActive() {
         return active;
-    }
-
-    public boolean isLead() {
-        return lead;
-    }
-
-    public void setLead(boolean lead) {
-        this.lead = lead;
     }
 
     public Instant getAssignedAt() {

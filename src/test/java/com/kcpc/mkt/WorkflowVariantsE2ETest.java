@@ -54,6 +54,7 @@ class WorkflowVariantsE2ETest {
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
     private static final String TARGET_1 = "01926e3e-000a-7000-8000-000000000001";
     private static final String TARGET_2 = "01926e3e-000a-7000-8000-000000000002";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void ideaRejectFlowRequiresReasonAndTerminatesAtRejected() throws Exception {
@@ -156,20 +157,22 @@ class WorkflowVariantsE2ETest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String camId = createUser(ceo, "Hold Camera", "e2e-hold-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String camEmail = "e2e-hold-cam-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Hold Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Hold Flow " + unique);
         preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
 
         HttpResponse<String> holdResponse = ceo.post("/api/v1/content-plans/" + contentPlanId + "/hold",
                 "{\"reason\":\"Location access delayed\"}");
         assertThat(holdResponse.statusCode()).isEqualTo(200);
 
         // ERD-CON-061/062: an open Hold blocks progression - Shoot Review submission is rejected.
-        HttpResponse<String> blockedSubmit = ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        HttpResponse<String> blockedSubmit = cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         assertThat(blockedSubmit.statusCode()).isEqualTo(409);
 
         // A second Hold while one is already open is also rejected (ERD-CON-062).
@@ -180,7 +183,7 @@ class WorkflowVariantsE2ETest {
         HttpResponse<String> resumeResponse = ceo.post("/api/v1/content-plans/" + contentPlanId + "/resume", "");
         assertThat(resumeResponse.statusCode()).isEqualTo(200);
 
-        HttpResponse<String> submitAfterResume = ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        HttpResponse<String> submitAfterResume = cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         assertThat(submitAfterResume.statusCode()).isEqualTo(200);
     }
 
@@ -189,15 +192,24 @@ class WorkflowVariantsE2ETest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String camId = createUser(ceo, "Due Camera", "e2e-due-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String edId = createUser(ceo, "Due Editor", "e2e-due-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String camEmail = "e2e-due-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-due-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-due-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Due Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Due Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Due Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pub = loginNewClient(pubEmail);
+        grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = advanceToReadyForPublishing(ceo, "Due Date Flow " + unique, camId, edId);
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, "Due Date Flow " + unique, camId, edId);
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
         String outputId = findPlannedOutputId(contentPlanId);
 
         // Publish "now" -> performance_due_date = today + 2 (ERD-CON-016) - strictly in the future.
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+        pub.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
                 "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
                         + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + Instant.now()
                         + "\",\"evidenceUrl\":\"https://instagram.com/p/due-" + unique + "\"}");
@@ -214,8 +226,16 @@ class WorkflowVariantsE2ETest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String camId = createUser(ceo, "Na Camera", "e2e-na-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String edId = createUser(ceo, "Na Editor", "e2e-na-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String camEmail = "e2e-na-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-na-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-na-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Na Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Na Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Na Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pub = loginNewClient(pubEmail);
+        grantPublishingPermission(ceo, pubId);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Multi-Target Flow " + unique);
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
@@ -232,19 +252,20 @@ class WorkflowVariantsE2ETest {
 
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         // Publish live to Target 1 only - scope is not yet resolved (Target 2 still pending).
-        JsonNode firstEvent = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+        JsonNode firstEvent = pub.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
                 "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
                         + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + Instant.now()
                         + "\",\"evidenceUrl\":\"https://instagram.com/p/na-t1-" + unique + "\"}");
@@ -254,7 +275,7 @@ class WorkflowVariantsE2ETest {
         // Repost to Target 1 - a second event against the same output/target, distinct from the ORIGINAL.
         // Must happen while still PUBG (API-OP-040): once scope resolves the deliverable leaves PUBG and a
         // further event requires Reopen for Publishing first (API-OP-052), exercised separately below.
-        HttpResponse<String> repost = ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+        HttpResponse<String> repost = pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
                 "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
                         + "\",\"eventType\":\"REPOST\",\"actualPublicationTimestamp\":\"" + Instant.now()
                         + "\",\"evidenceUrl\":\"https://instagram.com/p/na-repost-" + unique + "\"}");
@@ -283,10 +304,18 @@ class WorkflowVariantsE2ETest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String camId = createUser(ceo, "Reopen Camera", "e2e-reopen-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String edId = createUser(ceo, "Reopen Editor", "e2e-reopen-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String camEmail = "e2e-reopen-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-reopen-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-reopen-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Reopen Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Reopen Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Reopen Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pub = loginNewClient(pubEmail);
+        grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = driveToCompleted(ceo, "Reopen Flow " + unique, camId, edId);
+        String contentPlanId = driveToCompleted(ceo, cam, ed, pub, "Reopen Flow " + unique, camId, edId, pubId);
         JsonNode completed = ceo.getJson("/api/v1/content-plans/" + contentPlanId);
         assertThat(completed.get("status").asText()).isEqualTo("COMP");
 
@@ -305,6 +334,19 @@ class WorkflowVariantsE2ETest {
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + businessRoleId + "\",\"creationReason\":\"e2e test fixture\"}");
         return response.get("userId").asText();
+    }
+
+    /** ENG-043: Start/Submit-style execution acts require the actively assigned employee, not CEO/MM native authority. */
+    private TestApiClient loginNewClient(String email) throws Exception {
+        TestApiClient client = new TestApiClient(port);
+        client.login(email, "Passw0rd!");
+        return client;
+    }
+
+    private void grantPublishingPermission(TestApiClient ceo, String publisherUserId) throws Exception {
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + publisherUserId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e workflow-variants publisher grant\"}");
     }
 
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
@@ -328,29 +370,34 @@ class WorkflowVariantsE2ETest {
                 "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
     }
 
-    private String advanceToReadyForPublishing(TestApiClient ceo, String title, String camId, String edId) throws Exception {
+    /** ENG-043: {@code cam}/{@code ed} must already be logged in as the actively assigned Cameraperson/Editor. */
+    private String advanceToReadyForPublishing(TestApiClient ceo, TestApiClient cam, TestApiClient ed, String title,
+                                                String camId, String edId) throws Exception {
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, title);
         preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
         return contentPlanId;
     }
 
-    private String driveToCompleted(TestApiClient ceo, String title, String camId, String edId) throws Exception {
-        String contentPlanId = advanceToReadyForPublishing(ceo, title, camId, edId);
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+    /** ENG-043: {@code pub} must already be logged in as the actively assigned Publisher, with PERM_08 granted. */
+    private String driveToCompleted(TestApiClient ceo, TestApiClient cam, TestApiClient ed, TestApiClient pub,
+                                     String title, String camId, String edId, String pubId) throws Exception {
+        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, title, camId, edId);
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
         String outputId = findPlannedOutputId(contentPlanId);
         String pastTimestamp = Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+        pub.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
                 "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
                         + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + pastTimestamp
                         + "\",\"evidenceUrl\":\"https://instagram.com/p/reopen-" + title.hashCode() + "\"}");

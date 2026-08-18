@@ -1,10 +1,17 @@
 /**
  * Model(s) picker: a searchable, checkbox-backed multi-select shown as removable chips inside
- * an input-like box (Planning Details "Model(s)"). The underlying control is a plain checkbox
- * list of active Users holding the "Model" Business Role - it stays fully visible and usable
- * without JavaScript (every Model checkbox submits normally as modelUserIds). This script layers
- * the chip/search UI on top once it has run: the checklist becomes a toggleable dropdown, and
- * checking/unchecking a box (directly, or via a chip's x) is mirrored as a chip.
+ * an input-like box (Planning Details "Model(s)"; also reused, ENG-045, for Planning's
+ * Cameraperson(s) field). The underlying control is a plain checkbox list - it stays fully
+ * visible and usable without JavaScript (every checkbox submits normally with its form, e.g.
+ * modelUserIds/cameramanUserIds). This script layers the chip/search UI on top once it has run:
+ * the checklist becomes a toggleable dropdown, and checking/unchecking a box (directly, or via a
+ * chip's x) is mirrored as a chip.
+ *
+ * ENG-045: a picker MAY also contain a sibling `.kcpc-lead-select` (Shoot Lead) - if present, its
+ * options are kept live-in-sync with whichever checkboxes are currently checked (rebuilt from
+ * scratch on every change, same approach as assignment-picker.js's refreshLeadOptions), so picking
+ * a Lead is always restricted to people currently selected, with no separate save step - everything
+ * submits together with the checkboxes when the surrounding form is submitted.
  */
 (function () {
     function initPicker(picker) {
@@ -16,6 +23,39 @@
             return;
         }
         var checkboxes = checklist.querySelectorAll('input[type="checkbox"]');
+        var leadSelect = picker.querySelector('.kcpc-lead-select');
+
+        function refreshLeadOptions() {
+            if (!leadSelect) {
+                return;
+            }
+            var currentValue = leadSelect.value;
+            leadSelect.innerHTML = '';
+            var noneOption = document.createElement('option');
+            noneOption.value = '';
+            noneOption.textContent = '— None —';
+            leadSelect.appendChild(noneOption);
+            var anyChecked = false;
+            for (var i = 0; i < checkboxes.length; i++) {
+                if (!checkboxes[i].checked) {
+                    continue;
+                }
+                anyChecked = true;
+                var option = document.createElement('option');
+                option.value = checkboxes[i].value;
+                option.textContent = checkboxes[i].getAttribute('data-name');
+                leadSelect.appendChild(option);
+            }
+            leadSelect.disabled = !anyChecked;
+            var stillValid = false;
+            for (var j = 0; j < leadSelect.options.length; j++) {
+                if (leadSelect.options[j].value === currentValue) {
+                    stillValid = true;
+                    break;
+                }
+            }
+            leadSelect.value = stillValid ? currentValue : '';
+        }
 
         function renderChips() {
             chips.innerHTML = '';
@@ -43,6 +83,7 @@
                         }
                     }
                     renderChips();
+                    refreshLeadOptions();
                 });
                 chip.appendChild(remove);
                 chips.appendChild(chip);
@@ -72,7 +113,10 @@
         search.style.display = 'inline-block';
 
         for (var i = 0; i < checkboxes.length; i++) {
-            checkboxes[i].addEventListener('change', renderChips);
+            checkboxes[i].addEventListener('change', function () {
+                renderChips();
+                refreshLeadOptions();
+            });
         }
         input.addEventListener('click', function () {
             openDropdown();
@@ -87,6 +131,7 @@
         });
 
         renderChips();
+        refreshLeadOptions();
     }
 
     var pickers = document.querySelectorAll('.kcpc-model-picker');

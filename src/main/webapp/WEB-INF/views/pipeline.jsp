@@ -22,15 +22,17 @@
                 <th>Reference Link / Note</th>
                 <th>Category</th>
                 <th>Channels</th>
-                <th>Actor</th>
+                <th>Head</th>
                 <th>Camera Person</th>
                 <th>Models</th>
                 <th>Video Editor</th>
                 <th>Drive Link</th>
+                <th>Planned Shoot Date</th>
+                <th>Planned Edit Date</th>
                 <th>Planned Live Date</th>
-                <th>Shoot Date</th>
-                <th>Edit Date</th>
-                <th>Live Date</th>
+                <th>Actual Shoot Date</th>
+                <th>Actual Edit Date</th>
+                <th>Actual Live Date</th>
                 <th>Platforms</th>
                 <th>Performance</th>
                 <th>Status</th>
@@ -76,10 +78,12 @@
                             <c:otherwise><span class="pipeline-link-muted" title="No Drive Link set">—</span></c:otherwise>
                         </c:choose>
                     </td>
+                    <td>${row.plannedShootDate}</td>
+                    <td>${row.plannedEditDate}</td>
                     <td>${row.plannedLiveDate}</td>
-                    <td>${row.shootDate}</td>
-                    <td>${row.editDate}</td>
-                    <td>${row.liveDate}</td>
+                    <td>${row.actualShootDate}</td>
+                    <td>${row.actualEditDate}</td>
+                    <td>${row.actualLiveDate}</td>
                     <td class="pipeline-col-wrap" title="${row.platforms}">${row.platforms}</td>
                     <td>
                         <c:choose>
@@ -93,7 +97,7 @@
                     <td><span class="status-badge">${row.status}</span></td>
                 </tr>
             </c:forEach>
-            <c:if test="${empty pipelineRows}"><tr><td colspan="18" class="muted">No deliverables yet.</td></tr></c:if>
+            <c:if test="${empty pipelineRows}"><tr><td colspan="20" class="muted">No deliverables yet.</td></tr></c:if>
             </tbody>
         </table>
     </div>

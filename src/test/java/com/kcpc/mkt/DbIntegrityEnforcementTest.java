@@ -53,11 +53,15 @@ class DbIntegrityEnforcementTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        String camEmail = "dbint-camera-" + unique + "@kcpcbandhani.local";
         JsonNode camUser = ceo.postJson("/api/v1/admin/users",
-                "{\"fullName\":\"DbInt Camera\",\"email\":\"dbint-camera-" + unique
-                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
+                "{\"fullName\":\"DbInt Camera\",\"email\":\"" + camEmail
+                        + "\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
                         + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"db integrity test fixture\"}");
         String camId = camUser.get("userId").asText();
+        // ENG-043: "Start Shoot" now requires the actively assigned Cameraperson, not CEO native authority.
+        TestApiClient cam = new TestApiClient(port);
+        cam.login(camEmail, "Passw0rd!");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"DB Integrity Hold Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -78,7 +82,7 @@ class DbIntegrityEnforcementTest {
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
 
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/hold", "{\"reason\":\"DB integrity test hold.\"}");
 
@@ -91,6 +95,47 @@ class DbIntegrityEnforcementTest {
 
         Integer stillPresent = jdbc.queryForObject(
                 "SELECT count(*) FROM work_hold_records WHERE hold_record_id = ?::uuid", Integer.class, holdRecordId);
+        assertThat(stillPresent).isEqualTo(1);
+    }
+
+    /**
+     * ENG-050: V18 dropped stage_comments' append-only UPDATE-reject trigger (own-comment edit/soft-
+     * delete now needs a real UPDATE) but deliberately left the DELETE-reject trigger in place - a
+     * hard DELETE must still be impossible at the DB level even though the row is otherwise mutable.
+     */
+    @Test
+    void stageCommentHardDeleteIsStillRejectedAtTheDatabaseLevelAfterEng050() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String camEmail = "dbint-stagecmt-" + unique + "@kcpcbandhani.local";
+        JsonNode camUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"DbInt Stage Cmt\",\"email\":\"" + camEmail
+                        + "\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
+                        + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"db integrity test fixture\"}");
+        String camId = camUser.get("userId").asText();
+
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"DB Integrity Stage Comment Test " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
+        ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
+        String contentPlanId = plan.getId().toString();
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
+                "{\"cameramanUserId\":\"" + camId + "\"}");
+
+        var posted = ceo.postFormAjax("/app/deliverables/" + contentPlanId + "/shooting/comments",
+                java.util.Map.of("commentText", "DB integrity comment"));
+        String commentId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(posted.body())
+                .get("commentId").asText();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM stage_comments WHERE comment_id = ?::uuid", commentId))
+                .hasMessageContaining("append-only");
+
+        Integer stillPresent = jdbc.queryForObject(
+                "SELECT count(*) FROM stage_comments WHERE comment_id = ?::uuid", Integer.class, commentId);
         assertThat(stillPresent).isEqualTo(1);
     }
 

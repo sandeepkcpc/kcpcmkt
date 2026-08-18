@@ -78,18 +78,18 @@ public class ShootingService {
 
     /**
      * No CEO-Granted Operational Permission exists for the shoot-start/submit-for-review acts
-     * themselves (only Assignment #4 and Review #5 are catalogued) - gated to native CEO/MM or
-     * an actively assigned Cameraperson (see docs/IMPLEMENTATION_DECISIONS.md ENG-013).
+     * themselves (only Assignment #4 and Review #5 are catalogued) - gated to an actively assigned
+     * Cameraperson only, NOT native CEO/MM authority (see docs/IMPLEMENTATION_DECISIONS.md ENG-013,
+     * revised by ENG-043: CEO/MM's native authority covers management actions - Assign, Review
+     * decisions, monitoring - not hands-on execution of an Employee's own task, so it deliberately
+     * does not bypass this check).
      */
-    private void requireAssigneeOrNative(User actor, ContentPlan plan) {
-        if (authorizationService.hasNativeAuthority(actor)) {
-            return;
-        }
+    private void requireActiveAssignee(User actor, ContentPlan plan) {
         boolean isAssignee = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                 .anyMatch(a -> a.getCameraperson().getId().equals(actor.getId()));
         if (!isAssignee) {
             throw DomainException.forbidden(ErrorCode.PERM_ACCESS_CLASS_DENIED,
-                    "Only an assigned Cameraperson or CEO/MM can perform this action");
+                    "Only an assigned Cameraperson can perform this action");
         }
     }
 
@@ -101,7 +101,7 @@ public class ShootingService {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     "Shooting can only start once Shoot Assigned");
         }
-        requireAssigneeOrNative(actor, plan);
+        requireActiveAssignee(actor, plan);
         workflowService.transition(workflowInstance, WorkflowStatus.SIP, actor, Optional.empty(),
                 "START_SHOOTING", null);
         auditService.record(actor, Optional.empty(), "SHOOTING", "SHOOTING_STARTED", "content_plans",
@@ -117,7 +117,7 @@ public class ShootingService {
                     "Shoot Review can only be submitted while Shoot In Progress");
         }
         holdService.requireNoOpenHold(workflowInstance);
-        requireAssigneeOrNative(submitter, plan);
+        requireActiveAssignee(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                     "Drive Link is required before Shoot Review");

@@ -43,6 +43,13 @@ public class EditingAssignment extends BaseEntity {
     @Column(name = "ended_at")
     private Instant endedAt;
 
+    // Not in the frozen ERD - see ENG-036. At most one active row per Content Plan may hold this
+    // (DB partial unique index); ending this row (see end()) does not clear it - a since-removed
+    // assignment's lead flag is preserved as a historical fact, but is_active=false excludes it
+    // from every "current Lead" lookup, so leadership is effectively cleared regardless.
+    @Column(name = "is_lead", nullable = false)
+    private boolean lead = false;
+
     protected EditingAssignment() {
     }
 
@@ -67,5 +74,13 @@ public class EditingAssignment extends BaseEntity {
 
     public boolean isActive() {
         return active;
+    }
+
+    public boolean isLead() {
+        return lead;
+    }
+
+    public void setLead(boolean lead) {
+        this.lead = lead;
     }
 }

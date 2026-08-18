@@ -157,10 +157,9 @@
     <%-- ============================ PLANNING ============================ --%>
     <c:if test="${status == 'PL' or status == 'PLRV'}">
         <div class="panel">
-            <h2>Planning Workspace</h2>
+            <h2>${status == 'PLRV' ? 'Planning Review' : 'Planning Workspace'}</h2>
             <c:choose>
                 <c:when test="${canPlanningExecute and status == 'PL'}">
-                    <h3>1. Planning Details</h3>
                     <form id="planning-details-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/plan-submit">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                         <div class="form-grid">
@@ -174,10 +173,6 @@
                             </label>
                             <label>SKU Reference
                                 <input type="text" name="skuReference" value="${plan.skuReference}">
-                                <span class="checkbox-inline">
-                                    <input type="checkbox" name="skuNotApplicable" value="true"
-                                           ${plan.skuNotApplicable ? 'checked' : ''}> N/A
-                                </span>
                             </label>
 
                             <div class="kcpc-model-picker">
@@ -207,7 +202,6 @@
                                 </select>
                             </label>
 
-                            <h3 class="grid-span-all">Schedule</h3>
                             <p class="note-box grid-span-all">Standard: Shoot/Edit Date default to Live Date minus 5/2
                                 days unless overridden below. Urgent: required when the Planned Live Date is fewer than
                                 5 days away (or intentionally at any distance) — Shoot Date, Edit Date and Urgency
@@ -222,7 +216,6 @@
                         </div>
                     </form>
 
-                    <h3>2. Planned Outputs</h3>
                     <table class="data-table" id="planned-outputs-table"
                            data-context-path="${pageContext.request.contextPath}" data-plan-id="${plan.id}">
                         <thead><tr><th>Output</th><th>Type</th><th>Publication Targets</th><th>Action</th></tr></thead>
@@ -311,15 +304,17 @@
                                                         </c:forEach>
                                                     </select>
                                                 </label>
-                                                <label>Channels</label>
-                                                <div class="kcpc-channel-checklist">
-                                                    <c:forEach var="pt" items="${activePublicationTargets}">
-                                                        <label class="channel-check-item" data-platform="${pt.platform.platformName}">
-                                                            <input type="checkbox" name="publicationTargetIds" value="${pt.id}"
-                                                                   data-platform="${pt.platform.platformName}"
-                                                                   data-channel="${pt.channel.channelHandle}"> ${pt.channel.channelHandle}
-                                                        </label>
-                                                    </c:forEach>
+                                                <div class="kcpc-channel-group">
+                                                    <label>Channels</label>
+                                                    <div class="kcpc-channel-checklist">
+                                                        <c:forEach var="pt" items="${activePublicationTargets}">
+                                                            <label class="channel-check-item" data-platform="${pt.platform.platformName}">
+                                                                <input type="checkbox" name="publicationTargetIds" value="${pt.id}"
+                                                                       data-platform="${pt.platform.platformName}"
+                                                                       data-channel="${pt.channel.channelHandle}"> ${pt.channel.channelHandle}
+                                                            </label>
+                                                        </c:forEach>
+                                                    </div>
                                                 </div>
                                                 <button type="submit">+ Add Target</button>
                                             </form>
@@ -367,48 +362,84 @@
                     </details>
                 </c:when>
                 <c:otherwise>
-                    <p class="muted">Read-only view: your permissions do not include Planning Execution, or the plan is under review.</p>
+                    <c:if test="${status != 'PLRV'}">
+                        <p class="muted">Read-only view: your permissions do not include Planning Execution, or the plan is under review.</p>
+                    </c:if>
                 </c:otherwise>
             </c:choose>
 
             <c:if test="${canAssignCameraperson and status == 'PL'}">
-                <h3>3. Shoot Assignment</h3>
-                <form class="action-form" method="post"
-                      action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <label>Cameraperson(s)</label>
-                    <div class="assign-row">
-                        <select name="cameramanUserId">
-                            <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
-                        </select>
-                        <button type="submit">Assign</button>
+                <%-- ENG-045: no separate "Assign Cameraperson(s)" button/form anymore - these
+                     checkboxes/select submit natively with #planning-details-form (via the HTML5
+                     form="" attribute, even though they sit outside its DOM boundary) and are only
+                     persisted once "Submit for Planning Review" is clicked, same transaction as
+                     everything else. Reuses model-picker.js's plain stage-locally chip behavior
+                     (extended to also live-refresh the Shoot Lead options), not assignment-picker.js. --%>
+                <div class="kcpc-model-picker planning-shoot-picker">
+                    <div class="assignment-picker-grid">
+                        <div class="assignment-picker-field">
+                            <label>Cameraperson(s)</label>
+                            <div class="kcpc-model-input">
+                                <div class="kcpc-model-chips"></div>
+                                <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
+                            </div>
+                        </div>
+                        <div class="assignment-picker-field">
+                            <label>Shoot Lead
+                                <select name="leadUserId" form="planning-details-form" class="kcpc-lead-select"
+                                        ${empty shootingAssignments ? 'disabled' : ''}>
+                                    <option value="">&mdash; None &mdash;</option>
+                                    <c:forEach var="a" items="${shootingAssignments}">
+                                        <option value="${a.cameraperson.id}" ${a.lead ? 'selected' : ''}>${a.cameraperson.fullName}</option>
+                                    </c:forEach>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="kcpc-model-checklist">
+                            <c:forEach var="u" items="${camerapersonUsers}">
+                                <c:set var="isAssigned" value="false"/>
+                                <c:forEach var="a" items="${shootingAssignments}">
+                                    <c:if test="${a.cameraperson.id == u.id}"><c:set var="isAssigned" value="true"/></c:if>
+                                </c:forEach>
+                                <label class="model-check-item">
+                                    <input type="checkbox" name="cameramanUserIds" form="planning-details-form" value="${u.id}"
+                                           data-name="${u.fullName}" ${isAssigned ? 'checked' : ''}> ${u.fullName}
+                                </label>
+                            </c:forEach>
+                        </div>
                     </div>
-                </form>
+                    <label>Shoot Instructions
+                        <textarea name="shootDescription" form="planning-details-form" class="planning-shoot-instructions" rows="3"
+                                  placeholder="Instructions for the Cameraperson team..."><c:out value="${plan.shootDescription}"/></textarea>
+                    </label>
+                </div>
             </c:if>
 
             <c:if test="${status == 'PL' and canPlanningExecute}">
-                <h3>4. Submit for Review</h3>
-                <p class="note-box">Submits the Planning Details fields above (Section 1) together with this
-                    Content ID for Planning Review.</p>
                 <div class="btn-row">
                     <button type="submit" form="planning-details-form">Submit for Planning Review</button>
                 </div>
             </c:if>
 
             <c:if test="${status == 'PLRV'}">
-                <h3>Planning Review Decision</h3>
                 <c:choose>
                     <c:when test="${canDecidePlanningReview}">
                         <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/planning-review/decision">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                            <label>Decision
-                                <select name="approve">
-                                    <option value="true">Approve</option>
-                                    <option value="false">Request Rework</option>
-                                </select>
-                            </label>
-                            <label>Reason (mandatory for Request Rework) <input type="text" name="reason"></label>
-                            <button type="submit">Submit Decision</button>
+                            <div class="review-decision-grid">
+                                <label>Decision
+                                    <select name="approve">
+                                        <option value="true">Approve</option>
+                                        <option value="false">Request Rework</option>
+                                    </select>
+                                </label>
+                                <label>Reason
+                                    <input type="text" name="reason" placeholder="Enter reason...">
+                                </label>
+                            </div>
+                            <div class="review-actions">
+                                <button type="submit">Submit Decision</button>
+                            </div>
                         </form>
                     </c:when>
                     <c:otherwise>
@@ -421,6 +452,99 @@
                     </c:otherwise>
                 </c:choose>
             </c:if>
+
+            <%-- ENG-048: the Planning Approver needs to see exactly what the Cameraperson team was
+                 told before deciding, and be able to correct it themselves (not silently - the audit
+                 trail keeps the old + new value) without that being a Request Rework round-trip back
+                 to the planner. Same underlying shoot_description field/endpoints as the Shoot panel's
+                 own block (ENG-046/047) - just a second place to view/edit it, gated by
+                 canEditShootDescription (now PERM_04 OR PERM_03, see PlanningService#requireShootDescriptionAuthority). --%>
+            <c:if test="${status == 'PLRV'}">
+                <div class="stage-description" data-empty-text="No instructions yet.">
+                    <c:choose>
+                        <c:when test="${canEditShootDescription}">
+                            <div class="stage-description-header">
+                                <h3 class="stage-block-heading">Shoot Instructions</h3>
+                                <button type="button" class="stage-description-edit-btn">&#9998; Edit</button>
+                            </div>
+                            <p class="stage-description-text stage-description-view"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                            <form class="action-form stage-description-form hidden" method="post"
+                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/description">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                <textarea name="description" rows="3"
+                                          placeholder="Instructions for the Cameraperson team..."><c:out value="${plan.shootDescription}"/></textarea>
+                                <div class="review-actions">
+                                    <button type="button" class="stage-description-cancel-btn">Cancel</button>
+                                    <button type="submit">Save</button>
+                                </div>
+                            </form>
+                        </c:when>
+                        <c:otherwise>
+                            <h3 class="stage-block-heading">Shoot Instructions</h3>
+                            <p class="stage-description-text muted"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                        </c:otherwise>
+                    </c:choose>
+                </div>
+
+                <h3 class="stage-block-heading">Comments</h3>
+                <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
+                    <div class="stage-comments-list">
+                        <c:forEach var="cm" items="${shootComments}">
+                            <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
+                                <c:choose>
+                                    <c:when test="${cm.deleted}">
+                                        <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
+                                        <div class="stage-comment-text muted">This comment was deleted.</div>
+                                    </c:when>
+                                    <c:otherwise>
+                                        <div class="stage-comment-meta">
+                                            <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
+                                            <c:if test="${cm.commenter.id == user.id}">
+                                                <div class="stage-comment-menu">
+                                                    <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
+                                                    <div class="stage-comment-menu-dropdown hidden">
+                                                        <button type="button" class="stage-comment-edit-trigger">Edit</button>
+                                                        <button type="button" class="stage-comment-delete-trigger">Delete</button>
+                                                    </div>
+                                                </div>
+                                            </c:if>
+                                        </div>
+                                        <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
+                                        <c:if test="${cm.commenter.id == user.id}">
+                                            <form class="action-form stage-comment-edit-form hidden" method="post"
+                                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/edit">
+                                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
+                                                <div class="review-actions">
+                                                    <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
+                                                    <button type="submit">Save</button>
+                                                </div>
+                                            </form>
+                                            <form class="action-form stage-comment-delete-form hidden" method="post"
+                                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/delete">
+                                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
+                                                <div class="review-actions">
+                                                    <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
+                                                    <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
+                                                </div>
+                                            </form>
+                                        </c:if>
+                                    </c:otherwise>
+                                </c:choose>
+                            </div>
+                        </c:forEach>
+                    </div>
+                    <c:if test="${canCommentOnShoot}">
+                        <form class="action-form stage-comment-form" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
+                            <button type="submit">Comment</button>
+                        </form>
+                    </c:if>
+                </div>
+            </c:if>
         </div>
     </c:if>
 
@@ -428,14 +552,14 @@
     <c:if test="${status == 'SA' or status == 'SIP' or status == 'SRV'}">
         <div class="panel">
             <h2>Shoot</h2>
-            <c:if test="${status == 'SA' and isShootAssigneeOrNative}">
+            <c:if test="${status == 'SA' and isShootActiveAssignee}">
                 <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/start">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                     <button type="submit">Start Shoot</button>
                 </form>
             </c:if>
             <c:if test="${status == 'SIP'}">
-                <c:if test="${isShootAssigneeOrNative and empty openHold}">
+                <c:if test="${isShootActiveAssignee and empty openHold}">
                     <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/review/submit">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                         <p class="muted">Requires the Drive Link to be set in Planning.</p>
@@ -465,8 +589,12 @@
                                 </select>
                             </label>
                             <p class="note-box">Each confirmed contributor receives the FULL predefined Cameraperson mark (no split).</p>
-                            <label>Reason (mandatory for Request Rework) <input type="text" name="reason"></label>
-                            <button type="submit">Submit Decision</button>
+                            <label>Reason
+                                <input type="text" name="reason" placeholder="Enter reason...">
+                            </label>
+                            <div class="review-actions">
+                                <button type="submit">Submit Decision</button>
+                            </div>
                         </form>
                     </c:when>
                     <c:otherwise>
@@ -479,6 +607,91 @@
                     </c:otherwise>
                 </c:choose>
             </c:if>
+
+            <div class="stage-description" data-empty-text="No instructions yet.">
+                <c:choose>
+                    <c:when test="${canEditShootDescription}">
+                        <div class="stage-description-header">
+                            <h3 class="stage-block-heading">Shoot Instructions</h3>
+                            <button type="button" class="stage-description-edit-btn">&#9998; Edit</button>
+                        </div>
+                        <p class="stage-description-text stage-description-view"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                        <form class="action-form stage-description-form hidden" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/description">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <textarea name="description" rows="3"
+                                      placeholder="Instructions for the Cameraperson team..."><c:out value="${plan.shootDescription}"/></textarea>
+                            <div class="review-actions">
+                                <button type="button" class="stage-description-cancel-btn">Cancel</button>
+                                <button type="submit">Save</button>
+                            </div>
+                        </form>
+                    </c:when>
+                    <c:otherwise>
+                        <h3 class="stage-block-heading">Shoot Instructions</h3>
+                        <p class="stage-description-text muted"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                    </c:otherwise>
+                </c:choose>
+            </div>
+
+            <h3 class="stage-block-heading">Comments</h3>
+            <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
+                <div class="stage-comments-list">
+                    <c:forEach var="cm" items="${shootComments}">
+                        <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
+                            <c:choose>
+                                <c:when test="${cm.deleted}">
+                                    <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
+                                    <div class="stage-comment-text muted">This comment was deleted.</div>
+                                </c:when>
+                                <c:otherwise>
+                                    <div class="stage-comment-meta">
+                                        <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
+                                        <c:if test="${cm.commenter.id == user.id}">
+                                            <div class="stage-comment-menu">
+                                                <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
+                                                <div class="stage-comment-menu-dropdown hidden">
+                                                    <button type="button" class="stage-comment-edit-trigger">Edit</button>
+                                                    <button type="button" class="stage-comment-delete-trigger">Delete</button>
+                                                </div>
+                                            </div>
+                                        </c:if>
+                                    </div>
+                                    <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
+                                    <c:if test="${cm.commenter.id == user.id}">
+                                        <form class="action-form stage-comment-edit-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/edit">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
+                                                <button type="submit">Save</button>
+                                            </div>
+                                        </form>
+                                        <form class="action-form stage-comment-delete-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/delete">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
+                                                <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
+                                            </div>
+                                        </form>
+                                    </c:if>
+                                </c:otherwise>
+                            </c:choose>
+                        </div>
+                    </c:forEach>
+                </div>
+                <c:if test="${canCommentOnShoot}">
+                    <form class="action-form stage-comment-form" method="post"
+                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
+                        <button type="submit">Comment</button>
+                    </form>
+                </c:if>
+            </div>
         </div>
     </c:if>
 
@@ -486,26 +699,73 @@
     <c:if test="${status == 'SAP' or status == 'EA' or status == 'ED' or status == 'ERV'}">
         <div class="panel">
             <h2>Edit</h2>
-            <c:if test="${status == 'SAP' and canAssignEditor}">
-                <p class="note-box">Editor assignment is available only after Shoot Approval.</p>
-                <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <div class="assign-row">
-                        <select name="editorUserId">
-                            <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
-                        </select>
-                        <button type="submit">Confirm Assignment</button>
+            <c:if test="${(status == 'SAP' or status == 'EA') and canAssignEditor}">
+                <p class="note-box">Editor assignment is available only after Shoot Approval. Assigning the first
+                    Editor activates Edit (status moves to Edit Assigned) - further Editors can still be added here
+                    afterward.</p>
+                <div class="kcpc-assignment-picker"
+                     data-add-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments/team"
+                     data-remove-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments/remove"
+                     data-param-name="editorUserId">
+                    <div class="assignment-picker-grid">
+                        <div class="assignment-picker-field">
+                            <label>Editor(s)</label>
+                            <div class="kcpc-model-input">
+                                <div class="kcpc-model-chips">
+                                    <c:forEach var="a" items="${editingAssignments}">
+                                        <form class="chip-remove-form" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments/remove">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <input type="hidden" name="editorUserId" value="${a.editor.id}"/>
+                                            <span class="model-chip" data-user-id="${a.editor.id}" data-name="${a.editor.fullName}">
+                                                ${a.editor.fullName}
+                                                <button type="submit" class="chip-remove" title="Remove ${a.editor.fullName}">&times;</button>
+                                            </span>
+                                        </form>
+                                    </c:forEach>
+                                </div>
+                                <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                            </div>
+                        </div>
+                        <form class="assignment-add-form" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/assignments/team">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <div class="assignment-picker-field">
+                                <label>Edit Lead
+                                    <select name="leadUserId" class="kcpc-lead-select" ${empty editingAssignments ? 'disabled' : ''}>
+                                        <option value="">&mdash; None &mdash;</option>
+                                        <c:forEach var="a" items="${editingAssignments}">
+                                            <option value="${a.editor.id}" ${a.lead ? 'selected' : ''}>${a.editor.fullName}</option>
+                                        </c:forEach>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="kcpc-model-checklist">
+                                <c:forEach var="u" items="${videoEditorUsers}">
+                                    <c:set var="isAssigned" value="false"/>
+                                    <c:forEach var="a" items="${editingAssignments}">
+                                        <c:if test="${a.editor.id == u.id}"><c:set var="isAssigned" value="true"/></c:if>
+                                    </c:forEach>
+                                    <c:if test="${!isAssigned}">
+                                        <label class="model-check-item">
+                                            <input type="checkbox" name="editorUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                        </label>
+                                    </c:if>
+                                </c:forEach>
+                            </div>
+                            <button type="submit" class="assignment-add-submit">Assign Editor(s)</button>
+                        </form>
                     </div>
-                </form>
+                </div>
             </c:if>
-            <c:if test="${status == 'EA' and isEditAssigneeOrNative}">
+            <c:if test="${status == 'EA' and isEditActiveAssignee}">
                 <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/start">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                     <button type="submit">Start Edit</button>
                 </form>
             </c:if>
             <c:if test="${status == 'ED'}">
-                <c:if test="${isEditAssigneeOrNative and empty openHold}">
+                <c:if test="${isEditActiveAssignee and empty openHold}">
                     <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/review/submit">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                         <button type="submit">Submit for Edit Review</button>
@@ -533,8 +793,12 @@
                                     </c:forEach>
                                 </select>
                             </label>
-                            <label>Reason (mandatory for Request Rework) <input type="text" name="reason"></label>
-                            <button type="submit">Submit Decision</button>
+                            <label>Reason
+                                <input type="text" name="reason" placeholder="Enter reason...">
+                            </label>
+                            <div class="review-actions">
+                                <button type="submit">Submit Decision</button>
+                            </div>
                         </form>
                     </c:when>
                     <c:otherwise>
@@ -547,6 +811,91 @@
                     </c:otherwise>
                 </c:choose>
             </c:if>
+
+            <div class="stage-description" data-empty-text="No description yet.">
+                <c:choose>
+                    <c:when test="${canEditEditDescription}">
+                        <div class="stage-description-header">
+                            <h3 class="stage-block-heading">Edit Description</h3>
+                            <button type="button" class="stage-description-edit-btn">&#9998; Edit</button>
+                        </div>
+                        <p class="stage-description-text stage-description-view"><c:out value="${empty plan.editDescription ? 'No description yet.' : plan.editDescription}"/></p>
+                        <form class="action-form stage-description-form hidden" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/description">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <textarea name="description" rows="3"
+                                      placeholder="Instructions for the Editor team..."><c:out value="${plan.editDescription}"/></textarea>
+                            <div class="review-actions">
+                                <button type="button" class="stage-description-cancel-btn">Cancel</button>
+                                <button type="submit">Save</button>
+                            </div>
+                        </form>
+                    </c:when>
+                    <c:otherwise>
+                        <h3 class="stage-block-heading">Edit Description</h3>
+                        <p class="stage-description-text muted"><c:out value="${empty plan.editDescription ? 'No description yet.' : plan.editDescription}"/></p>
+                    </c:otherwise>
+                </c:choose>
+            </div>
+
+            <h3 class="stage-block-heading">Comments</h3>
+            <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments">
+                <div class="stage-comments-list">
+                    <c:forEach var="cm" items="${editComments}">
+                        <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
+                            <c:choose>
+                                <c:when test="${cm.deleted}">
+                                    <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
+                                    <div class="stage-comment-text muted">This comment was deleted.</div>
+                                </c:when>
+                                <c:otherwise>
+                                    <div class="stage-comment-meta">
+                                        <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
+                                        <c:if test="${cm.commenter.id == user.id}">
+                                            <div class="stage-comment-menu">
+                                                <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
+                                                <div class="stage-comment-menu-dropdown hidden">
+                                                    <button type="button" class="stage-comment-edit-trigger">Edit</button>
+                                                    <button type="button" class="stage-comment-delete-trigger">Delete</button>
+                                                </div>
+                                            </div>
+                                        </c:if>
+                                    </div>
+                                    <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
+                                    <c:if test="${cm.commenter.id == user.id}">
+                                        <form class="action-form stage-comment-edit-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments/${cm.id}/edit">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
+                                                <button type="submit">Save</button>
+                                            </div>
+                                        </form>
+                                        <form class="action-form stage-comment-delete-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments/${cm.id}/delete">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
+                                                <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
+                                            </div>
+                                        </form>
+                                    </c:if>
+                                </c:otherwise>
+                            </c:choose>
+                        </div>
+                    </c:forEach>
+                </div>
+                <c:if test="${canCommentOnEdit}">
+                    <form class="action-form stage-comment-form" method="post"
+                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
+                        <button type="submit">Comment</button>
+                    </form>
+                </c:if>
+            </div>
         </div>
     </c:if>
 
@@ -554,37 +903,87 @@
     <c:if test="${status == 'RFP' or status == 'PUBG' or status == 'PP'}">
         <div class="panel">
             <h2>Publishing</h2>
-            <c:if test="${status == 'RFP' and canPublishingExecute}">
-                <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/start">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <button type="submit">Start Publishing</button>
-                </form>
+            <c:if test="${status == 'RFP'}">
+                <c:if test="${canAssignPublisher}">
+                    <h3>Publishing Assignment</h3>
+                    <div class="kcpc-assignment-picker"
+                         data-add-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing-assignments"
+                         data-remove-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing-assignments/remove"
+                         data-param-name="publisherUserId">
+                        <label>Publisher(s)</label>
+                        <div class="kcpc-model-input">
+                            <div class="kcpc-model-chips">
+                                <c:forEach var="a" items="${publishingAssignments}">
+                                    <form class="chip-remove-form" method="post"
+                                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing-assignments/remove">
+                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                        <input type="hidden" name="publisherUserId" value="${a.publisher.id}"/>
+                                        <span class="model-chip" data-user-id="${a.publisher.id}" data-name="${a.publisher.fullName}">
+                                            ${a.publisher.fullName}
+                                            <button type="submit" class="chip-remove" title="Remove ${a.publisher.fullName}">&times;</button>
+                                        </span>
+                                    </form>
+                                </c:forEach>
+                            </div>
+                            <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
+                        </div>
+                        <form class="assignment-add-form" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing-assignments">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <div class="kcpc-model-checklist">
+                                <c:forEach var="u" items="${publisherUsers}">
+                                    <c:set var="isAssigned" value="false"/>
+                                    <c:forEach var="a" items="${publishingAssignments}">
+                                        <c:if test="${a.publisher.id == u.id}"><c:set var="isAssigned" value="true"/></c:if>
+                                    </c:forEach>
+                                    <c:if test="${!isAssigned}">
+                                        <label class="model-check-item">
+                                            <input type="checkbox" name="publisherUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                        </label>
+                                    </c:if>
+                                </c:forEach>
+                            </div>
+                            <button type="submit" class="assignment-add-submit">Assign Publisher(s)</button>
+                        </form>
+                    </div>
+                </c:if>
+
+                <c:if test="${canPublishingExecute and isPublishActiveAssignee}">
+                    <h3>Your Assignment</h3>
+                    <p class="muted">Status: Ready for Publishing</p>
+                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/start">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <button type="submit">Start Publishing</button>
+                    </form>
+                </c:if>
             </c:if>
             <c:if test="${(status == 'PUBG' or status == 'PP') and canPublishingExecute}">
-                <h3>Record Actual Publication Event</h3>
-                <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <label>Planned Output
-                        <select name="plannedOutputId">
-                            <c:forEach var="o" items="${outputs}"><option value="${o.id}">${o.outputType} ${o.titleDescription}</option></c:forEach>
-                        </select>
-                    </label>
-                    <label>Publication Target
-                        <select name="publicationTargetId">
-                            <c:forEach var="pt" items="${activePublicationTargets}">
-                                <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
-                            </c:forEach>
-                        </select>
-                    </label>
-                    <label>Event Type
-                        <select name="eventType">
-                            <c:forEach var="et" items="${eventTypes}"><option value="${et}">${et}</option></c:forEach>
-                        </select>
-                    </label>
-                    <label>Actual Publication Date * <input type="date" name="actualPublicationTimestamp" required></label>
-                    <label>Evidence URL * <input type="url" name="evidenceUrl" required></label>
-                    <button type="submit">Save Event</button>
-                </form>
+                <c:if test="${isPublishActiveAssignee}">
+                    <h3>Record Actual Publication Event</h3>
+                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <label>Planned Output
+                            <select name="plannedOutputId">
+                                <c:forEach var="o" items="${outputs}"><option value="${o.id}">${o.outputType} ${o.titleDescription}</option></c:forEach>
+                            </select>
+                        </label>
+                        <label>Publication Target
+                            <select name="publicationTargetId">
+                                <c:forEach var="pt" items="${activePublicationTargets}">
+                                    <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
+                                </c:forEach>
+                            </select>
+                        </label>
+                        <label>Event Type
+                            <select name="eventType">
+                                <c:forEach var="et" items="${eventTypes}"><option value="${et}">${et}</option></c:forEach>
+                            </select>
+                        </label>
+                        <label>Actual Publication Date * <input type="date" name="actualPublicationTimestamp" required></label>
+                        <label>Evidence URL * <input type="url" name="evidenceUrl" required></label>
+                        <button type="submit">Save Event</button>
+                    </form>
+                </c:if>
 
                 <h3>Target N/A</h3>
                 <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/targets/na">
@@ -636,6 +1035,91 @@
                 <c:if test="${empty events}"><tr><td colspan="5" class="muted">No publication events yet.</td></tr></c:if>
                 </tbody>
             </table>
+
+            <div class="stage-description" data-empty-text="No description yet.">
+                <c:choose>
+                    <c:when test="${canEditPublishingDescription}">
+                        <div class="stage-description-header">
+                            <h3 class="stage-block-heading">Publishing Description</h3>
+                            <button type="button" class="stage-description-edit-btn">&#9998; Edit</button>
+                        </div>
+                        <p class="stage-description-text stage-description-view"><c:out value="${empty plan.publishingDescription ? 'No description yet.' : plan.publishingDescription}"/></p>
+                        <form class="action-form stage-description-form hidden" method="post"
+                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/description">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <textarea name="description" rows="3"
+                                      placeholder="Instructions for the Publisher team..."><c:out value="${plan.publishingDescription}"/></textarea>
+                            <div class="review-actions">
+                                <button type="button" class="stage-description-cancel-btn">Cancel</button>
+                                <button type="submit">Save</button>
+                            </div>
+                        </form>
+                    </c:when>
+                    <c:otherwise>
+                        <h3 class="stage-block-heading">Publishing Description</h3>
+                        <p class="stage-description-text muted"><c:out value="${empty plan.publishingDescription ? 'No description yet.' : plan.publishingDescription}"/></p>
+                    </c:otherwise>
+                </c:choose>
+            </div>
+
+            <h3 class="stage-block-heading">Comments</h3>
+            <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/comments">
+                <div class="stage-comments-list">
+                    <c:forEach var="cm" items="${publishingComments}">
+                        <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
+                            <c:choose>
+                                <c:when test="${cm.deleted}">
+                                    <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
+                                    <div class="stage-comment-text muted">This comment was deleted.</div>
+                                </c:when>
+                                <c:otherwise>
+                                    <div class="stage-comment-meta">
+                                        <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
+                                        <c:if test="${cm.commenter.id == user.id}">
+                                            <div class="stage-comment-menu">
+                                                <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
+                                                <div class="stage-comment-menu-dropdown hidden">
+                                                    <button type="button" class="stage-comment-edit-trigger">Edit</button>
+                                                    <button type="button" class="stage-comment-delete-trigger">Delete</button>
+                                                </div>
+                                            </div>
+                                        </c:if>
+                                    </div>
+                                    <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
+                                    <c:if test="${cm.commenter.id == user.id}">
+                                        <form class="action-form stage-comment-edit-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/comments/${cm.id}/edit">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
+                                                <button type="submit">Save</button>
+                                            </div>
+                                        </form>
+                                        <form class="action-form stage-comment-delete-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/comments/${cm.id}/delete">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
+                                                <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
+                                            </div>
+                                        </form>
+                                    </c:if>
+                                </c:otherwise>
+                            </c:choose>
+                        </div>
+                    </c:forEach>
+                </div>
+                <c:if test="${canCommentOnPublishing}">
+                    <form class="action-form stage-comment-form" method="post"
+                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/comments">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
+                        <button type="submit">Comment</button>
+                    </form>
+                </c:if>
+            </div>
         </div>
     </c:if>
 
@@ -700,7 +1184,7 @@
         <ul class="timeline">
             <c:forEach var="t" items="${timeline}">
                 <li><span class="ts">${kcpc:ist(t.transitionTimestamp)}</span>
-                    ${t.fromStatusCode} &rarr; ${t.toStatusCode} (${t.triggerCommand}) by ${t.triggeredBy.fullName}
+                    ${t.fromStatusCode.statusName} &rarr; ${t.toStatusCode.statusName} (${t.triggerCommand}) by ${t.triggeredBy.fullName}
                     <c:if test="${not empty t.transitionReason}"> — ${t.transitionReason}</c:if>
                 </li>
             </c:forEach>
@@ -710,5 +1194,8 @@
 </main>
 <script src="${pageContext.request.contextPath}/js/publication-scope.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/assignment-picker.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/review-decision.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
 </body>
 </html>

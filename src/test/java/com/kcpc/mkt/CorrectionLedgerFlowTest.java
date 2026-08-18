@@ -60,6 +60,7 @@ class CorrectionLedgerFlowTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String PUBLICATION_TARGET_ID = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -116,8 +117,21 @@ class CorrectionLedgerFlowTest {
 
         String camEmail = "corr-camera-" + unique + "@kcpcbandhani.local";
         String edEmail = "corr-editor-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "corr-publisher-" + unique + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Corr Camera", camEmail, CAMERA_PERSON_ROLE_ID);
         String edId = createUser(ceo, "Corr Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Corr Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        // ENG-043: Start/Submit-style execution acts now require the actor to be the actively
+        // assigned Cameraperson/Editor/Publisher - CEO/MM native authority no longer bypasses this.
+        TestApiClient cam = new TestApiClient(port);
+        cam.login(camEmail, "Passw0rd!");
+        TestApiClient ed = new TestApiClient(port);
+        ed.login(edEmail, "Passw0rd!");
+        TestApiClient pub = new TestApiClient(port);
+        pub.login(pubEmail, "Passw0rd!");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"correction test publisher grant\"}");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Correction Evidence/Metric Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -138,21 +152,23 @@ class CorrectionLedgerFlowTest {
                 "{\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}");
         ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments",
                 "{\"editorUserId\":\"" + edId + "\"}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
+                "{\"publisherUserId\":\"" + pubId + "\"}");
+        pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         String originalEvidenceUrl = "https://instagram.com/p/corr-original-" + unique;
         String pastTimestamp = Instant.now().minus(3, ChronoUnit.DAYS).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+        pub.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
                 "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + PUBLICATION_TARGET_ID
                         + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + pastTimestamp
                         + "\",\"evidenceUrl\":\"" + originalEvidenceUrl + "\"}");

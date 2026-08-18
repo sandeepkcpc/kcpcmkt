@@ -16,13 +16,14 @@
 
     <h2>Assigned Tasks</h2>
     <table class="data-table">
-        <thead><tr><th>Content ID</th><th>Role</th><th>Status</th><th>Shoot Date</th><th>Edit Date</th><th></th></tr></thead>
+        <thead><tr><th>Content ID</th><th>Role</th><th>Status</th><th>Description</th><th>Shoot Date</th><th>Edit Date</th><th></th></tr></thead>
         <tbody>
         <c:forEach var="t" items="${shootTasks}">
             <tr>
                 <td>${t.contentPlan.contentId}</td>
                 <td>Cameraperson</td>
                 <td><span class="status-badge">${t.contentPlan.workflowInstance.currentStatusCode.statusName}</span></td>
+                <td class="my-work-description"><c:out value="${empty t.contentPlan.shootDescription ? '—' : t.contentPlan.shootDescription}"/></td>
                 <td>${t.contentPlan.plannedShootDate}</td>
                 <td>${t.contentPlan.plannedEditDate}</td>
                 <td><a href="${pageContext.request.contextPath}/app/deliverables/${t.contentPlan.id}">Open</a></td>
@@ -33,13 +34,45 @@
                 <td>${t.contentPlan.contentId}</td>
                 <td>Editor</td>
                 <td><span class="status-badge">${t.contentPlan.workflowInstance.currentStatusCode.statusName}</span></td>
+                <td class="my-work-description"><c:out value="${empty t.contentPlan.editDescription ? '—' : t.contentPlan.editDescription}"/></td>
                 <td>${t.contentPlan.plannedShootDate}</td>
                 <td>${t.contentPlan.plannedEditDate}</td>
                 <td><a href="${pageContext.request.contextPath}/app/deliverables/${t.contentPlan.id}">Open</a></td>
             </tr>
         </c:forEach>
-        <c:if test="${empty shootTasks and empty editTasks}">
-            <tr><td colspan="6" class="muted">No assigned work.</td></tr>
+        <c:forEach var="t" items="${publishTasks}">
+            <tr>
+                <td>${t.contentPlan.contentId}</td>
+                <td>Publisher</td>
+                <td><span class="status-badge">${t.contentPlan.workflowInstance.currentStatusCode.statusName}</span></td>
+                <td class="my-work-description"><c:out value="${empty t.contentPlan.publishingDescription ? '—' : t.contentPlan.publishingDescription}"/></td>
+                <td>${t.contentPlan.plannedShootDate}</td>
+                <td>${t.contentPlan.plannedEditDate}</td>
+                <td><a href="${pageContext.request.contextPath}/app/deliverables/${t.contentPlan.id}">Open</a></td>
+            </tr>
+        </c:forEach>
+        <c:if test="${empty shootTasks and empty editTasks and empty publishTasks}">
+            <tr><td colspan="7" class="muted">No assigned work.</td></tr>
+        </c:if>
+        </tbody>
+    </table>
+
+    <h2>My Completed Work / History</h2>
+    <p class="muted">Your own past involvement, once that stage has moved on - no next-stage operational detail.</p>
+    <table class="data-table">
+        <thead><tr><th>Content ID</th><th>Stage Worked</th><th>My Work Status</th><th>Completed On</th><th>Final Result</th></tr></thead>
+        <tbody>
+        <c:forEach var="w" items="${completedWork}">
+            <tr>
+                <td>${w.contentId}</td>
+                <td>${w.stageWorked}</td>
+                <td>Completed</td>
+                <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
+                <td>${w.finalResult}</td>
+            </tr>
+        </c:forEach>
+        <c:if test="${empty completedWork}">
+            <tr><td colspan="5" class="muted">No completed work yet.</td></tr>
         </c:if>
         </tbody>
     </table>

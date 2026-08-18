@@ -53,6 +53,7 @@ class MvcScreenSmokeTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String PUBLICATION_TARGET_ID = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -61,8 +62,23 @@ class MvcScreenSmokeTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!"); // primes CSRF + REST login (also valid for MVC).
 
-        String camId = createUser(ceo, "MVC Camera", "mvc-camera-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String edId = createUser(ceo, "MVC Editor", "mvc-editor-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String camEmail = "mvc-camera-" + unique + "@kcpcbandhani.local";
+        String edEmail = "mvc-editor-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "mvc-publisher-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "MVC Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "MVC Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "MVC Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        // ENG-043: Start/Submit-style execution acts now require the actor to be the actively
+        // assigned Cameraperson/Editor/Publisher - CEO/MM native authority no longer bypasses this.
+        TestApiClient cam = new TestApiClient(port);
+        cam.login(camEmail, "Passw0rd!");
+        TestApiClient ed = new TestApiClient(port);
+        ed.login(edEmail, "Passw0rd!");
+        TestApiClient pub = new TestApiClient(port);
+        pub.login(pubEmail, "Passw0rd!");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"mvc smoke test publisher grant\"}");
 
         assertOk(ceo.get("/app/my-work"));
         assertOk(ceo.get("/app/pipeline"));
@@ -102,9 +118,9 @@ class MvcScreenSmokeTest {
         assertRedirect(ceo.postForm(base + "/planning-review/decision", Map.of("approve", "true")));
         assertOk(ceo.get(base)); // SA
 
-        assertRedirect(ceo.postForm(base + "/shooting/start", Map.of()));
+        assertRedirect(cam.postForm(base + "/shooting/start", Map.of()));
         assertOk(ceo.get(base)); // SIP
-        assertRedirect(ceo.postForm(base + "/shooting/review/submit", Map.of()));
+        assertRedirect(cam.postForm(base + "/shooting/review/submit", Map.of()));
         assertOk(ceo.get(base)); // SRV
         assertRedirect(ceo.postForm(base + "/shooting/review/decision",
                 Map.of("approve", "true", "qualifyingRecipientUserIds", camId)));
@@ -112,19 +128,20 @@ class MvcScreenSmokeTest {
 
         assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", edId)));
         assertOk(ceo.get(base)); // EA
-        assertRedirect(ceo.postForm(base + "/editing/start", Map.of()));
+        assertRedirect(ed.postForm(base + "/editing/start", Map.of()));
         assertOk(ceo.get(base)); // ED
-        assertRedirect(ceo.postForm(base + "/editing/review/submit", Map.of()));
+        assertRedirect(ed.postForm(base + "/editing/review/submit", Map.of()));
         assertOk(ceo.get(base)); // ERV
         assertRedirect(ceo.postForm(base + "/editing/review/decision",
                 Map.of("approve", "true", "qualifyingRecipientUserIds", edId)));
         assertOk(ceo.get(base)); // RFP
 
-        assertRedirect(ceo.postForm(base + "/publishing/start", Map.of()));
+        assertRedirect(ceo.postForm(base + "/publishing-assignments", Map.of("publisherUserId", pubId)));
+        assertRedirect(pub.postForm(base + "/publishing/start", Map.of()));
         assertOk(ceo.get(base)); // PUBG
 
         String pastDate = LocalDate.now().minusDays(3).toString();
-        assertRedirect(ceo.postForm(base + "/publishing/events",
+        assertRedirect(pub.postForm(base + "/publishing/events",
                 Map.of("plannedOutputId", output.getId().toString(), "publicationTargetId", PUBLICATION_TARGET_ID,
                         "eventType", "ORIGINAL", "actualPublicationTimestamp", pastDate,
                         "evidenceUrl", "https://instagram.com/p/mvc-" + unique)));

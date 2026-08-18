@@ -103,6 +103,17 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- Dev-only: auto-restart on class changes + LiveReload server so `mvn spring-boot:run`
+             picks up edits without a manual kill/rebuild/restart cycle. Excluded from repackaged
+             archives automatically by spring-boot-maven-plugin regardless of this scope/optional
+             setting - never present in a built jar/war. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
         <!-- CSV/XLSX export -->
         <dependency>
             <groupId>org.apache.poi</groupId>
@@ -143,6 +154,12 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <!-- `mvn spring-boot:run` only: puts src/main/resources (static/css/js) ahead
+                         of target/classes on the run classpath, so edits there are served
+                         immediately - no `mvn compile`/resource-copy step needed. JSPs already
+                         serve live from src/main/webapp via Tomcat/Jasper's own dev-mode
+                         recompilation, unaffected by this setting either way. -->
+                    <addResources>true</addResources>
                 </configuration>
             </plugin>
         </plugins>

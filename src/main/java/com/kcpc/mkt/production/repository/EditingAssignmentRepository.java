@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface EditingAssignmentRepository extends JpaRepository<EditingAssignment, UUID> {
@@ -17,4 +18,6 @@ public interface EditingAssignmentRepository extends JpaRepository<EditingAssign
     List<EditingAssignment> findByEditorAndActiveTrue(User editor);
 
     List<EditingAssignment> findByContentPlan_IdInAndActiveTrue(Collection<UUID> contentPlanIds);
+
+    Optional<EditingAssignment> findByContentPlanAndEditorAndActiveTrue(ContentPlan contentPlan, User editor);
 }
