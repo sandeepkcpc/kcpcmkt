@@ -8,6 +8,7 @@ import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
@@ -20,6 +21,7 @@ import com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping;
 import com.kcpc.mkt.planning.domain.PlanningMode;
 import com.kcpc.mkt.planning.domain.PlanningPreparer;
 import com.kcpc.mkt.planning.domain.ReelType;
+import com.kcpc.mkt.planning.dto.TalentSelection;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputPublicationTargetMappingRepository;
@@ -63,6 +65,7 @@ public class PlanningService {
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
+    private final UserRepository userRepository;
 
     public PlanningService(ContentPlanRepository contentPlanRepository,
                             ContentPlanTalentEntryRepository talentEntryRepository,
@@ -73,7 +76,7 @@ public class PlanningService {
                             ShootingAssignmentRepository shootingAssignmentRepository,
                             ReviewCycleRepository reviewCycleRepository,
                             WorkflowTransitionService workflowService, AuthorizationService authorizationService,
-                            AuditService auditService) {
+                            AuditService auditService, UserRepository userRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -85,6 +88,7 @@ public class PlanningService {
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
+        this.userRepository = userRepository;
     }
 
     private ContentPlan requireContentPlan(UUID contentPlanId) {
@@ -108,8 +112,8 @@ public class PlanningService {
     /** BRS-REQ-021: Category (free-text), Priority, SKU, Models/Talent, Drive Link. */
     @Transactional
     public ContentPlan updateParameters(User user, UUID contentPlanId, String categoryText, ContentPriority priority,
-                                         String skuReference, boolean skuNotApplicable, List<String> talentNames,
-                                         String folderLink) {
+                                         String skuReference, boolean skuNotApplicable,
+                                         List<TalentSelection> talentSelections, String folderLink) {
         ContentPlan plan = requireContentPlan(contentPlanId);
         requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
         recordPreparer(plan, user);
@@ -121,10 +125,14 @@ public class PlanningService {
         plan.setPreparedBy(user);
 
         talentEntryRepository.deleteByContentPlan(plan);
-        if (talentNames != null) {
-            for (String name : talentNames) {
-                if (name != null && !name.isBlank()) {
-                    talentEntryRepository.save(new ContentPlanTalentEntry(plan, name));
+        if (talentSelections != null) {
+            for (TalentSelection selection : talentSelections) {
+                if (selection.talentName() != null && !selection.talentName().isBlank()) {
+                    // ENG-067: talentUserId is null on the frozen REST plain-name-string path;
+                    // populated when the MVC Model(s) picker (real Model-role users only) supplied it.
+                    User talentUser = selection.talentUserId() == null ? null
+                            : userRepository.findById(selection.talentUserId()).orElse(null);
+                    talentEntryRepository.save(new ContentPlanTalentEntry(plan, selection.talentName(), talentUser));
                 }
             }
         }
@@ -142,10 +150,10 @@ public class PlanningService {
      */
     @Transactional
     public ContentPlan savePlan(User user, UUID contentPlanId, String categoryText, ContentPriority priority,
-                                 String skuReference, boolean skuNotApplicable, List<String> talentNames,
+                                 String skuReference, boolean skuNotApplicable, List<TalentSelection> talentSelections,
                                  String folderLink, PlanningMode planningMode, LocalDate plannedLiveDate,
                                  LocalDate shootDate, LocalDate editDate, String urgencyReason) {
-        updateParameters(user, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentNames,
+        updateParameters(user, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentSelections,
                 folderLink);
         if (planningMode == PlanningMode.URGENT) {
             if (shootDate == null || editDate == null || urgencyReason == null || urgencyReason.isBlank()) {
@@ -597,11 +605,12 @@ public class PlanningService {
     @Transactional
     public ReviewCycle savePlanAssignAndSubmit(User submitter, UUID contentPlanId, String categoryText,
                                                 ContentPriority priority, String skuReference, boolean skuNotApplicable,
-                                                List<String> talentNames, String folderLink, PlanningMode planningMode,
-                                                LocalDate plannedLiveDate, LocalDate shootDate, LocalDate editDate,
+                                                List<TalentSelection> talentSelections, String folderLink,
+                                                PlanningMode planningMode, LocalDate plannedLiveDate,
+                                                LocalDate shootDate, LocalDate editDate,
                                                 String urgencyReason, List<User> camerapersons, UUID leadUserId,
                                                 boolean touchShootAssignment, String shootDescription) {
-        savePlan(submitter, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentNames,
+        savePlan(submitter, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentSelections,
                 folderLink, planningMode, plannedLiveDate, shootDate, editDate, urgencyReason);
         // touchShootAssignment is false when the submitter lacks PERM_04 (the Cameraperson(s)/Shoot
         // Lead/Shoot Instructions fields never rendered for them) - reconcileShootTeam always calls

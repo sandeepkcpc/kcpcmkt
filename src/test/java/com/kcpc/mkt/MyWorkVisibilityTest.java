@@ -126,15 +126,99 @@ class MyWorkVisibilityTest {
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         assertThat(approved.get("status").asText()).isEqualTo("SAP");
 
-        // Shoot Approved - moved out of Active Assignments, into Completed history with the
-        // Approve outcome, and never appears in both places at once.
-        String[] halvesAfterApproval = splitOnHistoryHeader(cam.get("/app/my-work").body());
-        assertThat(halvesAfterApproval[0]).doesNotContain(plan.getContentId());
-        assertThat(halvesAfterApproval[1]).contains(plan.getContentId()).contains("SHOOT").contains("Approved");
+        // Shoot Approved - moved out of the Active Shoot Tasks TABLE, into Completed Work with the
+        // Approve outcome, and never appears in both tables at once (ENG-057: "Completed Work", not
+        // "My Completed Work / History" - the section was renamed/restyled, same underlying
+        // data/rule). ENG-063: "My Review Feedback" legitimately keeps showing the just-approved
+        // decision (it lives inside the Active Work tab panel, not scoped to only-still-active
+        // tasks), so the table-only region is checked separately from the feedback section.
+        String bodyAfterApproval = cam.get("/app/my-work").body();
+        assertThat(activeShootTasksTableRegion(bodyAfterApproval)).doesNotContain(plan.getContentId());
+        String[] halvesAfterApproval = splitOnHistoryHeader(bodyAfterApproval);
+        assertThat(halvesAfterApproval[1]).contains(plan.getContentId()).contains("Approved");
+    }
+
+    private String activeShootTasksTableRegion(String body) {
+        int start = body.indexOf("Active Shoot Tasks");
+        int end = body.indexOf("My Review Feedback");
+        assertThat(start).isPositive();
+        assertThat(end).isGreaterThan(start);
+        return body.substring(start, end);
+    }
+
+    /**
+     * ENG-058: the KPI cards must read from the exact same data as the tables (no separate count
+     * query that could drift out of sync). ENG-064: for a Camera Person, `/app/deliverables/{id}`
+     * now renders the redesigned Shoot Task Detail page - its "Latest Reviewer Feedback" card must
+     * show the actual decision reason during rework, then show the later Approved decision
+     * prominently once resolved while still preserving the earlier rework reason (never lost)
+     * inside the collapsible "View Feedback History".
+     */
+    @Test
+    void kpiCountsMatchTablesAndReworkFeedbackShowsThenClearsAfterApproval() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String camEmail = "e2e-mywork-rework-cam-" + unique + "@kcpcbandhani.local";
+        JsonNode camUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"MyWork Rework Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
+                        + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
+        String camId = camUser.get("userId").asText();
+
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Rework " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
+                .orElseThrow();
+        String planId = plan.getId().toString();
+
+        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
+                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
+                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/mywork-rework-" + unique + "\"}");
+        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
+
+        TestApiClient cam = new TestApiClient(port);
+        cam.login(camEmail, "Passw0rd!");
+        cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        String reworkReason = "Lighting is too dark, please reshoot in daylight " + unique;
+        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
+                "{\"approve\":false,\"reason\":\"" + reworkReason + "\"}");
+
+        String myWorkDuringRework = cam.get("/app/my-work").body();
+        assertThat(myWorkDuringRework).contains("Active Shoots</span><span class=\"kpi-card-count\">1</span>");
+        assertThat(myWorkDuringRework).contains("Rework Required</span><span class=\"kpi-card-count\">1</span>");
+        assertThat(myWorkDuringRework).contains("Completed</span><span class=\"kpi-card-count\">0</span>");
+
+        String detailDuringRework = cam.get("/app/deliverables/" + planId).body();
+        assertThat(detailDuringRework).contains("Latest Reviewer Feedback").contains("REWORK REQUIRED").contains(reworkReason);
+
+        cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        JsonNode approved = ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
+        assertThat(approved.get("status").asText()).isEqualTo("SAP");
+
+        String myWorkAfterApproval = cam.get("/app/my-work").body();
+        assertThat(myWorkAfterApproval).contains("Active Shoots</span><span class=\"kpi-card-count\">0</span>");
+        assertThat(myWorkAfterApproval).contains("Rework Required</span><span class=\"kpi-card-count\">0</span>");
+        assertThat(myWorkAfterApproval).contains("Completed</span><span class=\"kpi-card-count\">1</span>");
+
+        // ENG-064: the latest decision (Approved) is now shown prominently, while the earlier
+        // rework reason is preserved (not lost) inside the collapsible "View Feedback History".
+        String detailAfterApproval = cam.get("/app/deliverables/" + planId).body();
+        assertThat(detailAfterApproval).contains("Latest Reviewer Feedback").contains("APPROVED");
+        assertThat(detailAfterApproval).contains("View Feedback History").contains(reworkReason);
     }
 
     private String[] splitOnHistoryHeader(String body) {
-        int splitIndex = body.indexOf("My Completed Work / History");
+        // ENG-058: this test's fixture user is always Camera Person, which now gets the
+        // Cameraperson-specific dashboard ("Completed Shoot Work", not the generic "Completed Work"
+        // every other Business Role still sees).
+        int splitIndex = body.indexOf("Completed Shoot Work");
         assertThat(splitIndex).isPositive();
         return new String[] {body.substring(0, splitIndex), body.substring(splitIndex)};
     }

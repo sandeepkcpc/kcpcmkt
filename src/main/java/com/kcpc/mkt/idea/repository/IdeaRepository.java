@@ -1,6 +1,7 @@
 package com.kcpc.mkt.idea.repository;
 
 import com.kcpc.mkt.idea.domain.Idea;
+import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,4 +18,7 @@ public interface IdeaRepository extends JpaRepository<Idea, UUID> {
     List<Idea> findByWorkflowInstance_CurrentStatusCodeOrderBySubmittedAtAsc(WorkflowStatus status);
 
     List<Idea> findAllByOrderBySubmittedAtDesc();
+
+    /** ENG-059: "My Ideas" - an Employee's own submissions only, own-source for both KPI counts and the table. */
+    List<Idea> findBySubmittedByOrderBySubmittedAtDesc(User submittedBy);
 }

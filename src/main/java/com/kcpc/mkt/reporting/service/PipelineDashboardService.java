@@ -15,6 +15,7 @@ import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
+import com.kcpc.mkt.reporting.dto.PipelineFilterCriteria;
 import com.kcpc.mkt.reporting.dto.PipelineRow;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
@@ -178,12 +179,39 @@ public class PipelineDashboardService {
         boolean performanceLinkEligible = status == WorkflowStatus.PP || status == WorkflowStatus.PFUP
                 || status == WorkflowStatus.COMP;
 
+        String priority = plan.getContentPriority() == null ? null : plan.getContentPriority().name();
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = delayDays(status, plan, today);
+
         return new PipelineRow(plan.getId(), plan.getContentId(), sku, plan.getIdea().getTitle(), referenceLink,
                 referenceLinkIsUrl, category, blankToDash(channels), actor, blankToDash(cameraPersonNames),
                 blankToDash(modelNames), blankToDash(editorNames), plan.getFolderLink(), plan.getPlannedShootDate(),
                 plan.getPlannedEditDate(), plan.getPlannedLiveDate(), dateToDash(actualShootDate),
                 dateToDash(actualEditDate), dateToDash(actualLiveDate), blankToDash(platforms),
-                performanceState, performanceLinkEligible, status.getStatusName());
+                performanceState, performanceLinkEligible, status.getStatusName(), priority,
+                delayDays != null, delayDays);
+    }
+
+    /**
+     * Pipeline dashboard "Attention / Delayed" indicator - display-only, never a persisted or
+     * workflow status (BFD's only real status catalogue entry for "delayed" is the supplementary
+     * DLY flag, never used here). Compares the plan's already-stored Planned date for whichever
+     * stage it is CURRENTLY active in against today - the same "past planned date, not yet past
+     * that stage" rule {@code LandingMvcController}'s My Work already applies per-employee-task,
+     * just evaluated here at the whole-plan level for the management dashboard. Planning/terminal/
+     * already-resolved statuses have no single applicable Planned date and are never flagged.
+     */
+    private Integer delayDays(WorkflowStatus status, ContentPlan plan, LocalDate today) {
+        LocalDate relevantPlannedDate = switch (status) {
+            case SA, SIP, SRV -> plan.getPlannedShootDate();
+            case EA, ED, ERV -> plan.getPlannedEditDate();
+            case RFP, PUBG -> plan.getPlannedLiveDate();
+            default -> null;
+        };
+        if (relevantPlannedDate == null || !relevantPlannedDate.isBefore(today)) {
+            return null;
+        }
+        return (int) java.time.temporal.ChronoUnit.DAYS.between(relevantPlannedDate, today);
     }
 
     private String blankToDash(String value) {
@@ -192,5 +220,156 @@ public class PipelineDashboardService {
 
     private String dateToDash(LocalDate value) {
         return value == null ? "—" : value.toString();
+    }
+
+    /**
+     * ENG-071: Content Pipeline per-column filter/sort - operates purely over the already-built
+     * {@link PipelineRow} list from {@link #buildRows}, never touching that method or issuing any
+     * further query. This is a display/reporting-layer filter over pre-joined display strings, not
+     * a workflow rule - it changes what a Marketing Manager/CEO chooses to LOOK AT on the
+     * dashboard, never what any Content Plan's actual status/assignment/permission is. Multi-valued
+     * People/Publication columns (Cameraperson(s)/Model(s)/Video Editor(s)/Platform/Channel) match
+     * as a case-insensitive substring against their comma-joined display string, since that's the
+     * only form this data exists in on a {@link PipelineRow} - a row with 3 Camerapersons matches a
+     * Cameraperson filter if ANY of the 3 names contains the filter text. Each Planned/Actual date
+     * column has its OWN independent range (ENG-071 - one filter popup per column, replacing
+     * ENG-070's single combined Planned/Actual range keyed off Live Date only).
+     */
+    public List<PipelineRow> filterAndSort(List<PipelineRow> rows, PipelineFilterCriteria criteria) {
+        List<PipelineRow> result = rows.stream().filter(row -> matches(row, criteria)).collect(Collectors.toList());
+        Comparator<PipelineRow> comparator = comparatorFor(criteria.sortBy());
+        if (comparator != null) {
+            if ("desc".equalsIgnoreCase(criteria.sortDir())) {
+                comparator = comparator.reversed();
+            }
+            result.sort(comparator);
+        }
+        return result;
+    }
+
+    private boolean matches(PipelineRow row, PipelineFilterCriteria c) {
+        if (notBlank(c.search())) {
+            String q = c.search().trim().toLowerCase();
+            String haystack = (nullToEmpty(row.getContentId()) + " " + nullToEmpty(row.getSku()) + " "
+                    + nullToEmpty(row.getIdeaTitle())).toLowerCase();
+            if (!haystack.contains(q)) {
+                return false;
+            }
+        }
+        if (notBlank(c.sku()) && !containsIgnoreCase(row.getSku(), c.sku())) {
+            return false;
+        }
+        if (notBlank(c.idea()) && !containsIgnoreCase(row.getIdeaTitle(), c.idea())) {
+            return false;
+        }
+        if (notBlank(c.priority()) && !c.priority().equalsIgnoreCase(row.getPriority())) {
+            return false;
+        }
+        if (notBlank(c.cameraperson()) && !containsIgnoreCase(row.getCameraPersons(), c.cameraperson())) {
+            return false;
+        }
+        if (notBlank(c.model()) && !containsIgnoreCase(row.getModels(), c.model())) {
+            return false;
+        }
+        if (notBlank(c.videoEditor()) && !containsIgnoreCase(row.getVideoEditors(), c.videoEditor())) {
+            return false;
+        }
+        if (notBlank(c.platform()) && !containsIgnoreCase(row.getPlatforms(), c.platform())) {
+            return false;
+        }
+        if (notBlank(c.channel()) && !containsIgnoreCase(row.getChannels(), c.channel())) {
+            return false;
+        }
+        if (notBlank(c.status()) && !c.status().equalsIgnoreCase(row.getStatus())) {
+            return false;
+        }
+        if (notBlank(c.performanceState()) && !c.performanceState().equalsIgnoreCase(row.getPerformanceState())) {
+            return false;
+        }
+        if (c.delayedOnly() && !row.isDelayed()) {
+            return false;
+        }
+        if ((c.plannedShootFrom() != null || c.plannedShootTo() != null)
+                && !inRange(row.getPlannedShootDate(), c.plannedShootFrom(), c.plannedShootTo())) {
+            return false;
+        }
+        if ((c.plannedEditFrom() != null || c.plannedEditTo() != null)
+                && !inRange(row.getPlannedEditDate(), c.plannedEditFrom(), c.plannedEditTo())) {
+            return false;
+        }
+        if ((c.plannedLiveFrom() != null || c.plannedLiveTo() != null)
+                && !inRange(row.getPlannedLiveDate(), c.plannedLiveFrom(), c.plannedLiveTo())) {
+            return false;
+        }
+        if ((c.actualShootFrom() != null || c.actualShootTo() != null)
+                && !inRange(parseDashedDate(row.getActualShootDate()), c.actualShootFrom(), c.actualShootTo())) {
+            return false;
+        }
+        if ((c.actualEditFrom() != null || c.actualEditTo() != null)
+                && !inRange(parseDashedDate(row.getActualEditDate()), c.actualEditFrom(), c.actualEditTo())) {
+            return false;
+        }
+        if ((c.actualLiveFrom() != null || c.actualLiveTo() != null)
+                && !inRange(parseDashedDate(row.getActualLiveDate()), c.actualLiveFrom(), c.actualLiveTo())) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean inRange(LocalDate value, LocalDate from, LocalDate to) {
+        if (value == null) {
+            return false;
+        }
+        if (from != null && value.isBefore(from)) {
+            return false;
+        }
+        return to == null || !value.isAfter(to);
+    }
+
+    private LocalDate parseDashedDate(String value) {
+        if (value == null || "—".equals(value)) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private boolean containsIgnoreCase(String haystack, String needle) {
+        return haystack != null && haystack.toLowerCase().contains(needle.trim().toLowerCase());
+    }
+
+    private boolean notBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static final java.util.Map<String, Integer> PRIORITY_RANK = java.util.Map.of("HIGH", 0, "MEDIUM", 1, "LOW", 2);
+
+    private Comparator<PipelineRow> comparatorFor(String sortBy) {
+        if (sortBy == null) {
+            return null;
+        }
+        return switch (sortBy) {
+            case "contentId" -> Comparator.comparing(PipelineRow::getContentId, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "sku" -> Comparator.comparing(PipelineRow::getSku, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "idea" -> Comparator.comparing(PipelineRow::getIdeaTitle, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "priority" -> Comparator.comparing(
+                    row -> PRIORITY_RANK.getOrDefault(row.getPriority(), Integer.MAX_VALUE),
+                    Comparator.naturalOrder());
+            case "plannedShootDate" -> Comparator.comparing(PipelineRow::getPlannedShootDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "plannedEditDate" -> Comparator.comparing(PipelineRow::getPlannedEditDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "plannedLiveDate" -> Comparator.comparing(PipelineRow::getPlannedLiveDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "actualShootDate" -> Comparator.comparing(PipelineRow::getActualShootDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "actualEditDate" -> Comparator.comparing(PipelineRow::getActualEditDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "actualLiveDate" -> Comparator.comparing(PipelineRow::getActualLiveDate, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "status" -> Comparator.comparing(PipelineRow::getStatus, Comparator.nullsLast(Comparator.naturalOrder()));
+            default -> null;
+        };
     }
 }

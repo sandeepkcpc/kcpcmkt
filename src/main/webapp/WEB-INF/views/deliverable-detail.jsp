@@ -591,6 +591,45 @@
     <c:if test="${status == 'SA' or status == 'SIP' or status == 'SRV'}">
         <div class="panel">
             <h2>Shoot</h2>
+            <%-- ENG-058: read-only Content Summary for the Cameraperson executing this task - never
+                 editable here (Planning owns these fields), just a quick-glance recap so the
+                 assignee doesn't have to hunt across the page for Priority/Model(s)/Shoot Lead. --%>
+            <div class="content-summary-grid">
+                <div><span class="summary-field-label">Content ID</span><span class="summary-field-value"><c:out value="${plan.contentId}"/></span></div>
+                <div><span class="summary-field-label">Content Name</span><span class="summary-field-value"><c:out value="${plan.idea.title}"/></span></div>
+                <div><span class="summary-field-label">Priority</span><span class="summary-field-value">
+                    <c:if test="${not empty plan.contentPriority}">
+                        <span class="priority-pill priority-${plan.contentPriority == 'HIGH' ? 'high' : (plan.contentPriority == 'MEDIUM' ? 'medium' : 'low')}"><c:out value="${plan.contentPriority}"/></span>
+                    </c:if>
+                </span></div>
+                <div><span class="summary-field-label">Planned Shoot Date</span><span class="summary-field-value">${plan.plannedShootDate}</span></div>
+                <div><span class="summary-field-label">Model(s)</span><span class="summary-field-value">
+                    <c:forEach var="t" items="${talentEntries}" varStatus="ts"><c:out value="${t.talentName}"/><c:if test="${!ts.last}">, </c:if></c:forEach>
+                    <c:if test="${empty talentEntries}">&mdash;</c:if>
+                </span></div>
+                <div><span class="summary-field-label">Shoot Lead</span><span class="summary-field-value">
+                    <c:set var="shootLeadOnPage" value="" />
+                    <c:forEach var="a" items="${shootingAssignments}"><c:if test="${a.lead}"><c:set var="shootLeadOnPage" value="${a.cameraperson.fullName}" /></c:if></c:forEach>
+                    <c:out value="${empty shootLeadOnPage ? '—' : shootLeadOnPage}"/>
+                </span></div>
+                <div><span class="summary-field-label">Drive Link</span><span class="summary-field-value">
+                    <c:choose>
+                        <c:when test="${not empty plan.folderLink}"><a class="drive-link" href="${plan.folderLink}" target="_blank" rel="noopener noreferrer">Open Drive &#8599;</a></c:when>
+                        <c:otherwise>&mdash;</c:otherwise>
+                    </c:choose>
+                </span></div>
+                <div><span class="summary-field-label">My Status</span><span class="summary-field-value">${status.statusName}</span></div>
+            </div>
+            <%-- ENG-058: Rework Feedback - shown whenever the most recently decided Shoot Review
+                 cycle sent this back for rework, so the assignee never has to dig through Timeline
+                 to find out why. Separate from Comments (a discussion thread); this is the actual
+                 decision reason, read-only. --%>
+            <c:if test="${not empty shootReworkFeedback}">
+                <div class="rework-feedback-box">
+                    <strong>Rework Feedback</strong>
+                    <p><c:out value="${shootReworkFeedback}"/></p>
+                </div>
+            </c:if>
             <c:if test="${status == 'SA' and isShootActiveAssignee}">
                 <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/start">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>

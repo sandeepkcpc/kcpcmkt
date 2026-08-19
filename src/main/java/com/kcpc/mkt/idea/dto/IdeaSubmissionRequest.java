@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 public record IdeaSubmissionRequest(
         @NotBlank @Size(max = 200) String title,
         String referenceLink,
-        String notesRemarks
+        String notesRemarks,
+        String additionalNote
 ) {
 }

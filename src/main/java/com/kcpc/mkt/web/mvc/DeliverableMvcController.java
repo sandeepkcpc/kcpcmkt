@@ -21,6 +21,7 @@ import com.kcpc.mkt.planning.domain.PlannedOutput;
 import com.kcpc.mkt.planning.domain.PlanningMode;
 import com.kcpc.mkt.planning.domain.ReelType;
 import com.kcpc.mkt.planning.dto.PlannedOutputGroupResponse;
+import com.kcpc.mkt.planning.dto.TalentSelection;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputPublicationTargetMappingRepository;
@@ -37,15 +38,20 @@ import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
 import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
+import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
+import com.kcpc.mkt.web.mvc.dto.ShootFeedbackEntry;
+import com.kcpc.mkt.web.mvc.dto.ShootProgressStep;
 import com.kcpc.mkt.workflow.domain.GateType;
+import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.StageContext;
 import com.kcpc.mkt.workflow.domain.TaskStage;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
+import com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory;
 import com.kcpc.mkt.workflow.repository.ReviewCycleRepository;
 import com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository;
 import com.kcpc.mkt.workflow.repository.WorkflowTransitionHistoryRepository;
@@ -295,6 +301,10 @@ public class DeliverableMvcController {
         model.addAttribute("pendingPlanningReview", pendingCycle(plan, GateType.PLANNING_REVIEW));
         model.addAttribute("pendingShootReview", pendingCycle(plan, GateType.SHOOT_REVIEW));
         model.addAttribute("pendingEditReview", pendingCycle(plan, GateType.EDIT_REVIEW));
+        // ENG-058: Rework Feedback block on the Shoot panel - the reason text ONLY if the most
+        // recently DECIDED Shoot Review cycle was a Request Rework (a later Approve, if any,
+        // naturally supersedes it since this always looks at the latest decided cycle).
+        model.addAttribute("shootReworkFeedback", latestDecidedReworkReason(plan, GateType.SHOOT_REVIEW));
 
         // Self-review barriers (Permission #3/#5/#7) only apply to authority exercised via an
         // explicit PermissionGrant (Employees granted the permission individually) - matching
@@ -380,13 +390,302 @@ public class DeliverableMvcController {
         model.addAttribute("taskStages", TaskStage.values());
         model.addAttribute("eventTypes", PublicationEventType.values());
 
+        // ENG-064: a Camera Person viewing their own Shoot task gets a dedicated, redesigned,
+        // read-mostly detail page instead of the full CEO/MM-oriented multi-stage shell - same
+        // route, same GET handler, same underlying model-building above (reused wholesale), just a
+        // different view name, matching the established "same route, branch server-side by role"
+        // house pattern (/app/my-work, /app/pipeline, /app/ideas). Scoped to the Shoot-relevant
+        // status window (SA/SIP/SRV/SAP) - outside that window there is no "Shoot task" to show a
+        // Cameraperson-focused page for, so the standard shell renders as before.
+        String businessRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
+        boolean shootRelevantStatus = status == WorkflowStatus.SA || status == WorkflowStatus.SIP
+                || status == WorkflowStatus.SRV || status == WorkflowStatus.SAP;
+        if ("Camera Person".equals(businessRoleName) && shootRelevantStatus) {
+            addShootTaskDetailAttributes(plan, status, user, model);
+            return "shoot-task-detail";
+        }
+        // ENG-066: exact mirror for a Video Editor viewing their own Edit task. EAP is included
+        // defensively even though it's transient/never actually observed (ERV->EAP->RFP fires
+        // atomically in EditingService#decideEditReview) - unlike Shoot's SAP, there is no resting
+        // "Edit Approved" status, so this window is EA/ED/ERV only in practice.
+        boolean editRelevantStatus = status == WorkflowStatus.EA || status == WorkflowStatus.ED
+                || status == WorkflowStatus.ERV || status == WorkflowStatus.EAP;
+        if ("Video Editor".equals(businessRoleName) && editRelevantStatus) {
+            addEditTaskDetailAttributes(plan, status, user, model);
+            return "edit-task-detail";
+        }
+        // ENG-068: same mirror again for a Publisher viewing their own Publishing task. Unlike
+        // Shoot/Edit, PP is included here - Publishing has no review/rework gate, so once the
+        // publication scope resolves and PP is reached, that IS the Publisher's final resting state
+        // (not a hand-off to a different stage's page the way Edit's approval hands off to
+        // Publishing) - the redesigned page keeps rendering there instead of falling back to the
+        // standard shell.
+        boolean publishRelevantStatus = status == WorkflowStatus.RFP || status == WorkflowStatus.PUBG
+                || status == WorkflowStatus.PP;
+        if ("Publisher".equals(businessRoleName) && publishRelevantStatus) {
+            addPublishTaskDetailAttributes(plan, status, model);
+            return "publish-task-detail";
+        }
         return "deliverable-detail";
+    }
+
+    /**
+     * ENG-064: everything the redesigned Camera Person Shoot Task Detail page needs beyond what
+     * {@link #view} already builds for the shared shell (plan/status/user/talentEntries/
+     * shootingAssignments/shootComments/canCommentOnShoot/isShootActiveAssignee/openHold/timeline
+     * are all reused as-is) - the friendly status label, the display-only progress tracker, and
+     * the Shoot Review feedback history (reusing {@link ShootFeedbackEntry}, the same DTO the My
+     * Work "My Review Feedback" section already uses - ENG-062).
+     */
+    private void addShootTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, User user, Model model) {
+        boolean reworkActive = status == WorkflowStatus.SIP
+                && latestDecidedReworkReason(plan, GateType.SHOOT_REVIEW) != null;
+        model.addAttribute("shootFriendlyStatusLabel", shootFriendlyStatusLabel(status, reworkActive));
+        model.addAttribute("shootFriendlyStatusCssClass", shootFriendlyStatusCssClass(status, reworkActive));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedShootDate() != null && plan.getPlannedShootDate().isBefore(today)
+                && status != WorkflowStatus.SAP)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedShootDate(), today) : null;
+        model.addAttribute("shootDelayDays", delayDays);
+
+        List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
+                .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
+        Instant assignedAt = latestTransitionTimestamp(ascending, "ACTIVATE_SHOOTING");
+        Instant inProgressAt = latestTransitionTimestamp(ascending, "START_SHOOTING");
+        Instant reviewAt = latestTransitionTimestamp(ascending, "SUBMIT_SHOOT_REVIEW");
+        Instant reworkAt = latestTransitionTimestamp(ascending, "REQUEST_REWORK_SHOOT");
+        Instant approvedAt = latestTransitionTimestamp(ascending, "APPROVE_SHOOT");
+
+        List<ShootProgressStep> progress = new ArrayList<>();
+        progress.add(new ShootProgressStep("Assigned", "done", assignedAt));
+        progress.add(new ShootProgressStep("In Progress", inProgressAt == null ? "pending"
+                : (status == WorkflowStatus.SIP && !reworkActive ? "current" : "done"), inProgressAt));
+        progress.add(new ShootProgressStep("Review", reviewAt == null ? "pending"
+                : (status == WorkflowStatus.SRV ? "current" : "done"), reviewAt));
+        progress.add(new ShootProgressStep("Rework Required", reworkActive ? "current" : "pending", reworkAt));
+        progress.add(new ShootProgressStep("Approved", status == WorkflowStatus.SAP ? "done" : "pending", approvedAt));
+        model.addAttribute("shootProgressSteps", progress);
+
+        // Feedback history: decided SHOOT_REVIEW cycles only, newest first - never another gate's
+        // data (Idea/Planning/Edit Review) on this Camera Person screen.
+        List<ReviewCycle> decided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.SHOOT_REVIEW)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+        var lead = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .filter(com.kcpc.mkt.production.domain.ShootingAssignment::isLead).findFirst().orElse(null);
+        java.util.UUID leadUserId = lead == null ? null : lead.getCameraperson().getId();
+        // ReviewCycle.reviewer is LAZY and this controller isn't @Transactional - touch only the
+        // proxy's own .getId() (safe, no DB hit), then batch-fetch the real User rows once
+        // (same pattern/bug already fixed for My Work's feedback section, ENG-062).
+        java.util.Set<java.util.UUID> reviewerIds = decided.stream().map(ReviewCycle::getReviewer)
+                .filter(java.util.Objects::nonNull).map(User::getId).collect(java.util.stream.Collectors.toSet());
+        Map<java.util.UUID, User> reviewersById = reviewerIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(reviewerIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+        List<ShootFeedbackEntry> feedbackHistory = decided.stream().map(c -> {
+            boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
+            User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
+            boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
+            return new ShootFeedbackEntry(rework ? "Rework Required" : "Approved",
+                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+                    reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
+        }).toList();
+        model.addAttribute("shootFeedbackLatest", feedbackHistory.isEmpty() ? null : feedbackHistory.get(0));
+        model.addAttribute("shootFeedbackPriorHistory",
+                feedbackHistory.isEmpty() ? List.of() : feedbackHistory.subList(1, feedbackHistory.size()));
+    }
+
+    private static Instant latestTransitionTimestamp(List<WorkflowTransitionHistory> ascending, String triggerCommand) {
+        return ascending.stream().filter(t -> triggerCommand.equals(t.getTriggerCommand()))
+                .reduce((first, second) -> second)
+                .map(WorkflowTransitionHistory::getTransitionTimestamp).orElse(null);
+    }
+
+    private static String shootFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive) {
+        return switch (status) {
+            case SA -> "Assigned";
+            case SIP -> reworkActive ? "Rework Required" : "In Progress";
+            case SRV -> "Submitted for Review";
+            case SAP -> "Approved";
+            default -> status.getStatusName();
+        };
+    }
+
+    private static String shootFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive) {
+        return switch (status) {
+            case SA -> "status-assigned";
+            case SIP -> reworkActive ? "status-needschanges" : "status-inprogress";
+            case SRV -> "status-inreview";
+            case SAP -> "status-completed";
+            default -> "status-inprogress";
+        };
+    }
+
+    /**
+     * ENG-066: exact mirror of {@link #addShootTaskDetailAttributes} for a Video Editor's Edit Task
+     * Detail page - same shared {@link ShootFeedbackEntry}/{@link ShootProgressStep} DTOs, same
+     * transition-timestamp/reviewer-batch-fetch pattern, EDIT_REVIEW/Editor-specific data only.
+     */
+    private void addEditTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, User user, Model model) {
+        boolean reworkActive = status == WorkflowStatus.ED
+                && latestDecidedReworkReason(plan, GateType.EDIT_REVIEW) != null;
+        model.addAttribute("editFriendlyStatusLabel", editFriendlyStatusLabel(status, reworkActive));
+        model.addAttribute("editFriendlyStatusCssClass", editFriendlyStatusCssClass(status, reworkActive));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedEditDate() != null && plan.getPlannedEditDate().isBefore(today)
+                && status != WorkflowStatus.EAP)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedEditDate(), today) : null;
+        model.addAttribute("editDelayDays", delayDays);
+
+        List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
+                .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
+        Instant assignedAt = latestTransitionTimestamp(ascending, "ASSIGN_EDITOR");
+        Instant inProgressAt = latestTransitionTimestamp(ascending, "START_EDITING");
+        Instant reviewAt = latestTransitionTimestamp(ascending, "SUBMIT_EDIT_REVIEW");
+        Instant reworkAt = latestTransitionTimestamp(ascending, "REQUEST_REWORK_EDIT");
+        Instant approvedAt = latestTransitionTimestamp(ascending, "APPROVE_EDIT");
+
+        List<ShootProgressStep> progress = new ArrayList<>();
+        progress.add(new ShootProgressStep("Assigned", "done", assignedAt));
+        progress.add(new ShootProgressStep("In Progress", inProgressAt == null ? "pending"
+                : (status == WorkflowStatus.ED && !reworkActive ? "current" : "done"), inProgressAt));
+        progress.add(new ShootProgressStep("Review", reviewAt == null ? "pending"
+                : (status == WorkflowStatus.ERV ? "current" : "done"), reviewAt));
+        progress.add(new ShootProgressStep("Rework Required", reworkActive ? "current" : "pending", reworkAt));
+        progress.add(new ShootProgressStep("Approved", status == WorkflowStatus.EAP ? "done" : "pending", approvedAt));
+        model.addAttribute("editProgressSteps", progress);
+
+        // Feedback history: decided EDIT_REVIEW cycles only, newest first - never another gate's
+        // data (Idea/Planning/Shoot Review) on this Video Editor screen.
+        List<ReviewCycle> decided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.EDIT_REVIEW)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+        var lead = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .filter(com.kcpc.mkt.production.domain.EditingAssignment::isLead).findFirst().orElse(null);
+        java.util.UUID leadUserId = lead == null ? null : lead.getEditor().getId();
+        java.util.Set<java.util.UUID> reviewerIds = decided.stream().map(ReviewCycle::getReviewer)
+                .filter(java.util.Objects::nonNull).map(User::getId).collect(java.util.stream.Collectors.toSet());
+        Map<java.util.UUID, User> reviewersById = reviewerIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(reviewerIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+        List<ShootFeedbackEntry> feedbackHistory = decided.stream().map(c -> {
+            boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
+            User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
+            boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
+            return new ShootFeedbackEntry(rework ? "Rework Required" : "Approved",
+                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+                    reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
+        }).toList();
+        model.addAttribute("editFeedbackLatest", feedbackHistory.isEmpty() ? null : feedbackHistory.get(0));
+        model.addAttribute("editFeedbackPriorHistory",
+                feedbackHistory.isEmpty() ? List.of() : feedbackHistory.subList(1, feedbackHistory.size()));
+    }
+
+    private static String editFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive) {
+        return switch (status) {
+            case EA -> "Assigned";
+            case ED -> reworkActive ? "Rework Required" : "In Progress";
+            case ERV -> "Submitted for Review";
+            case EAP -> "Approved";
+            default -> status.getStatusName();
+        };
+    }
+
+    private static String editFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive) {
+        return switch (status) {
+            case EA -> "status-assigned";
+            case ED -> reworkActive ? "status-needschanges" : "status-inprogress";
+            case ERV -> "status-inreview";
+            case EAP -> "status-completed";
+            default -> "status-inprogress";
+        };
+    }
+
+    /**
+     * ENG-068: everything the redesigned Publisher Publishing Task Detail page needs beyond what
+     * {@link #view} already builds for the shared shell (plan/status/user/outputs/
+     * publishingChecklist/publishingAssignments/publishingComments/canCommentOnPublishing/
+     * canPublishingExecute/isPublishActiveAssignee/events/timeline are all reused as-is - the
+     * checklist and comments markup is copied byte-for-byte from the shared shell so
+     * publishing-checklist.js/stage-discussion.js need no changes). Publishing has no review/rework
+     * gate, so - unlike {@link #addShootTaskDetailAttributes}/{@link #addEditTaskDetailAttributes} -
+     * there is no feedback history to build here, and the progress tracker has its own 5 Publishing-
+     * specific milestones instead of the Shoot/Edit Assigned/In Progress/Review/Rework/Approved shape.
+     */
+    private void addPublishTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, Model model) {
+        model.addAttribute("publishFriendlyStatusLabel", publishFriendlyStatusLabel(status));
+        model.addAttribute("publishFriendlyStatusCssClass", publishFriendlyStatusCssClass(status));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today)
+                && status != WorkflowStatus.PP)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today) : null;
+        model.addAttribute("publishDelayDays", delayDays);
+
+        List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
+                .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
+        Instant readyAt = latestTransitionToStatus(ascending, WorkflowStatus.RFP);
+        Instant publishingAt = latestTransitionTimestamp(ascending, "START_PUBLISHING");
+        Instant scopeResolvedAt = latestTransitionTimestamp(ascending, "PUBLICATION_SCOPE_RESOLVED");
+
+        // Unlike Shoot/Edit Assignment, Publisher assignment triggers no workflow transition (the
+        // plan is already at RFP before and after) - its own milestone date comes from the
+        // assignment record itself, not WorkflowTransitionHistory.
+        Instant assignedAt = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .map(PublishingAssignment::getAssignedAt).min(Comparator.naturalOrder()).orElse(null);
+
+        List<ShootProgressStep> progress = new ArrayList<>();
+        progress.add(new ShootProgressStep("Assigned", assignedAt == null ? "pending" : "done", assignedAt));
+        progress.add(new ShootProgressStep("Ready for Publishing", "done", readyAt));
+        progress.add(new ShootProgressStep("Publishing",
+                status == WorkflowStatus.RFP ? "pending" : (status == WorkflowStatus.PUBG ? "current" : "done"),
+                publishingAt));
+        progress.add(new ShootProgressStep("Scope Resolved", status == WorkflowStatus.PP ? "done" : "pending", scopeResolvedAt));
+        progress.add(new ShootProgressStep("Performance Pending", status == WorkflowStatus.PP ? "done" : "pending", scopeResolvedAt));
+        model.addAttribute("publishProgressSteps", progress);
+    }
+
+    private static Instant latestTransitionToStatus(List<WorkflowTransitionHistory> ascending, WorkflowStatus toStatus) {
+        return ascending.stream().filter(t -> t.getToStatusCode() == toStatus)
+                .reduce((first, second) -> second)
+                .map(WorkflowTransitionHistory::getTransitionTimestamp).orElse(null);
+    }
+
+    private static String publishFriendlyStatusLabel(WorkflowStatus status) {
+        return switch (status) {
+            case RFP -> "Ready for Publishing";
+            case PUBG -> "Publishing";
+            case PP -> "Performance Pending";
+            default -> status.getStatusName();
+        };
+    }
+
+    private static String publishFriendlyStatusCssClass(WorkflowStatus status) {
+        return switch (status) {
+            case RFP -> "status-assigned";
+            case PUBG -> "status-inprogress";
+            case PP -> "status-completed";
+            default -> "status-inprogress";
+        };
     }
 
     private com.kcpc.mkt.workflow.domain.ReviewCycle pendingCycle(ContentPlan plan, GateType gateType) {
         return reviewCycleRepository
                 .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), gateType)
                 .stream().filter(c -> c.getDecidedAt() == null).findFirst().orElse(null);
+    }
+
+    /** ENG-058: the reason text from the most recently DECIDED cycle on this gate, but only when that decision was a rework request. */
+    private String latestDecidedReworkReason(ContentPlan plan, GateType gateType) {
+        return reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), gateType)
+                .stream().filter(c -> c.getDecidedAt() != null).findFirst()
+                .filter(c -> "REQUEST_REWORK".equals(c.getDecision()))
+                .map(com.kcpc.mkt.workflow.domain.ReviewCycle::getDecisionReason).orElse(null);
     }
 
     private String redirect(UUID id) {
@@ -422,13 +721,18 @@ public class DeliverableMvcController {
         }
     }
 
-    /** Model(s) is a dropdown of Users holding the "Model" Business Role, not free text. */
-    private List<String> resolveModelNames(List<UUID> modelUserIds) {
+    /**
+     * Model(s) is a dropdown of Users holding the "Model" Business Role, not free text - resolves
+     * straight to name+id pairs (ENG-067) so "My Shoots" can later find a Model's own shoots by a
+     * real backend-enforced link, not a fragile name match.
+     */
+    private List<TalentSelection> resolveTalentSelections(List<UUID> modelUserIds) {
         if (modelUserIds == null || modelUserIds.isEmpty()) {
             return List.of();
         }
         return modelUserIds.stream()
-                .map(userId -> userRepository.findById(userId).map(User::getFullName).orElse(null))
+                .map(userId -> userRepository.findById(userId)
+                        .map(u -> new TalentSelection(u.getFullName(), u.getId())).orElse(null))
                 .filter(java.util.Objects::nonNull)
                 .toList();
     }
@@ -458,10 +762,10 @@ public class DeliverableMvcController {
                             @RequestParam(required = false) LocalDate editDate,
                             @RequestParam(required = false) String urgencyReason,
                             @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
-        List<String> talentNames = resolveModelNames(modelUserIds);
+        List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
         try {
             planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
-                    isSkuBlank(skuReference), talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    isSkuBlank(skuReference), talentSelections, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
                     urgencyReason);
             ra.addFlashAttribute("successMessage", "Plan saved.");
         } catch (DomainException e) {
@@ -506,7 +810,7 @@ public class DeliverableMvcController {
                                      @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
                                      jakarta.servlet.http.HttpServletRequest request) {
-        List<String> talentNames = resolveModelNames(modelUserIds);
+        List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
         try {
             ContentPlan plan = requirePlan(id);
             boolean touchShootAssignment = allowed(principal.user(), OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
@@ -523,7 +827,7 @@ public class DeliverableMvcController {
                 }
             }
             planningService.savePlanAssignAndSubmit(principal.user(), id, categoryText, contentPriority, skuReference,
-                    isSkuBlank(skuReference), talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
+                    isSkuBlank(skuReference), talentSelections, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
                     urgencyReason, camerapersons, leadId, touchShootAssignment, shootDescription);
             if (isAjax(requestedWith)) {
                 return ResponseEntity.ok().build();
@@ -546,10 +850,10 @@ public class DeliverableMvcController {
                                     @RequestParam(required = false) List<UUID> modelUserIds,
                                     @RequestParam(required = false) String folderLink,
                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
-        List<String> talentNames = resolveModelNames(modelUserIds);
+        List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
         try {
             planningService.updateParameters(principal.user(), id, categoryText, contentPriority, skuReference,
-                    isSkuBlank(skuReference), talentNames, folderLink);
+                    isSkuBlank(skuReference), talentSelections, folderLink);
             ra.addFlashAttribute("successMessage", "Planning parameters saved.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());

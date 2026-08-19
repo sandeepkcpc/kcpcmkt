@@ -20,4 +20,7 @@ public interface ReviewCycleRepository extends JpaRepository<ReviewCycle, UUID> 
     /** CEO Pipeline dashboard "Actual Shoot/Edit Date" columns: batch-loads across all plans at once (avoids N+1). */
     List<ReviewCycle> findByWorkflowInstance_IdInAndGateTypeInAndDecision(
             Collection<UUID> workflowInstanceIds, Collection<GateType> gateTypes, String decision);
+
+    /** My Work: batch-loads every review cycle across every relevant plan at once (avoids N+1 - ENG-057). */
+    List<ReviewCycle> findByWorkflowInstance_IdIn(Collection<UUID> workflowInstanceIds);
 }

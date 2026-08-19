@@ -13,11 +13,23 @@ public final class DisplayTime {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm 'IST'");
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
+    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("hh:mm a");
 
     private DisplayTime() {
     }
 
     public static String ist(Instant instant) {
         return instant == null ? "" : FORMAT.format(instant.atZone(IST));
+    }
+
+    /** ENG-061: My Ideas' Submitted On column shows date/time on two lines - date part only. */
+    public static String istDate(Instant instant) {
+        return instant == null ? "" : DATE_FORMAT.format(instant.atZone(IST));
+    }
+
+    /** ENG-061: My Ideas' Submitted On column shows date/time on two lines - 12-hour time part only. */
+    public static String istTime(Instant instant) {
+        return instant == null ? "" : TIME_FORMAT.format(instant.atZone(IST));
     }
 }

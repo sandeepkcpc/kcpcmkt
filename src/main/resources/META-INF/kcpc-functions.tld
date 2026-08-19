@@ -13,4 +13,18 @@
         <function-class>com.kcpc.mkt.common.util.DisplayTime</function-class>
         <function-signature>java.lang.String ist(java.time.Instant)</function-signature>
     </function>
+
+    <function>
+        <description>ENG-061: date-only part of the IST display timestamp, for two-line date/time columns.</description>
+        <name>istDate</name>
+        <function-class>com.kcpc.mkt.common.util.DisplayTime</function-class>
+        <function-signature>java.lang.String istDate(java.time.Instant)</function-signature>
+    </function>
+
+    <function>
+        <description>ENG-061: 12-hour time-only part of the IST display timestamp, for two-line date/time columns.</description>
+        <name>istTime</name>
+        <function-class>com.kcpc.mkt.common.util.DisplayTime</function-class>
+        <function-signature>java.lang.String istTime(java.time.Instant)</function-signature>
+    </function>
 </taglib>

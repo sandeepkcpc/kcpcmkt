@@ -354,9 +354,12 @@ class WorkflowVariantsE2ETest {
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         // Checklist page: both pairs Pending before anything is recorded, Submit disabled by default.
+        // Scoped to the checklist table itself (not the whole page body) - ENG-068 gave a Publisher
+        // viewing their own task a redesigned page with its own top-level status pill, so a
+        // whole-page pill count would double-count that unrelated pill.
         HttpResponse<String> before = pub.get("/app/deliverables/" + contentPlanId);
         assertThat(before.body()).contains("id=\"publishing-checklist-submit\" disabled");
-        assertThat(before.body().split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(2);
+        assertThat(checklistTableHtml(before.body()).split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(2);
 
         // Record Target 1 alone first (single-row endpoint) - scope not yet resolved, stays PUBG.
         HttpResponse<String> firstOriginal = pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
@@ -385,8 +388,16 @@ class WorkflowVariantsE2ETest {
         assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("PP");
 
         HttpResponse<String> after = pub.get("/app/deliverables/" + contentPlanId);
-        assertThat(after.body().split(java.util.regex.Pattern.quote("status-pill status-completed"), -1).length - 1).isEqualTo(2);
-        assertThat(after.body().split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(0);
+        String afterTable = checklistTableHtml(after.body());
+        assertThat(afterTable.split(java.util.regex.Pattern.quote("status-pill status-completed"), -1).length - 1).isEqualTo(2);
+        assertThat(afterTable.split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(0);
+    }
+
+    /** ENG-068: isolates the Publication Targets checklist table so pill-count assertions above are immune to any other status pill elsewhere on the page (e.g. the redesigned Publisher page's own top-level status card). */
+    private static String checklistTableHtml(String pageBody) {
+        int start = pageBody.indexOf("id=\"publishing-checklist-table\"");
+        int end = pageBody.indexOf("</table>", start);
+        return pageBody.substring(start, end);
     }
 
     @Test

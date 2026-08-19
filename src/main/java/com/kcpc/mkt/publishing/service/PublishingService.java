@@ -287,6 +287,27 @@ public class PublishingService {
                 .anyMatch(e -> e.getPublicationTarget().getId().equals(target.getId()));
     }
 
+    /** ENG-068: "Targets" column/KPI on the Publisher's own screens - resolved (live post or N/A) vs. total mapped (Planned Output, Publication Target) pairs. */
+    public record TargetResolutionSummary(int resolvedCount, int totalCount) {
+    }
+
+    public TargetResolutionSummary summarizeTargets(ContentPlan plan) {
+        List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
+        int total = 0;
+        int resolved = 0;
+        for (PlannedOutput output : outputs) {
+            for (var mapping : mappingRepository.findByPlannedOutput(output)) {
+                total++;
+                PublicationTarget target = mapping.getPublicationTarget();
+                boolean isNa = latestNaAction(output, target).filter(a -> a == NaActionType.DESIGNATED).isPresent();
+                if (hasLivePost(output, target) || isNa) {
+                    resolved++;
+                }
+            }
+        }
+        return new TargetResolutionSummary(resolved, total);
+    }
+
     /** BFD status #18: scope resolved (every mapped pair live-or-N/A) AND at least one live post exists. */
     private boolean isScopeResolved(ContentPlan plan) {
         List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);

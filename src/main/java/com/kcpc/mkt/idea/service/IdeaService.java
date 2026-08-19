@@ -75,19 +75,32 @@ public class IdeaService {
 
     /** BRS-REQ-014: any of the 3 access classes may submit; no permission gate on submission itself. */
     @Transactional
-    public Idea submit(User submitter, String title, String referenceLink, String notesRemarks) {
+    public Idea submit(User submitter, String title, String referenceLink, String notesRemarks,
+                        String additionalNote) {
         if (title == null || title.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Idea Title is mandatory");
+        }
+        if (referenceLink != null && !referenceLink.isBlank() && !isValidUrl(referenceLink)) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Reference Link must be a valid URL");
         }
         WorkflowInstance workflowInstance = workflowService.createInstance(WorkflowStatus.IS);
         String businessIdeaCode = generateIdeaCode();
         Idea idea = ideaRepository.save(new Idea(workflowInstance, businessIdeaCode, title, referenceLink,
-                notesRemarks, submitter));
+                notesRemarks, additionalNote, submitter));
         // AC-014.2: system-derived status Idea Submitted -> Pending Approval, recorded as a transition.
         workflowService.transition(workflowInstance, WorkflowStatus.PA, submitter, Optional.empty(),
                 "SUBMIT_IDEA", null);
         auditService.record(submitter, Optional.empty(), "IDEA", "IDEA_SUBMITTED", "ideas", idea.getId(), null);
         return idea;
+    }
+
+    private static boolean isValidUrl(String value) {
+        try {
+            java.net.URI uri = new java.net.URI(value.trim());
+            return uri.isAbsolute() && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()));
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
     }
 
     private String generateIdeaCode() {

@@ -37,6 +37,10 @@ public class Idea extends BaseEntity {
     @Column(name = "notes_remarks", columnDefinition = "text")
     private String notesRemarks;
 
+    // ENG-060: separate short-form field from notesRemarks (Idea Description / Details).
+    @Column(name = "additional_note", columnDefinition = "text")
+    private String additionalNote;
+
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "submitted_by_user_id", nullable = false)
     private User submittedBy;
@@ -49,12 +53,13 @@ public class Idea extends BaseEntity {
     }
 
     public Idea(WorkflowInstance workflowInstance, String businessIdeaCode, String title, String referenceLink,
-                String notesRemarks, User submittedBy) {
+                String notesRemarks, String additionalNote, User submittedBy) {
         this.workflowInstance = workflowInstance;
         this.businessIdeaCode = businessIdeaCode;
         this.title = title;
         this.referenceLink = referenceLink;
         this.notesRemarks = notesRemarks;
+        this.additionalNote = additionalNote;
         this.submittedBy = submittedBy;
     }
 
@@ -76,6 +81,10 @@ public class Idea extends BaseEntity {
 
     public String getNotesRemarks() {
         return notesRemarks;
+    }
+
+    public String getAdditionalNote() {
+        return additionalNote;
     }
 
     public User getSubmittedBy() {

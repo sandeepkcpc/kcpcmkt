@@ -87,14 +87,21 @@ button[type="submit"] {
 
 .app-header .brand { font-weight: 700; }
 
+/* ENG-057: Sign out - red is otherwise reserved for primary/destructive workflow actions in this
+   app, and ending your session is thematically a fit; a compact pill instead of the old underlined
+   text link. */
 .link-button {
-    background: none;
+    background: var(--kcpc-accent);
     border: none;
     color: #fff;
-    text-decoration: underline;
+    border-radius: 999px;
+    padding: 0.4rem 1rem;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    width: auto;
 }
+.link-button:hover { opacity: 0.92; }
 
 .app-main { padding: 2rem; }
 .muted { color: #6b7280; }
@@ -175,6 +182,260 @@ button[type="submit"] {
 .status-pill.status-completed { background: #dcfce7; color: #166534; }
 #publishing-checklist-table .publishing-checklist-evidence { width: 100%; min-width: 160px; }
 #publishing-checklist-table td, #publishing-checklist-table th { vertical-align: middle; }
+
+/* ENG-057: My Work page - status/priority pills, the employee summary card, the count badge next
+   to each section heading, and the outline "View Details" action link (blue, not red - red on
+   this app is reserved for primary/destructive workflow actions, and View Details is neither). */
+.status-pill.status-assigned { background: #dbeafe; color: #1d4ed8; }
+.status-pill.status-inprogress { background: #d1fae5; color: #047857; }
+.status-pill.status-inreview { background: #ffedd5; color: #c2410c; }
+.status-pill.status-needschanges { background: #fee2e2; color: #b91c1c; }
+/* ENG-059: My Ideas - "Under Review" gets its own purple (distinct from the blue "Assigned"/
+   "In Review" pills above, which mean something different on My Work). */
+.status-pill.status-underreview { background: #ede9fe; color: #6d28d9; }
+.status-pill.status-rejected { background: #fee2e2; color: #991b1b; }
+/* ENG-061: My Ideas - "Retained" gets its own soft amber, distinct from Rejected's red. */
+.status-pill.status-retained { background: #fef3c7; color: #92400e; }
+/* ENG-067: My Shoots shows the raw WorkflowStatus name (not a per-stage friendly relabel, since a
+   Model isn't executing a specific stage) - a single neutral gray pill covers every status value. */
+.status-pill.status-neutral { background: #e5e7eb; color: #374151; }
+
+.priority-pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.priority-pill.priority-high { background: #fee2e2; color: #b91c1c; }
+.priority-pill.priority-medium { background: #ffedd5; color: #c2410c; }
+.priority-pill.priority-low { background: #dbeafe; color: #1d4ed8; }
+
+.lead-badge {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: #d1fae5;
+    color: #047857;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.count-badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 0.78rem;
+    font-weight: 700;
+    vertical-align: middle;
+}
+
+.drive-link { color: #1d4ed8; text-decoration: none; font-size: 0.85rem; white-space: nowrap; }
+.drive-link:hover { text-decoration: underline; }
+
+.btn-outline {
+    display: inline-block;
+    background: transparent;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    width: auto;
+}
+.btn-outline:hover { background: #eff6ff; }
+
+.page-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+.page-header-row h1 { margin-bottom: 0.2rem; }
+
+.employee-summary-card {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+    padding: 0.75rem 1.25rem;
+}
+/* Shared label/value pair styling - the employee-summary-card (My Work) and the Shoot panel's
+   Content Summary block (deliverable-detail.jsp, ENG-058) both use this same small-caps-label +
+   bold-value pattern. */
+.summary-field-label { font-size: 0.72rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.02em; }
+.summary-field-value { font-size: 0.95rem; font-weight: 700; color: var(--kcpc-ink); }
+
+/* ENG-058: Shoot panel's read-only Content Summary - Content ID/Name/Priority/Planned Shoot Date/
+   Model(s)/Shoot Lead/Drive Link/My Status, all sourced from data already on the page, laid out as
+   a compact grid instead of a form (nothing here is editable). */
+.content-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.9rem 1.5rem;
+    margin: 0.75rem 0 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+@media (max-width: 900px) {
+    .content-summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.content-summary-grid .summary-field-value { display: block; margin-top: 0.15rem; }
+
+.my-work-table-wrapper .view-all-link { display: block; text-align: center; padding: 0.75rem; font-size: 0.85rem; }
+
+/* ENG-058: Cameraperson KPI cards, tabs, and the "delayed" status pill variant (own color, not
+   reused from Needs Changes - a delayed-but-otherwise-fine task and a rework request are different
+   problems and shouldn't look identical). */
+.kpi-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+@media (max-width: 900px) {
+    .kpi-cards { grid-template-columns: repeat(2, 1fr); }
+}
+/* ENG-059: My Ideas has 5 KPI cards, not 4 - its own column count rather than overloading .kpi-cards. */
+.kpi-cards.kpi-cards-5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1100px) {
+    .kpi-cards.kpi-cards-5 { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 700px) {
+    .kpi-cards.kpi-cards-5 { grid-template-columns: repeat(2, 1fr); }
+}
+/* ENG-067: My Shoots has only 2 KPI cards (Upcoming Shoots, Next Shoot). */
+.kpi-cards.kpi-cards-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 600px) {
+    .kpi-cards.kpi-cards-2 { grid-template-columns: 1fr; }
+}
+/* ENG-068: Publisher's My Work has 3 KPI cards, not 4 (no Rework KPI - Publishing has no review gate). */
+.kpi-cards.kpi-cards-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 700px) {
+    .kpi-cards.kpi-cards-3 { grid-template-columns: 1fr; }
+}
+.kpi-card {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+    background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+}
+.kpi-card-icon {
+    flex-shrink: 0;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+.kpi-card.kpi-active .kpi-card-icon { background: #dbeafe; }
+.kpi-card.kpi-rework .kpi-card-icon { background: #ffedd5; }
+.kpi-card.kpi-delayed .kpi-card-icon { background: #fee2e2; }
+.kpi-card.kpi-completed .kpi-card-icon { background: #d1fae5; }
+.kpi-card.kpi-underreview .kpi-card-icon { background: #ede9fe; }
+.kpi-card.kpi-rejected .kpi-card-icon { background: #fee2e2; }
+.kpi-card.kpi-retained .kpi-card-icon { background: #fef3c7; }
+.kpi-card-body { display: flex; flex-direction: column; }
+.kpi-card-title-row { display: flex; align-items: baseline; gap: 0.5rem; }
+.kpi-card-title { font-weight: 700; font-size: 0.9rem; color: var(--kcpc-ink); }
+.kpi-card-count { font-size: 1.3rem; font-weight: 800; }
+.kpi-card.kpi-active .kpi-card-count { color: #1d4ed8; }
+.kpi-card.kpi-rework .kpi-card-count { color: #c2410c; }
+.kpi-card.kpi-delayed .kpi-card-count { color: #b91c1c; }
+.kpi-card.kpi-completed .kpi-card-count { color: #047857; }
+.kpi-card.kpi-underreview .kpi-card-count { color: #6d28d9; }
+.kpi-card.kpi-rejected .kpi-card-count { color: #991b1b; }
+.kpi-card.kpi-retained .kpi-card-count { color: #92400e; }
+.kpi-card-subtitle { font-size: 0.78rem; color: #6b7280; margin-top: 0.1rem; }
+
+.my-work-tabs {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--kcpc-border);
+    margin-bottom: 1.25rem;
+}
+button.my-work-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.6rem 0.1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    width: auto;
+}
+button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+.my-work-tab-panel.hidden { display: none; }
+
+.status-pill.status-delayed { background: #fee2e2; color: #b91c1c; }
+
+/* ENG-059: My Ideas - search/filter bar (plain GET query params, full-page reload - no client-side
+   table-filtering pattern exists anywhere else in this app to reuse) and pagination. */
+.my-ideas-filters {
+    display: flex;
+    align-items: end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+.my-ideas-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; flex: 0 0 auto; }
+.my-ideas-filters .filter-field.filter-field-search { flex: 1 1 220px; }
+.my-ideas-filters label { font-size: 0.78rem; font-weight: 600; color: #6b7280; }
+.my-ideas-search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.my-ideas-filters select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    min-width: 150px;
+}
+.my-ideas-filters .btn-outline { height: 2.35rem; display: inline-flex; align-items: center; }
+
+.idea-description-hint { font-size: 0.8rem; color: #6b7280; margin-top: 0.1rem; }
+
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+.pagination-controls { display: flex; gap: 0.35rem; }
+.pagination-controls a, .pagination-controls span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--kcpc-border);
+    text-decoration: none;
+    color: var(--kcpc-ink);
+    font-size: 0.85rem;
+}
+.pagination-controls a:hover { background: #f4f5f7; }
+.pagination-controls .page-current { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 700; }
+.pagination-controls .page-disabled { color: #d1d5db; }
 
 .inline-decision-form {
     display: flex;
@@ -370,6 +631,20 @@ button[type="submit"].success { background: #1a7f4b; }
     margin: 0.6rem 0;
 }
 
+/* ENG-058: Rework Feedback - distinct from .note-box (informational, blue) since this is corrective
+   guidance the employee actually needs to act on, matching the Needs Changes/rework color used
+   elsewhere on this page. */
+.rework-feedback-box {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #9a3412;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0 1.25rem;
+}
+.rework-feedback-box strong { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; }
+.rework-feedback-box p { margin: 0; font-size: 0.9rem; white-space: pre-wrap; }
+
 .timeline { list-style: none; margin: 0; padding: 0; max-width: 760px; }
 .timeline li {
     padding: 0.5rem 0;
@@ -402,7 +677,13 @@ button[type="submit"].success { background: #1a7f4b; }
 .pipeline-table {
     width: max-content;
     min-width: 100%;
-    border-collapse: collapse;
+    /* border-collapse: collapse breaks position:sticky for a cell that must stick in BOTH
+       directions at once (this table's Content ID header needs sticky-top, as part of the
+       header row, AND sticky-left, as the pinned column) - a well-known Chromium/WebKit bug.
+       Plain data cells only need one sticky axis so they were unaffected; separate + zero
+       spacing keeps the same collapsed visual look while fixing the header cell. */
+    border-collapse: separate;
+    border-spacing: 0;
     background: var(--kcpc-surface);
 }
 .pipeline-table th, .pipeline-table td {
@@ -449,6 +730,194 @@ button[type="submit"].success { background: #1a7f4b; }
     text-decoration: underline;
     cursor: pointer;
 }
+
+/* ENG-069: Content Pipeline redesign - workflow-focused dashboard shell (filter bar, KPI cards,
+   grouped table headers, compact team/publication chips, color-coded status badges, delay
+   indicator, sticky Content ID/Status/Action columns, client-side search/filter/pagination). Pure
+   presentation - the underlying data source (PipelineDashboardService/PipelineRow) and route are
+   unchanged. */
+.pipeline-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.pipeline-filters-bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.pipeline-filters-bar select, .pipeline-filters-bar input[type="date"], .pipeline-filters-bar input[type="text"] {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: var(--kcpc-surface);
+}
+.pipeline-filters-bar .pipeline-search-field { position: relative; }
+.pipeline-filters-bar .pipeline-search-field input[type="text"] { padding-right: 2rem; min-width: 220px; }
+.pipeline-filters-bar .pipeline-search-icon {
+    position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+    color: #9ca3af; pointer-events: none; font-size: 0.85rem;
+}
+.pipeline-date-range { display: flex; align-items: center; gap: 0.35rem; }
+.pipeline-date-range span { color: #9ca3af; }
+
+.pipeline-kpi-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 1100px) { .pipeline-kpi-cards { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .pipeline-kpi-cards { grid-template-columns: repeat(2, 1fr); } }
+.pipeline-kpi-card {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+}
+.pipeline-kpi-icon {
+    flex-shrink: 0; width: 2.3rem; height: 2.3rem; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
+}
+.pipeline-kpi-card.kpi-planning .pipeline-kpi-icon { background: #dbeafe; color: #1d4ed8; }
+.pipeline-kpi-card.kpi-shoot .pipeline-kpi-icon { background: #dcfce7; color: #166534; }
+.pipeline-kpi-card.kpi-edit .pipeline-kpi-icon { background: #ede9fe; color: #6d28d9; }
+.pipeline-kpi-card.kpi-publishing .pipeline-kpi-icon { background: #ffedd5; color: #c2410c; }
+.pipeline-kpi-card.kpi-attention .pipeline-kpi-icon { background: #fee2e2; color: #b91c1c; }
+.pipeline-kpi-title { font-size: 0.82rem; font-weight: 700; }
+.pipeline-kpi-card.kpi-planning .pipeline-kpi-title { color: #1d4ed8; }
+.pipeline-kpi-card.kpi-shoot .pipeline-kpi-title { color: #166534; }
+.pipeline-kpi-card.kpi-edit .pipeline-kpi-title { color: #6d28d9; }
+.pipeline-kpi-card.kpi-publishing .pipeline-kpi-title { color: #c2410c; }
+.pipeline-kpi-card.kpi-attention .pipeline-kpi-title { color: #b91c1c; }
+.pipeline-kpi-count { font-size: 1.35rem; font-weight: 800; line-height: 1.1; }
+.pipeline-kpi-subtitle { font-size: 0.74rem; color: #6b7280; }
+
+/* Grouped column headers: a thin pastel-background row spanning each logical column group,
+   sitting above the individual column-label header row - both rows stay sticky together. */
+.pipeline-table thead tr.pipeline-group-row th {
+    position: sticky; top: 0; z-index: 3;
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    text-align: center; border-bottom: 1px solid var(--kcpc-border);
+    padding: 0.35rem 0.7rem;
+}
+.pipeline-table thead tr.pipeline-col-row th { position: sticky; top: 1.85rem; z-index: 2; }
+/* The Content ID header must stick on BOTH axes at once (top, as part of the header row, AND
+   left, as the pinned column) - splitting top/left across two separate selectors left this to the
+   cascade's mercy and didn't render reliably; one explicit high-specificity rule setting both
+   together removes any ambiguity. */
+.pipeline-table thead tr.pipeline-col-row th.pipeline-col-id {
+    position: sticky;
+    top: 1.85rem;
+    left: 0;
+    z-index: 4;
+    background: #f9fafb;
+}
+.pipeline-group-content { background: #eff6ff; color: #1d4ed8; }
+.pipeline-group-people { background: #f0fdf4; color: #166534; }
+.pipeline-group-planned { background: #eef2ff; color: #3730a3; }
+.pipeline-group-actual { background: #fefce8; color: #854d0e; }
+.pipeline-group-publication { background: #faf5ff; color: #6d28d9; }
+.pipeline-group-current { background: #f9fafb; color: #374151; }
+
+.pipeline-table td.pipeline-col-status, .pipeline-table th.pipeline-col-status,
+.pipeline-table td.pipeline-col-action, .pipeline-table th.pipeline-col-action {
+    position: sticky; right: 0; background: var(--kcpc-surface); z-index: 1;
+}
+.pipeline-table td.pipeline-col-action, .pipeline-table th.pipeline-col-action { right: 0; }
+.pipeline-table td.pipeline-col-status, .pipeline-table th.pipeline-col-status { right: 6.5rem; }
+.pipeline-table th.pipeline-col-status, .pipeline-table th.pipeline-col-action { background: #f9fafb; z-index: 3; }
+
+.pipeline-team-chip { display: inline-flex; align-items: baseline; gap: 0.3rem; }
+.pipeline-team-more { font-size: 0.74rem; color: #6b7280; font-weight: 600; }
+.pipeline-team-empty { color: #c1c5cc; }
+
+.pipeline-status-cell { display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-start; }
+.pipeline-status-badge {
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+    font-size: 0.74rem; font-weight: 600; white-space: nowrap;
+}
+.pipeline-status-badge.stage-planning { background: #dbeafe; color: #1d4ed8; }
+.pipeline-status-badge.stage-shoot { background: #dcfce7; color: #166534; }
+.pipeline-status-badge.stage-edit { background: #ede9fe; color: #6d28d9; }
+.pipeline-status-badge.stage-publishing { background: #ffedd5; color: #c2410c; }
+.pipeline-status-badge.stage-performance { background: #cffafe; color: #0e7490; }
+.pipeline-status-badge.stage-completed { background: #dcfce7; color: #166534; }
+.pipeline-status-badge.stage-cancelled { background: #f3f4f6; color: #6b7280; }
+.pipeline-delay-note { font-size: 0.7rem; color: #b91c1c; font-weight: 600; white-space: nowrap; }
+
+.pipeline-view-details {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600;
+    color: #1d4ed8; border: 1px solid #bfdbfe; background: #eff6ff; text-decoration: none; white-space: nowrap;
+}
+.pipeline-view-details:hover { background: #dbeafe; }
+
+.pipeline-filters-bar .btn-outline { height: 2.4rem; display: inline-flex; align-items: center; }
+
+/* ENG-071: per-column filter popup - a small dropdown anchored to its own <th> (which needs
+   position:relative; the sticky group/col-row <th>s already establish a positioning context for
+   this, same as position:relative would) instead of one big drawer. Every field submits the ONE
+   shared #pipelineFilterForm wrapping the whole table. */
+.pipeline-th-flex { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
+.pipeline-th-label { font-weight: inherit; }
+.pipeline-filter-trigger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.2rem; height: 1.2rem; padding: 0; border: none; background: none; cursor: pointer;
+    color: #9ca3af; font-size: 0.65rem; border-radius: 4px; flex-shrink: 0;
+}
+.pipeline-filter-trigger:hover { background: #e5e7eb; color: #374151; }
+.pipeline-filter-trigger.active { color: #1d4ed8; background: #dbeafe; }
+.pipeline-table th { position: relative; }
+.pipeline-filter-popup {
+    position: absolute; top: 100%; left: 0; margin-top: 0.25rem; z-index: 20;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12); padding: 0.75rem; min-width: 190px;
+    text-align: left; text-transform: none; letter-spacing: normal; font-size: 0.82rem; font-weight: 400;
+}
+.pipeline-filter-popup label {
+    display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.76rem; font-weight: 600;
+    color: #6b7280; margin-bottom: 0.5rem;
+}
+.pipeline-filter-popup select, .pipeline-filter-popup input[type="text"], .pipeline-filter-popup input[type="date"] {
+    padding: 0.4rem 0.55rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.82rem;
+    background: var(--kcpc-surface); font-weight: 400; color: var(--kcpc-ink);
+}
+.pipeline-filter-radio {
+    flex-direction: row !important; align-items: center; gap: 0.4rem !important;
+    font-weight: 400 !important; color: var(--kcpc-ink) !important; margin-bottom: 0.35rem !important;
+}
+.pipeline-filter-checkbox {
+    flex-direction: row !important; align-items: center; gap: 0.4rem !important;
+    font-weight: 400 !important; color: var(--kcpc-ink) !important;
+}
+.pipeline-filter-popup-actions { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; }
+.pipeline-filter-popup-actions .btn-outline { padding: 0.3rem 0.65rem; font-size: 0.78rem; height: auto; }
+
+.pipeline-sort-link {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    color: inherit; text-decoration: none; font-weight: inherit;
+}
+.pipeline-sort-link:hover { text-decoration: underline; }
+.pipeline-sort-indicator { font-size: 0.65rem; }
+
+.pipeline-footer-note {
+    margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 8px;
+    background: #eff6ff; color: #1e3a8a; font-size: 0.82rem; display: flex; gap: 0.5rem; align-items: flex-start;
+}
+.pipeline-row-hidden { display: none !important; }
+
+/* Client-side pagination controls reuse the existing .pagination/.pagination-controls shape
+   (My Ideas/My Work feedback pagination) - buttons instead of links, since there's no page reload. */
+.pagination-controls button {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 2rem; height: 2rem; padding: 0 0.4rem; border-radius: 6px;
+    border: 1px solid var(--kcpc-border); background: var(--kcpc-surface); color: var(--kcpc-ink);
+    font-size: 0.85rem; cursor: pointer;
+}
+.pagination-controls button:hover:not(:disabled) { background: #f4f5f7; }
+.pagination-controls button.page-current { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 700; }
+.pagination-controls button:disabled { color: #d1d5db; cursor: not-allowed; }
+.pipeline-per-page { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #6b7280; }
+.pipeline-per-page select { padding: 0.3rem 0.5rem; border: 1px solid var(--kcpc-border); border-radius: 6px; }
 
 /* Publication Targets: one row per Platform, channels as chips on the same line - "Platform :
    Channel Channel" - instead of a flat comma list or a count-labelled block per platform. */
@@ -919,3 +1388,260 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 
 /* My Work: Description column shouldn't stretch the whole table for a couple of long instructions. */
 .my-work-description { max-width: 280px; white-space: pre-wrap; }
+
+/* ENG-062: My Work - Content ID as a clear, clickable link (Active Shoot Tasks + My Review Feedback). */
+.content-id-link { color: #1d4ed8; font-weight: 700; text-decoration: none; }
+.content-id-link:hover { text-decoration: underline; }
+
+/* ENG-062: Camera Person "My Review Feedback" - search + filter pills, mirrors .my-ideas-filters. */
+.feedback-filters {
+    display: flex;
+    align-items: end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+.feedback-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; flex: 0 0 auto; }
+.feedback-filters .filter-field.filter-field-search { flex: 1 1 220px; }
+.feedback-search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kcpc-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.feedback-filters .btn-outline { height: 2.35rem; display: inline-flex; align-items: center; }
+
+.filter-pills { display: flex; gap: 0.4rem; }
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--kcpc-border);
+    background: transparent;
+    color: #4b5563;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.filter-pill:hover { background: #f3f4f6; }
+.filter-pill.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+
+/* ENG-062: feedback cards - clean horizontal rows, not an audit-log table. */
+.feedback-card-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.feedback-card {
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+}
+.feedback-card-main {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 2fr 1fr auto;
+    gap: 1.25rem;
+    align-items: start;
+}
+.feedback-field-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: #9ca3af; margin-bottom: 0.15rem; }
+.feedback-stage-label { margin-top: 0.6rem; }
+.feedback-stage-value { font-size: 0.8rem; font-weight: 600; color: #4b5563; }
+.feedback-reviewer { margin-top: 0.35rem; font-size: 0.78rem; color: #6b7280; }
+.feedback-reviewer::before { content: "\1F464\00A0"; }
+.feedback-decision-col { margin-top: 1.2rem; }
+.feedback-date-col { font-size: 0.85rem; white-space: nowrap; margin-top: 1.2rem; }
+.feedback-action-col { display: flex; align-items: flex-start; justify-content: flex-end; }
+
+.feedback-history { margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--kcpc-border); }
+.feedback-history summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: #1d4ed8; }
+.feedback-history-list { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.feedback-history-list li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: #4b5563; }
+.feedback-history-list .ts { color: #9ca3af; min-width: 150px; }
+
+@media (max-width: 900px) {
+    .feedback-card-main { grid-template-columns: 1fr; gap: 0.6rem; }
+    .feedback-action-col { justify-content: flex-start; }
+}
+
+/* ENG-064: Camera Person Shoot Task Detail page. */
+.breadcrumb { font-size: 0.82rem; color: #6b7280; margin-bottom: 1rem; }
+.breadcrumb a { color: #1d4ed8; text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+
+.shoot-task-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+.shoot-task-header-row h1 { margin-bottom: 0.15rem; }
+.shoot-status-card {
+    background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border);
+    border-radius: 8px;
+    padding: 0.9rem 1.25rem;
+    min-width: 200px;
+}
+.shoot-status-value { margin-top: 0.35rem; }
+.shoot-status-value .status-pill { font-size: 0.85rem; padding: 0.25rem 0.7rem; }
+.shoot-delay-note { margin: 0.5rem 0 0; font-size: 0.78rem; color: #b91c1c; }
+
+.shoot-progress-panel { margin-bottom: 1.25rem; }
+.progress-tracker { display: flex; align-items: flex-start; }
+.progress-step { display: flex; flex-direction: column; align-items: center; text-align: center; flex: 0 0 auto; min-width: 108px; }
+.progress-step-marker {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    border: 2px solid var(--kcpc-border);
+    color: #9ca3af;
+    background: #fff;
+}
+.progress-step-done .progress-step-marker { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.progress-step-current .progress-step-marker { background: #eff6ff; border-color: #1d4ed8; color: #1d4ed8; }
+.progress-step-rework.progress-step-current .progress-step-marker { background: #fff7ed; border-color: #ea580c; color: #ea580c; }
+.progress-step-label { margin-top: 0.5rem; font-size: 0.82rem; font-weight: 600; color: #4b5563; }
+.progress-step-current .progress-step-label { color: #1d4ed8; }
+.progress-step-rework.progress-step-current .progress-step-label { color: #ea580c; }
+.progress-step-date { margin-top: 0.15rem; font-size: 0.72rem; color: #9ca3af; }
+.progress-step-connector { flex: 1 1 auto; height: 2px; background: var(--kcpc-border); margin-top: 17px; min-width: 24px; }
+
+.shoot-task-columns { display: grid; grid-template-columns: 65% 35%; gap: 1.25rem; align-items: start; }
+.shoot-task-col-main, .shoot-task-col-side { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+@media (max-width: 1000px) {
+    .shoot-task-columns { grid-template-columns: 1fr; }
+}
+
+/* ENG-065: Content & Shoot Information as a clean label|value list instead of a grid. */
+.info-list { display: flex; flex-direction: column; }
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+.info-row:last-child { border-bottom: none; }
+.info-row .summary-field-label { flex: 0 0 auto; white-space: nowrap; }
+.info-row .summary-field-value { flex: 1 1 auto; text-align: right; margin-top: 0; word-break: break-word; }
+
+.shoot-info-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media (max-width: 700px) {
+    .shoot-info-sections { grid-template-columns: 1fr; }
+}
+.info-strip {
+    margin-top: 1rem;
+    padding: 0.6rem 0.85rem;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    color: #1e40af;
+    font-size: 0.85rem;
+}
+
+.shoot-latest-feedback { border-color: var(--kcpc-border); }
+.shoot-feedback-warning { background: #fff7ed; border-color: #fdba74; }
+.shoot-feedback-card-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.75rem; }
+.shoot-feedback-reason { margin: 0.2rem 0 0.9rem; font-size: 0.9rem; }
+.feedback-reviewer-name { font-size: 0.85rem; font-weight: 600; }
+
+.shoot-action-panel { display: flex; flex-direction: column; gap: 0.6rem; }
+/* Beats the generic .app-main button[type="submit"] rule (element+class+attribute specificity)
+   so this stays a full-width primary action instead of the app-wide compact/right-aligned default. */
+.shoot-action-panel button[type="submit"].shoot-primary-action {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--kcpc-accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.shoot-action-panel button[type="submit"].shoot-primary-action:hover { opacity: 0.92; }
+.shoot-action-panel form { margin: 0; }
+.shoot-drive-action { width: 100%; text-align: center; }
+.shoot-status-compact {
+    margin: 0;
+    padding: 0.6rem 0.85rem;
+    background: #f3f4f6;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 600;
+    color: #4b5563;
+    font-size: 0.85rem;
+}
+
+/* ENG-060: Submit Idea screen - centered card, narrower than the full page width. */
+.idea-submit-card { max-width: 640px; margin: 0 auto; }
+.idea-submit-form.form-card { max-width: none; }
+.required-mark { color: #dc2626; }
+.optional-mark { color: #6b7280; font-weight: 400; font-size: 0.8rem; }
+
+.field-hint-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-top: 0.3rem;
+}
+.field-hint { color: #6b7280; font-size: 0.78rem; }
+.char-counter { color: #9ca3af; font-size: 0.78rem; white-space: nowrap; }
+.char-counter.char-counter-near-limit { color: #b45309; }
+.char-counter.char-counter-at-limit { color: #dc2626; }
+
+.input-with-icon { position: relative; margin-top: 0.25rem; }
+.input-with-icon .input-icon {
+    position: absolute;
+    left: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.85rem;
+    opacity: 0.6;
+}
+.input-with-icon input { margin-top: 0; padding-left: 2rem; }
+
+.idea-submit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--kcpc-border);
+}
+/* Beats the generic .form-card button / .app-main button[type="submit"] rules (element+class /
+   class+element+attr specificity) so Reset stays an outline button and Submit stays compact and
+   grouped with it, not stretched full-width by the app-wide submit-button rule. */
+.idea-submit-form .idea-submit-actions button.btn-outline {
+    background: transparent;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
+    margin-top: 0;
+    padding: 0.5rem 1.1rem;
+}
+.idea-submit-form .idea-submit-actions button.btn-outline:hover { background: #eff6ff; }
+.idea-submit-form .idea-submit-actions button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
+    margin-top: 0;
+}
+
+.idea-submit-footer-hint { text-align: center; color: #6b7280; font-size: 0.85rem; margin-top: 1.25rem; }
+
+/* ENG-061: My Ideas - Submitted On shows date/time on two lines. */
+.submitted-on-cell { white-space: nowrap; }
+.submitted-on-time { font-size: 0.78rem; }

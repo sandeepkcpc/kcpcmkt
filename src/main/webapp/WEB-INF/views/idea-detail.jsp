@@ -1,5 +1,6 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 <%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
@@ -12,26 +13,62 @@
 <jsp:include page="fragments/nav.jsp" />
 <main class="app-main">
     <h1>${idea.businessIdeaCode} &middot; ${idea.title}
-        <span class="status-badge">${idea.workflowInstance.currentStatusCode.statusName}</span></h1>
+        <span class="status-pill ${ideaStatusCssClass}"><c:out value="${ideaStatusLabel}"/></span></h1>
 
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
     <c:if test="${not empty errorMessage}"><div class="alert-error">${errorMessage}</div></c:if>
 
     <div class="panel">
         <h2>Idea Details</h2>
-        <p><strong>Reference / Note:</strong>
+        <p><strong>Idea ID:</strong> ${idea.businessIdeaCode}</p>
+        <p><strong>Title:</strong> <c:out value="${idea.title}"/></p>
+        <p><strong>Idea Description / Details:</strong>
             <c:choose>
-                <c:when test="${not empty idea.referenceLink}">${idea.referenceLink}</c:when>
+                <c:when test="${not empty idea.notesRemarks}"><c:out value="${idea.notesRemarks}"/></c:when>
                 <c:otherwise><span class="muted">(none)</span></c:otherwise>
             </c:choose>
         </p>
-        <p><strong>Submitted by:</strong> ${idea.submittedBy.fullName} &middot; ${kcpc:ist(idea.submittedAt)}</p>
-        <p><strong>Remarks:</strong>
+        <p><strong>Additional Note:</strong>
             <c:choose>
-                <c:when test="${not empty idea.notesRemarks}">${idea.notesRemarks}</c:when>
+                <c:when test="${not empty idea.additionalNote}"><c:out value="${idea.additionalNote}"/></c:when>
                 <c:otherwise><span class="muted">(none)</span></c:otherwise>
             </c:choose>
         </p>
+        <p><strong>Reference Link:</strong>
+            <c:choose>
+                <c:when test="${not empty idea.referenceLink}">
+                    <a href="${fn:escapeXml(idea.referenceLink)}" target="_blank" rel="noopener noreferrer"><c:out value="${idea.referenceLink}"/></a>
+                </c:when>
+                <c:otherwise><span class="muted">(none)</span></c:otherwise>
+            </c:choose>
+        </p>
+        <p><strong>Submitted by:</strong> ${idea.submittedBy.fullName}</p>
+        <p><strong>Submitted On:</strong> ${kcpc:ist(idea.submittedAt)}</p>
+        <p><strong>Current Idea Status:</strong> <span class="status-pill ${ideaStatusCssClass}"><c:out value="${ideaStatusLabel}"/></span></p>
+    </div>
+
+    <%-- ENG-059: the actual review decision reason, shown clearly and separately from Idea Details -
+         never invented when none exists (Approve records no reason at all). --%>
+    <c:if test="${not empty ideaFeedback}">
+        <div class="panel">
+            <h2>Review Feedback</h2>
+            <p><c:out value="${ideaFeedback}"/></p>
+        </div>
+    </c:if>
+
+    <%-- ENG-061: Idea lifecycle events only (Submitted/Approved/Retained/Rejected/Reopened) - never
+         the resulting content's Planning/Shoot/Edit/Publishing operational events. --%>
+    <div class="panel">
+        <h2>Idea Decision History</h2>
+        <ul class="timeline">
+            <c:forEach var="event" items="${ideaStatusHistory}">
+                <li><span class="ts">${kcpc:ist(event.timestamp)}</span>
+                    <c:out value="${event.eventLabel}"/> by <c:out value="${event.triggeredByName}"/>
+                    <c:if test="${not empty event.reason}">&mdash; <c:out value="${event.reason}"/></c:if>
+                </li>
+            </c:forEach>
+            <c:if test="${empty ideaStatusHistory}"><li class="muted">No history yet.</li></c:if>
+        </ul>
     </div>
 
     <c:if test="${idea.workflowInstance.currentStatusCode == 'PA'}">
@@ -98,11 +135,17 @@
         </div>
     </c:if>
 
+    <%-- ENG-061: informational only - the Idea Status above stays "Approved" regardless; this never
+         replaces it with a Planning status, and the operational deliverable link itself is CEO/MM-only
+         ("Do not expose Planning/Shoot/Edit/Publishing operational details here" for an Employee). --%>
     <c:if test="${not empty contentPlanId}">
         <div class="panel">
             <h2>Deliverable</h2>
-            <p>This idea was approved and moved into Planning.
-                <a href="${pageContext.request.contextPath}/app/deliverables/${contentPlanId}">Open the deliverable &raquo;</a></p>
+            <p>This approved idea has moved to Planning.
+                <c:if test="${accessClass != 'EMPLOYEE'}">
+                    <a href="${pageContext.request.contextPath}/app/deliverables/${contentPlanId}">Open the deliverable &raquo;</a>
+                </c:if>
+            </p>
         </div>
     </c:if>
 </main>

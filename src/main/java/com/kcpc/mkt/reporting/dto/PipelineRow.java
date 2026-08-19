@@ -38,13 +38,17 @@ public class PipelineRow {
     private final String performanceState;
     private final boolean performanceLinkEligible;
     private final String status;
+    private final String priority;
+    private final boolean delayed;
+    private final Integer delayDays;
 
     public PipelineRow(UUID contentPlanId, String contentId, String sku, String ideaTitle, String referenceLink,
                         boolean referenceLinkIsUrl, String category, String channels, String actor,
                         String cameraPersons, String models, String videoEditors, String driveLink,
                         LocalDate plannedShootDate, LocalDate plannedEditDate, LocalDate plannedLiveDate,
                         String actualShootDate, String actualEditDate, String actualLiveDate, String platforms,
-                        String performanceState, boolean performanceLinkEligible, String status) {
+                        String performanceState, boolean performanceLinkEligible, String status, String priority,
+                        boolean delayed, Integer delayDays) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.sku = sku;
@@ -68,6 +72,9 @@ public class PipelineRow {
         this.performanceState = performanceState;
         this.performanceLinkEligible = performanceLinkEligible;
         this.status = status;
+        this.priority = priority;
+        this.delayed = delayed;
+        this.delayDays = delayDays;
     }
 
     public UUID getContentPlanId() {
@@ -160,5 +167,24 @@ public class PipelineRow {
 
     public String getStatus() {
         return status;
+    }
+
+    /** Content Priority (HIGH/MEDIUM/LOW), display-only - {@code ContentPlan.getContentPriority()} was already stored, just not previously surfaced on this row. */
+    public String getPriority() {
+        return priority;
+    }
+
+    /**
+     * Pipeline-dashboard "Attention / Delayed" indicator - purely a display computation (past the
+     * relevant Planned date for whichever stage the plan is currently active in, not yet past it),
+     * never a persisted or workflow status. Mirrors the same "past planned date and not yet
+     * completed" rule {@code LandingMvcController}'s My Work already uses per-stage.
+     */
+    public boolean isDelayed() {
+        return delayed;
+    }
+
+    public Integer getDelayDays() {
+        return delayDays;
     }
 }

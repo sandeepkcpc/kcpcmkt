@@ -12,6 +12,7 @@ import com.kcpc.mkt.planning.dto.PlanningReviewDecisionRequest;
 import com.kcpc.mkt.planning.dto.PublicationScopeRequest;
 import com.kcpc.mkt.planning.dto.SetShootLeadRequest;
 import com.kcpc.mkt.planning.dto.StandardScheduleRequest;
+import com.kcpc.mkt.planning.dto.TalentSelection;
 import com.kcpc.mkt.planning.dto.UrgentScheduleRequest;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.service.PlanningService;
@@ -54,8 +55,12 @@ public class ContentPlanRestController {
     public ResponseEntity<ContentPlanResponse> parameters(@PathVariable UUID id,
                                                             @RequestBody ContentPlanParametersRequest request,
                                                             @AuthenticationPrincipal KcpcUserPrincipal principal) {
+        // ENG-067: the frozen wire contract (API-OP-017/018) stays plain talent-name strings; the
+        // service's internal TalentSelection representation just carries a null user link for them.
+        java.util.List<TalentSelection> talentSelections = request.talentNames() == null ? null
+                : request.talentNames().stream().map(name -> new TalentSelection(name, null)).toList();
         ContentPlan plan = planningService.updateParameters(principal.user(), id, request.categoryText(),
-                request.contentPriority(), request.skuReference(), request.skuNotApplicable(), request.talentNames(),
+                request.contentPriority(), request.skuReference(), request.skuNotApplicable(), talentSelections,
                 request.folderLink());
         return ResponseEntity.ok(ContentPlanResponse.from(plan));
     }

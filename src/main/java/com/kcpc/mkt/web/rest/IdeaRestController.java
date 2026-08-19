@@ -42,7 +42,8 @@ public class IdeaRestController {
     @PostMapping
     public ResponseEntity<IdeaResponse> submit(@Valid @RequestBody IdeaSubmissionRequest request,
                                                 @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        Idea idea = ideaService.submit(principal.user(), request.title(), request.referenceLink(), request.notesRemarks());
+        Idea idea = ideaService.submit(principal.user(), request.title(), request.referenceLink(),
+                request.notesRemarks(), request.additionalNote());
         return ResponseEntity.status(HttpStatus.CREATED).body(IdeaResponse.from(idea));
     }
 

@@ -1,5 +1,6 @@
 package com.kcpc.mkt.planning.repository;
 
+import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,4 +15,7 @@ public interface ContentPlanTalentEntryRepository extends JpaRepository<ContentP
     void deleteByContentPlan(ContentPlan contentPlan);
 
     List<ContentPlanTalentEntry> findByContentPlan_IdIn(Collection<UUID> contentPlanIds);
+
+    /** ENG-067: "My Shoots" (Model employee screen) - every talent entry actually linked to this User. */
+    List<ContentPlanTalentEntry> findByTalentUser(User talentUser);
 }
