@@ -163,6 +163,19 @@ button[type="submit"] {
     font-weight: 600;
 }
 
+/* ENG-055: Publishing execution checklist status pills - same shape as .status-badge, own colors. */
+.status-pill {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.status-pill.status-pending { background: #fef3c7; color: #92400e; }
+.status-pill.status-completed { background: #dcfce7; color: #166534; }
+#publishing-checklist-table .publishing-checklist-evidence { width: 100%; min-width: 160px; }
+#publishing-checklist-table td, #publishing-checklist-table th { vertical-align: middle; }
+
 .inline-decision-form {
     display: flex;
     flex-direction: column;
@@ -263,6 +276,12 @@ button[type="submit"] {
 @media (max-width: 600px) {
     .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ENG-051: inline validation - a missing/invalid field gets a red outline and a message right
+   under it instead of a full-page redirect that discards the rest of the form (planning-submit.js). */
+.field-error { margin-top: 4px; font-size: 12px; color: #dc2626; }
+.input-error { border-color: #dc2626; }
+.planning-submit-error { margin-bottom: 0.75rem; font-size: 0.85rem; }
 
 /* Overview panel: read-only fields (Priority, Dates, Drive Link, Cameraperson(s)/Editor(s), ...)
    in the same 3-column grid as the Planning forms, instead of one field per stacked line. */
@@ -582,15 +601,17 @@ button[type="submit"].success { background: #1a7f4b; }
     .assignment-picker-grid { grid-template-columns: 1fr; }
 }
 
-/* Planning/Shoot/Edit Review Decision: Decision + Reason side by side instead of stacked, and the
-   "Submit Decision" button pulled out of the global `button[type="submit"] { width: 100% }` rule
-   (meant for the narrow auth-card login form, but unscoped so it leaks everywhere) - compact and
-   right-aligned instead of a full-width bar. */
+/* Planning/Shoot/Edit Review Decision: Decision + Reason (or, ENG-052, Decision + the Qualifying
+   Cameraperson(s)/Editor(s) chip picker) side by side instead of stacked, and the "Submit Decision"
+   button pulled out of the global `button[type="submit"] { width: 100% }` rule (meant for the
+   narrow auth-card login form, but unscoped so it leaks everywhere) - compact and right-aligned
+   instead of a full-width bar. Top-aligned (not `end`) so "Decision" and the second column's own
+   heading sit on the same line - the qualifying-picker column is taller than a plain Reason input. */
 .review-decision-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
-    align-items: end;
+    align-items: start;
 }
 .review-decision-grid label { margin-top: 0; }
 @media (max-width: 700px) {

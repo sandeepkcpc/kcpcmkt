@@ -19,6 +19,8 @@ import org.springframework.test.context.ActiveProfiles;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -297,6 +299,94 @@ class WorkflowVariantsE2ETest {
         HttpResponse<String> reversal = ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/targets/na/"
                 + naRecordId + "/reverse", "{\"reason\":\"Client approved the channel after all\"}");
         assertThat(reversal.statusCode()).isEqualTo(200);
+    }
+
+    /**
+     * ENG-055: the Publishing checklist page shows one Pending row per (output, target) pair up
+     * front, its bulk "Submit Published Tasks" POST (plannedOutputIds/publicationTargetIds/
+     * evidenceUrls in lockstep + one shared date) can record more than one pair in a single
+     * request, and completing the last pending pair auto-transitions the plan to PP - same
+     * completion rule {@link #multiplePublicationEventsTargetNaReversalAndRepost} already covers
+     * for the single-row endpoint, exercised here through the new bulk one instead. Also proves a
+     * second Original for an already-completed pair is rejected at the service source (not just
+     * hidden from the checklist UI).
+     */
+    @Test
+    void publishingChecklistBulkSubmitRecordsMultiplePairsAndAutoCompletesOnTheLastOne() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String camEmail = "e2e-checklist-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-checklist-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-checklist-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Checklist Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Checklist Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Checklist Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pub = loginNewClient(pubEmail);
+        grantPublishingPermission(ceo, pubId);
+
+        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Checklist Flow " + unique);
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
+                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
+                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/checklist-" + unique + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
+                "{\"cameramanUserId\":\"" + camId + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        String outputId = findPlannedOutputId(contentPlanId);
+        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
+                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}");
+
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
+        ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+
+        // Checklist page: both pairs Pending before anything is recorded, Submit disabled by default.
+        HttpResponse<String> before = pub.get("/app/deliverables/" + contentPlanId);
+        assertThat(before.body()).contains("id=\"publishing-checklist-submit\" disabled");
+        assertThat(before.body().split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(2);
+
+        // Record Target 1 alone first (single-row endpoint) - scope not yet resolved, stays PUBG.
+        HttpResponse<String> firstOriginal = pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+                "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
+                        + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + Instant.now()
+                        + "\",\"evidenceUrl\":\"https://instagram.com/p/checklist-t1-" + unique + "\"}");
+        assertThat(firstOriginal.statusCode()).isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("PUBG");
+
+        // A second Original for the SAME pair is rejected at the service - not silently duplicated.
+        HttpResponse<String> duplicateOriginal = pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/events",
+                "{\"plannedOutputId\":\"" + outputId + "\",\"publicationTargetId\":\"" + TARGET_1
+                        + "\",\"eventType\":\"ORIGINAL\",\"actualPublicationTimestamp\":\"" + Instant.now()
+                        + "\",\"evidenceUrl\":\"https://instagram.com/p/checklist-t1-dupe-" + unique + "\"}");
+        assertThat(duplicateOriginal.statusCode()).isEqualTo(400);
+        assertThat(duplicateOriginal.body()).contains("already exists");
+
+        // Bulk-submit the remaining Target 2 through the checklist's actual POST shape - completes
+        // scope. No actualPublicationTimestamp field (ENG-056): the server stamps Instant.now() itself.
+        HttpResponse<String> bulk = pub.postFormMulti("/app/deliverables/" + contentPlanId + "/publishing/events/bulk",
+                Map.of(
+                        "plannedOutputIds", List.of(outputId),
+                        "publicationTargetIds", List.of(TARGET_2),
+                        "evidenceUrls", List.of("https://youtube.com/watch?v=checklist-t2-" + unique)));
+        assertThat(bulk.statusCode()).isEqualTo(302);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("PP");
+
+        HttpResponse<String> after = pub.get("/app/deliverables/" + contentPlanId);
+        assertThat(after.body().split(java.util.regex.Pattern.quote("status-pill status-completed"), -1).length - 1).isEqualTo(2);
+        assertThat(after.body().split(java.util.regex.Pattern.quote("status-pill status-pending"), -1).length - 1).isEqualTo(0);
     }
 
     @Test

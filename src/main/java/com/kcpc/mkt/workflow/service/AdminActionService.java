@@ -124,6 +124,21 @@ public class AdminActionService {
         return record;
     }
 
+    /**
+     * ENG-054: a new assignee's Business Role must match the Task Stage being reassigned - the
+     * Reassign UI only ever offers Camera Person users for SHOOTING/Video Editor users for EDITING
+     * (same Business-Role-filtered picker every other assignment control in this app already uses),
+     * but that was UI-only; nothing on the server stopped a direct API call from reassigning any
+     * active user regardless of role. Enforced here so the constraint holds regardless of caller.
+     */
+    private void requireBusinessRole(User user, String expectedRoleName) {
+        String actualRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
+        if (!expectedRoleName.equals(actualRoleName)) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    user.getFullName() + " does not hold the " + expectedRoleName + " Business Role");
+        }
+    }
+
     @Transactional
     public ReassignmentRecord reassign(User actor, UUID contentPlanId, TaskStage taskStage,
                                         List<UUID> newAssigneeUserIds, String reason) {
@@ -153,6 +168,7 @@ public class AdminActionService {
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
                         .orElseThrow(() -> DomainException.notFound("User not found: " + newUserId));
+                requireBusinessRole(newUser, "Camera Person");
                 shootingAssignmentRepository.save(new ShootingAssignment(plan, newUser, actor));
                 reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.CAMERAPERSON,
                         AssigneeSide.NEW));
@@ -168,6 +184,7 @@ public class AdminActionService {
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
                         .orElseThrow(() -> DomainException.notFound("User not found: " + newUserId));
+                requireBusinessRole(newUser, "Video Editor");
                 editingAssignmentRepository.save(new EditingAssignment(plan, newUser, actor));
                 reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.EDITOR,
                         AssigneeSide.NEW));

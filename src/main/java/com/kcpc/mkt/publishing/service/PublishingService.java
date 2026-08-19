@@ -208,6 +208,15 @@ public class PublishingService {
         if (evidenceUrl == null || evidenceUrl.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Evidence URL is required");
         }
+        // ENG-055: an Original publish for a (output, target) pair is a one-time task, not
+        // resubmittable - the Publishing checklist enforces this by never showing a checkbox for an
+        // already-completed row, but that's UI-only; this is the actual source of truth. A genuine
+        // re-publish after the first goes through eventType=REPOST instead, which is unaffected.
+        if (eventType == PublicationEventType.ORIGINAL && hasLivePost(plannedOutput, target)) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "An Original publication event already exists for " + plannedOutput.getOutputType()
+                            + " / " + target.getPlatform().getPlatformName() + " - use Repost instead");
+        }
 
         ActualPublicationEvent event = eventRepository.save(new ActualPublicationEvent(plan, plannedOutput, target,
                 eventType, actualPublicationTimestamp, evidenceUrl, actor));

@@ -33,7 +33,10 @@ import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingExecutionParticipantRepository;
 import com.kcpc.mkt.production.service.EditingService;
 import com.kcpc.mkt.production.service.ShootingService;
+import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
+import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
+import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
@@ -66,6 +69,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -228,6 +232,7 @@ public class DeliverableMvcController {
                                 java.util.LinkedHashMap::new, java.util.stream.Collectors.toList())))));
         model.addAttribute("outputNaRecords", outputs.stream().collect(
                 java.util.stream.Collectors.toMap(PlannedOutput::getId, naRecordRepository::findByPlannedOutput)));
+        model.addAttribute("publishingChecklist", buildPublishingChecklist(outputs));
         model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
         model.addAttribute("modelUsers",
                 userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model"));
@@ -249,8 +254,18 @@ public class DeliverableMvcController {
 
         model.addAttribute("shootingAssignments", shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
         model.addAttribute("editingAssignments", editingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
-        model.addAttribute("shootingParticipants", shootingParticipantRepository.findByContentPlan(plan));
-        model.addAttribute("editingParticipants", editingParticipantRepository.findByContentPlan(plan));
+        // ENG-053: shooting_execution_participants/editing_execution_participants (ERD-TBL-038)
+        // record a fresh row every execution cycle - a Request Rework followed by another Start
+        // Shoot/Start Edit adds a NEW row for the same person, so the raw findByContentPlan result
+        // can (and after a rework round-trip, will) contain the same user more than once. The
+        // Qualifying Cameraperson(s)/Editor(s) picker must show each person once regardless -
+        // deduped here, by user id (not name), before the model ever reaches the JSP.
+        model.addAttribute("shootingParticipants",
+                dedupeByUser(shootingParticipantRepository.findByContentPlan(plan),
+                        com.kcpc.mkt.production.domain.ShootingExecutionParticipant::getCameraperson));
+        model.addAttribute("editingParticipants",
+                dedupeByUser(editingParticipantRepository.findByContentPlan(plan),
+                        com.kcpc.mkt.production.domain.EditingExecutionParticipant::getEditor));
         model.addAttribute("activeUsers", userRepository.findByActiveTrueOrderByFullNameAsc());
 
         model.addAttribute("events", eventRepository.findByContentPlan(plan));
@@ -468,8 +483,14 @@ public class DeliverableMvcController {
      * replaces the previous two-transaction design (save always persisted even when the
      * submit-readiness check failed) per the user's explicit request for full atomicity.
      */
+    /**
+     * ENG-051: AJAX-aware so a validation failure (e.g. Urgency Reason missing for an Urgent plan)
+     * doesn't force a full-page redirect that discards everything else the user had filled in -
+     * planning-submit.js submits this via fetch first and only lets the browser navigate on success;
+     * the plain-form fallback (no JS) still works exactly as before, redirect and all.
+     */
     @PostMapping("/plan-submit")
-    public String savePlanAndSubmit(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
+    public Object savePlanAndSubmit(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
                                      @RequestParam(required = false) ContentPriority contentPriority,
                                      @RequestParam(required = false) String skuReference,
                                      @RequestParam(required = false) List<UUID> modelUserIds,
@@ -482,7 +503,9 @@ public class DeliverableMvcController {
                                      @RequestParam(required = false) List<UUID> cameramanUserIds,
                                      @RequestParam(required = false) String leadUserId,
                                      @RequestParam(required = false) String shootDescription,
-                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+                                     @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                     jakarta.servlet.http.HttpServletRequest request) {
         List<String> talentNames = resolveModelNames(modelUserIds);
         try {
             ContentPlan plan = requirePlan(id);
@@ -502,8 +525,15 @@ public class DeliverableMvcController {
             planningService.savePlanAssignAndSubmit(principal.user(), id, categoryText, contentPriority, skuReference,
                     isSkuBlank(skuReference), talentNames, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
                     urgencyReason, camerapersons, leadId, touchShootAssignment, shootDescription);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
             ra.addFlashAttribute("successMessage", "Plan saved and submitted for Planning Review.");
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.status(e.getHttpStatus()).body(com.kcpc.mkt.common.error.ApiErrorResponse.of(
+                        e.getErrorCode(), "Nothing was saved: " + e.getMessage(), request.getRequestURI()));
+            }
             ra.addFlashAttribute("errorMessage", "Nothing was saved: " + e.getMessage());
         }
         return redirect(id);
@@ -577,6 +607,20 @@ public class DeliverableMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
+    }
+
+    /**
+     * ENG-053: keeps the first row seen per user id, dropping any later duplicates - used for the
+     * execution-participant lists (which legitimately grow one row per execution cycle, e.g. a
+     * Request Rework followed by a re-Start) so a person who shows up in several of those rows
+     * still appears exactly once wherever the list is rendered as a set of people, not a history.
+     */
+    private static <T> List<T> dedupeByUser(List<T> rows, java.util.function.Function<T, User> userExtractor) {
+        Map<UUID, T> byUserId = new java.util.LinkedHashMap<>();
+        for (T row : rows) {
+            byUserId.putIfAbsent(userExtractor.apply(row).getId(), row);
+        }
+        return new ArrayList<>(byUserId.values());
     }
 
     /** ERD-TBL-011: {@code groupId} is a Planned Output's reelGroupId - any member represents the whole group. */
@@ -1278,6 +1322,54 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
+    /**
+     * ENG-055/056: the Publishing execution checklist's "Submit Published Tasks" - one POST
+     * covering every checked (Planned Output, Publication Target) row, each carrying its own
+     * Evidence URL. Actual Publication Date is not user-entered - it's the moment this request is
+     * submitted ({@code Instant.now()}, computed once so every row in the same batch shares the
+     * exact same timestamp, matching "submitted together"), per the user's explicit "isko hata do,
+     * wo by default current timestamp k according data lelega". The two remaining lists arrive
+     * strictly in lockstep: the checklist's "hidden" `plannedOutputId`/`publicationTargetId`/
+     * `evidenceUrl` inputs for a row are only ever `disabled` (and so only ever submitted) together,
+     * toggled as one unit by publishing-checklist.js when that row's checkbox is (un)checked - never
+     * independently - so index i in one list always corresponds to the same row as index i in the
+     * other. Deliberately NOT one atomic transaction across the whole batch: each row is recorded
+     * via the existing single-row {@link PublishingService#recordActualPublication}, independently -
+     * a Publisher who successfully recorded 3 of 4 platforms shouldn't lose those 3 just because the
+     * 4th had a bad URL, and the auto-complete-when-scope-resolved check inside that method already
+     * fires correctly on whichever call happens to be the last one needed to complete the plan.
+     */
+    @PostMapping("/publishing/events/bulk")
+    public String recordBulkEvents(@PathVariable UUID id,
+                                    @RequestParam(required = false) List<UUID> plannedOutputIds,
+                                    @RequestParam(required = false) List<UUID> publicationTargetIds,
+                                    @RequestParam(required = false) List<String> evidenceUrls,
+                                    @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        if (plannedOutputIds == null || plannedOutputIds.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", "Select at least one task before submitting.");
+            return redirect(id);
+        }
+        Instant ts = Instant.now();
+        int succeeded = 0;
+        List<String> failures = new ArrayList<>();
+        for (int i = 0; i < plannedOutputIds.size(); i++) {
+            try {
+                publishingService.recordActualPublication(principal.user(), id, plannedOutputIds.get(i),
+                        publicationTargetIds.get(i), PublicationEventType.ORIGINAL, ts, evidenceUrls.get(i));
+                succeeded++;
+            } catch (DomainException e) {
+                failures.add(e.getMessage());
+            }
+        }
+        if (succeeded > 0) {
+            ra.addFlashAttribute("successMessage", succeeded + " task(s) recorded as published.");
+        }
+        if (!failures.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", failures.size() + " task(s) could not be recorded: " + String.join("; ", failures));
+        }
+        return redirect(id);
+    }
+
     @PostMapping("/publishing/targets/na")
     public String designateNa(@PathVariable UUID id, @RequestParam UUID plannedOutputId,
                                @RequestParam UUID publicationTargetId, @RequestParam String reason,
@@ -1521,5 +1613,68 @@ public class DeliverableMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);
+    }
+
+    /**
+     * ENG-055: the Publishing execution checklist's rows - one per real (Planned Output,
+     * Publication Target) pair (ERD-TBL-011/ERD-TBL-021's mapping table, NOT grouped by
+     * reelGroupId - each Reel Type of a REEL group has its own independent mapping rows, and each
+     * Publication Target within a platform, e.g. two different Facebook Pages, is its own separate
+     * task). A pair currently designated N/A (PublishingService's private latestNaAction logic,
+     * duplicated here read-only since that method isn't exposed) is left off the checklist entirely
+     * - it's excluded from "what's left to publish", not merely unchecked. A pair with a live
+     * ORIGINAL event already recorded is included but marked completed (its evidence/date shown
+     * read-only, no checkbox) so it can never be resubmitted from this screen.
+     */
+    private List<PublishingChecklistRow> buildPublishingChecklist(List<PlannedOutput> outputs) {
+        List<PublishingChecklistRow> rows = new ArrayList<>();
+        for (PlannedOutput output : outputs) {
+            for (var mapping : mappingRepository.findByPlannedOutput(output)) {
+                PublicationTarget target = mapping.getPublicationTarget();
+                boolean isNa = naRecordRepository.findByPlannedOutput(output).stream()
+                        .filter(r -> r.getPublicationTarget().getId().equals(target.getId()))
+                        .max(Comparator.comparing(PublicationTargetNaRecord::getRecordedAt))
+                        .map(r -> r.getActionType() == NaActionType.DESIGNATED)
+                        .orElse(false);
+                if (isNa) {
+                    continue;
+                }
+                ActualPublicationEvent liveEvent = eventRepository
+                        .findByPlannedOutputAndEventType(output, PublicationEventType.ORIGINAL).stream()
+                        .filter(e -> e.getPublicationTarget().getId().equals(target.getId()))
+                        .findFirst().orElse(null);
+                rows.add(new PublishingChecklistRow(output, target, liveEvent));
+            }
+        }
+        return rows;
+    }
+
+    /** ENG-055: read-only view-model for one Publishing checklist row - see {@link #buildPublishingChecklist}. */
+    public static final class PublishingChecklistRow {
+        private final PlannedOutput plannedOutput;
+        private final PublicationTarget publicationTarget;
+        private final ActualPublicationEvent completedEvent;
+
+        PublishingChecklistRow(PlannedOutput plannedOutput, PublicationTarget publicationTarget, ActualPublicationEvent completedEvent) {
+            this.plannedOutput = plannedOutput;
+            this.publicationTarget = publicationTarget;
+            this.completedEvent = completedEvent;
+        }
+
+        public PlannedOutput getPlannedOutput() {
+            return plannedOutput;
+        }
+
+        public PublicationTarget getPublicationTarget() {
+            return publicationTarget;
+        }
+
+        public boolean isCompleted() {
+            return completedEvent != null;
+        }
+
+        public ActualPublicationEvent getCompletedEvent() {
+            return completedEvent;
+        }
     }
 }

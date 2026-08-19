@@ -9,6 +9,7 @@ import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.PlannedOutput;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
+import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.PermissionGrantRepository;
 import com.kcpc.mkt.identity.repository.UserRepository;
@@ -54,6 +55,8 @@ class HighPriorityEdgeCaseTest {
     PermissionGrantRepository permissionGrantRepository;
     @Autowired
     UserRepository userRepository;
+    @Autowired
+    ShootingAssignmentRepository shootingAssignmentRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
@@ -107,6 +110,97 @@ class HighPriorityEdgeCaseTest {
             // BFD/BRS: full predefined Mark to EVERY qualifying contributor - never split/averaged.
             assertThat(a.getAttributedMarkValue()).isEqualByComparingTo(new BigDecimal("2.0"));
         }
+    }
+
+    /**
+     * ENG-053: shooting_execution_participants gets a fresh row every time Submit for Shoot Review
+     * runs (ERD-TBL-038) - a Request Rework returns to SIP, not SA, so the same Cameraperson can
+     * submit for review a second time without ever being reassigned, adding a second participant
+     * row for the same person. The Qualifying Cameraperson(s) picker on the Shoot Review Decision
+     * screen must still show that Cameraperson exactly once.
+     */
+    @Test
+    void qualifyingCamerapersonListNeverShowsDuplicatesAfterAReworkCycle() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String camEmail = "e2e-reworkdup-cam-" + unique + "@kcpcbandhani.local";
+        String cam = createUser(ceo, "Rework Dup Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        TestApiClient camClient = new TestApiClient(port);
+        camClient.login(camEmail, "Passw0rd!");
+
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Rework Dup " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        String contentPlanId = findContentPlanId(ideaId);
+
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
+                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
+                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/reworkdup-" + unique + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        String outputId = findPlannedOutputId(contentPlanId);
+        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
+                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
+        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
+
+        camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
+        camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", ""); // participant row #1
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
+                "{\"approve\":false,\"reason\":\"Lighting needs to be fixed, please reshoot\"}"); // SRV -> SIP, no reassignment
+        camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", ""); // participant row #2, same Cameraperson
+
+        var plan = contentPlanRepository.findById(UUID.fromString(contentPlanId)).orElseThrow();
+        assertThat(plan.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("SRV");
+
+        HttpResponse<String> page = ceo.get("/app/deliverables/" + contentPlanId);
+        String checkboxMarker = "value=\"" + cam + "\" data-name=\"Rework Dup Cam\"";
+        int occurrences = page.body().split(java.util.regex.Pattern.quote(checkboxMarker), -1).length - 1;
+        assertThat(occurrences).isEqualTo(1);
+    }
+
+    /**
+     * ENG-054: the Reassign form's "New Assignee(s)" is now Business-Role-filtered per Task Stage
+     * on the UI, but that alone doesn't stop a direct API call from reassigning SHOOTING to someone
+     * who isn't a Camera Person - AdminActionService#reassign now rejects that server-side too.
+     */
+    @Test
+    void reassignRejectsANewAssigneeWithoutTheMatchingBusinessRoleButAcceptsAMatchingOne() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String cam1 = createUser(ceo, "Reassign Cam 1", "e2e-reassign-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam2 = createUser(ceo, "Reassign Cam 2", "e2e-reassign-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String editor = createUser(ceo, "Reassign Wrong Role Editor", "e2e-reassign-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Reassign Role Check " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        String contentPlanId = findContentPlanId(ideaId);
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam1 + "\"}");
+
+        // A Video Editor is not a valid SHOOTING reassignee - rejected, no assignment created.
+        ceo.postFormMulti("/app/deliverables/" + contentPlanId + "/reassign", java.util.Map.of(
+                "taskStage", List.of("SHOOTING"),
+                "newAssigneeUserIds", List.of(editor),
+                "reason", List.of("Wrong role test")));
+        ContentPlan plan = contentPlanRepository.findById(UUID.fromString(contentPlanId)).orElseThrow();
+        assertThat(shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .anyMatch(a -> a.getCameraperson().getId().equals(UUID.fromString(editor)))).isFalse();
+
+        // A Camera Person is a valid SHOOTING reassignee - accepted.
+        ceo.postFormMulti("/app/deliverables/" + contentPlanId + "/reassign", java.util.Map.of(
+                "taskStage", List.of("SHOOTING"),
+                "newAssigneeUserIds", List.of(cam2),
+                "reason", List.of("Correct role test")));
+        List<com.kcpc.mkt.production.domain.ShootingAssignment> active =
+                shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        assertThat(active).hasSize(1);
+        assertThat(active.get(0).getCameraperson().getId()).isEqualTo(UUID.fromString(cam2));
     }
 
     @Test

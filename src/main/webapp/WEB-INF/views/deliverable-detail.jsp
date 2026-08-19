@@ -45,19 +45,58 @@
         <c:if test="${canReassign}">
             <details>
                 <summary>Reassign</summary>
-                <form class="action-form" method="post"
+                <form class="action-form" method="post" id="reassign-form"
                       action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/reassign">
                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                     <label>Task Stage
-                        <select name="taskStage">
+                        <select name="taskStage" id="reassign-task-stage">
                             <c:forEach var="ts" items="${taskStages}"><option value="${ts}">${ts}</option></c:forEach>
                         </select>
                     </label>
-                    <label>New Assignee(s)
-                        <select name="newAssigneeUserIds" multiple size="4">
-                            <c:forEach var="u" items="${activeUsers}"><option value="${u.id}">${u.fullName}</option></c:forEach>
-                        </select>
-                    </label>
+
+                    <%-- ENG-054: one Business-Role-filtered picker per Task Stage, both server-rendered
+                         up front - reassign-form.js shows only the one matching the current Task Stage
+                         selection (no reload, no AJAX) and clears the other's selection on every switch
+                         so a stray Cameraperson can never ride along into an Editor reassignment. --%>
+                    <div class="kcpc-model-picker reassign-assignee-picker" data-stage="SHOOTING">
+                        <label>New Assignee(s)</label>
+                        <div class="kcpc-model-input">
+                            <div class="kcpc-model-chips"></div>
+                            <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
+                        </div>
+                        <div class="kcpc-model-checklist">
+                            <c:forEach var="u" items="${camerapersonUsers}">
+                                <c:set var="isCurrentAssignee" value="false"/>
+                                <c:forEach var="a" items="${shootingAssignments}">
+                                    <c:if test="${a.cameraperson.id == u.id}"><c:set var="isCurrentAssignee" value="true"/></c:if>
+                                </c:forEach>
+                                <label class="model-check-item">
+                                    <input type="checkbox" name="newAssigneeUserIds" value="${u.id}"
+                                           data-name="${u.fullName}" ${isCurrentAssignee ? 'checked' : ''}> ${u.fullName}
+                                </label>
+                            </c:forEach>
+                        </div>
+                    </div>
+                    <div class="kcpc-model-picker reassign-assignee-picker hidden" data-stage="EDITING">
+                        <label>New Assignee(s)</label>
+                        <div class="kcpc-model-input">
+                            <div class="kcpc-model-chips"></div>
+                            <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                        </div>
+                        <div class="kcpc-model-checklist">
+                            <c:forEach var="u" items="${videoEditorUsers}">
+                                <c:set var="isCurrentAssignee" value="false"/>
+                                <c:forEach var="a" items="${editingAssignments}">
+                                    <c:if test="${a.editor.id == u.id}"><c:set var="isCurrentAssignee" value="true"/></c:if>
+                                </c:forEach>
+                                <label class="model-check-item">
+                                    <input type="checkbox" name="newAssigneeUserIds" value="${u.id}"
+                                           data-name="${u.fullName}" ${isCurrentAssignee ? 'checked' : ''}> ${u.fullName}
+                                </label>
+                            </c:forEach>
+                        </div>
+                    </div>
+
                     <label>Reason * <input type="text" name="reason" required></label>
                     <button type="submit">Confirm Reassignment</button>
                 </form>
@@ -481,7 +520,7 @@
                         </c:when>
                         <c:otherwise>
                             <h3 class="stage-block-heading">Shoot Instructions</h3>
-                            <p class="stage-description-text muted"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                            <p class="stage-description-text ${empty plan.shootDescription ? 'muted' : ''}"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
                         </c:otherwise>
                     </c:choose>
                 </div>
@@ -575,23 +614,33 @@
                     <c:when test="${canDecideShootReview}">
                         <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/review/decision">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                            <label>Decision
-                                <select name="approve">
-                                    <option value="true">Approve</option>
-                                    <option value="false">Request Rework</option>
-                                </select>
-                            </label>
-                            <label>Confirm qualifying Cameraperson(s) (Approve only)
-                                <select name="qualifyingRecipientUserIds" multiple size="4">
-                                    <c:forEach var="p" items="${shootingParticipants}">
-                                        <option value="${p.cameraperson.id}">${p.cameraperson.fullName}</option>
-                                    </c:forEach>
-                                </select>
-                            </label>
+                            <div class="review-decision-grid">
+                                <label>Decision
+                                    <select name="approve">
+                                        <option value="true">Approve</option>
+                                        <option value="false">Request Rework</option>
+                                    </select>
+                                </label>
+                                <div class="qualifying-picker-field kcpc-model-picker">
+                                    <label>Qualifying Cameraperson(s)</label>
+                                    <div class="kcpc-model-input">
+                                        <div class="kcpc-model-chips"></div>
+                                        <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
+                                    </div>
+                                    <div class="kcpc-model-checklist">
+                                        <c:forEach var="p" items="${shootingParticipants}">
+                                            <label class="model-check-item">
+                                                <input type="checkbox" name="qualifyingRecipientUserIds"
+                                                       value="${p.cameraperson.id}" data-name="${p.cameraperson.fullName}"> ${p.cameraperson.fullName}
+                                            </label>
+                                        </c:forEach>
+                                    </div>
+                                </div>
+                                <label>Reason
+                                    <input type="text" name="reason" placeholder="Describe required changes...">
+                                </label>
+                            </div>
                             <p class="note-box">Each confirmed contributor receives the FULL predefined Cameraperson mark (no split).</p>
-                            <label>Reason
-                                <input type="text" name="reason" placeholder="Enter reason...">
-                            </label>
                             <div class="review-actions">
                                 <button type="submit">Submit Decision</button>
                             </div>
@@ -629,7 +678,7 @@
                     </c:when>
                     <c:otherwise>
                         <h3 class="stage-block-heading">Shoot Instructions</h3>
-                        <p class="stage-description-text muted"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                        <p class="stage-description-text ${empty plan.shootDescription ? 'muted' : ''}"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
                     </c:otherwise>
                 </c:choose>
             </div>
@@ -780,22 +829,33 @@
                     <c:when test="${canDecideEditReview}">
                         <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/review/decision">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                            <label>Decision
-                                <select name="approve">
-                                    <option value="true">Approve</option>
-                                    <option value="false">Request Rework</option>
-                                </select>
-                            </label>
-                            <label>Confirm qualifying Editor(s) (Approve only)
-                                <select name="qualifyingRecipientUserIds" multiple size="4">
-                                    <c:forEach var="p" items="${editingParticipants}">
-                                        <option value="${p.editor.id}">${p.editor.fullName}</option>
-                                    </c:forEach>
-                                </select>
-                            </label>
-                            <label>Reason
-                                <input type="text" name="reason" placeholder="Enter reason...">
-                            </label>
+                            <div class="review-decision-grid">
+                                <label>Decision
+                                    <select name="approve">
+                                        <option value="true">Approve</option>
+                                        <option value="false">Request Rework</option>
+                                    </select>
+                                </label>
+                                <div class="qualifying-picker-field kcpc-model-picker">
+                                    <label>Qualifying Editor(s)</label>
+                                    <div class="kcpc-model-input">
+                                        <div class="kcpc-model-chips"></div>
+                                        <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                                    </div>
+                                    <div class="kcpc-model-checklist">
+                                        <c:forEach var="p" items="${editingParticipants}">
+                                            <label class="model-check-item">
+                                                <input type="checkbox" name="qualifyingRecipientUserIds"
+                                                       value="${p.editor.id}" data-name="${p.editor.fullName}"> ${p.editor.fullName}
+                                            </label>
+                                        </c:forEach>
+                                    </div>
+                                </div>
+                                <label>Reason
+                                    <input type="text" name="reason" placeholder="Describe required changes...">
+                                </label>
+                            </div>
+                            <p class="note-box">Each confirmed contributor receives the FULL predefined Editor mark (no split).</p>
                             <div class="review-actions">
                                 <button type="submit">Submit Decision</button>
                             </div>
@@ -833,7 +893,7 @@
                     </c:when>
                     <c:otherwise>
                         <h3 class="stage-block-heading">Edit Description</h3>
-                        <p class="stage-description-text muted"><c:out value="${empty plan.editDescription ? 'No description yet.' : plan.editDescription}"/></p>
+                        <p class="stage-description-text ${empty plan.editDescription ? 'muted' : ''}"><c:out value="${empty plan.editDescription ? 'No description yet.' : plan.editDescription}"/></p>
                     </c:otherwise>
                 </c:choose>
             </div>
@@ -959,51 +1019,106 @@
             </c:if>
             <c:if test="${(status == 'PUBG' or status == 'PP') and canPublishingExecute}">
                 <c:if test="${isPublishActiveAssignee}">
+                    <%-- ENG-055: one checklist row per (Planned Output, Publication Target) pair from
+                         Planning's Publication Scope - the Publisher checks off whichever they've
+                         actually published, fills in that row's own Evidence URL, and submits every
+                         checked row in one request. Completed rows (a live ORIGINAL event already
+                         exists) show read-only and carry no checkbox, so they can never be resubmitted. --%>
                     <h3>Record Actual Publication Event</h3>
-                    <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events">
+                    <form method="post" id="publishing-checklist-form"
+                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events/bulk">
                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <label>Planned Output
-                            <select name="plannedOutputId">
-                                <c:forEach var="o" items="${outputs}"><option value="${o.id}">${o.outputType} ${o.titleDescription}</option></c:forEach>
-                            </select>
-                        </label>
-                        <label>Publication Target
-                            <select name="publicationTargetId">
-                                <c:forEach var="pt" items="${activePublicationTargets}">
-                                    <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
-                                </c:forEach>
-                            </select>
-                        </label>
-                        <label>Event Type
-                            <select name="eventType">
-                                <c:forEach var="et" items="${eventTypes}"><option value="${et}">${et}</option></c:forEach>
-                            </select>
-                        </label>
-                        <label>Actual Publication Date * <input type="date" name="actualPublicationTimestamp" required></label>
-                        <label>Evidence URL * <input type="url" name="evidenceUrl" required></label>
-                        <button type="submit">Save Event</button>
-                    </form>
-                </c:if>
-
-                <h3>Target N/A</h3>
-                <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/targets/na">
-                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                    <label>Planned Output
-                        <select name="plannedOutputId">
-                            <c:forEach var="o" items="${outputs}"><option value="${o.id}">${o.outputType} ${o.titleDescription}</option></c:forEach>
-                        </select>
-                    </label>
-                    <label>Publication Target
-                        <select name="publicationTargetId">
-                            <c:forEach var="pt" items="${activePublicationTargets}">
-                                <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
+                        <table class="data-table" id="publishing-checklist-table">
+                            <thead>
+                            <tr>
+                                <th><input type="checkbox" id="publishing-checklist-select-all"
+                                           title="Select all pending tasks"></th>
+                                <th>Planned Output</th>
+                                <th>Type</th>
+                                <th>Platform</th>
+                                <th>Channel</th>
+                                <th>Evidence URL</th>
+                                <th>Status</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <c:forEach var="row" items="${publishingChecklist}">
+                                <tr class="publishing-checklist-row">
+                                    <td>
+                                        <c:choose>
+                                            <c:when test="${row.completed}">
+                                                <span class="muted" title="Completed">&#10003;</span>
+                                            </c:when>
+                                            <c:otherwise>
+                                                <input type="checkbox" class="publishing-checklist-select">
+                                                <input type="hidden" name="plannedOutputIds" value="${row.plannedOutput.id}"
+                                                       class="publishing-checklist-hidden" disabled>
+                                                <input type="hidden" name="publicationTargetIds" value="${row.publicationTarget.id}"
+                                                       class="publishing-checklist-hidden" disabled>
+                                            </c:otherwise>
+                                        </c:choose>
+                                    </td>
+                                    <td><c:out value="${empty row.plannedOutput.titleDescription ? '—' : row.plannedOutput.titleDescription}"/></td>
+                                    <td>${row.plannedOutput.outputType}<c:if test="${row.plannedOutput.outputType == 'REEL'}"> &middot; ${row.plannedOutput.reelType}</c:if></td>
+                                    <td><c:out value="${row.publicationTarget.platform.platformName}"/></td>
+                                    <td><c:out value="${row.publicationTarget.channel.channelHandle}"/></td>
+                                    <td>
+                                        <c:choose>
+                                            <c:when test="${row.completed}">
+                                                <a href="${row.completedEvent.evidenceUrl}" target="_blank" rel="noopener noreferrer">
+                                                    <c:out value="${row.completedEvent.evidenceUrl}"/></a>
+                                            </c:when>
+                                            <c:otherwise>
+                                                <input type="text" name="evidenceUrls" class="publishing-checklist-evidence"
+                                                       placeholder="Evidence URL" disabled>
+                                            </c:otherwise>
+                                        </c:choose>
+                                    </td>
+                                    <td>
+                                        <c:choose>
+                                            <c:when test="${row.completed}"><span class="status-pill status-completed">Completed</span></c:when>
+                                            <c:otherwise><span class="status-pill status-pending">Pending</span></c:otherwise>
+                                        </c:choose>
+                                    </td>
+                                </tr>
                             </c:forEach>
-                        </select>
-                    </label>
-                    <label>Reason * <input type="text" name="reason" required></label>
-                    <p class="note-box">At least one target must remain live or eligible — all-N/A is blocked.</p>
-                    <button type="submit">Mark N/A</button>
-                </form>
+                            <c:if test="${empty publishingChecklist}">
+                                <tr><td colspan="7" class="muted">No Publication Targets to publish.</td></tr>
+                            </c:if>
+                            </tbody>
+                        </table>
+                        <div class="review-actions">
+                            <button type="submit" id="publishing-checklist-submit" disabled>Submit Published Tasks</button>
+                        </div>
+                    </form>
+
+                    <details>
+                        <summary>Record a Repost / Manual Entry</summary>
+                        <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <label>Planned Output
+                                <select name="plannedOutputId">
+                                    <c:forEach var="o" items="${outputs}"><option value="${o.id}">${o.outputType} ${o.titleDescription}</option></c:forEach>
+                                </select>
+                            </label>
+                            <label>Publication Target
+                                <select name="publicationTargetId">
+                                    <c:forEach var="pt" items="${activePublicationTargets}">
+                                        <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
+                                    </c:forEach>
+                                </select>
+                            </label>
+                            <label>Event Type
+                                <select name="eventType">
+                                    <c:forEach var="et" items="${eventTypes}"><option value="${et}">${et}</option></c:forEach>
+                                </select>
+                            </label>
+                            <label>Actual Publication Date * <input type="date" name="actualPublicationTimestamp" required></label>
+                            <label>Evidence URL * <input type="url" name="evidenceUrl" required></label>
+                            <button type="submit">Save Event</button>
+                        </form>
+                    </details>
+                </c:if>
             </c:if>
 
             <h3>Actual Publication Events</h3>
@@ -1057,7 +1172,7 @@
                     </c:when>
                     <c:otherwise>
                         <h3 class="stage-block-heading">Publishing Description</h3>
-                        <p class="stage-description-text muted"><c:out value="${empty plan.publishingDescription ? 'No description yet.' : plan.publishingDescription}"/></p>
+                        <p class="stage-description-text ${empty plan.publishingDescription ? 'muted' : ''}"><c:out value="${empty plan.publishingDescription ? 'No description yet.' : plan.publishingDescription}"/></p>
                     </c:otherwise>
                 </c:choose>
             </div>
@@ -1197,5 +1312,8 @@
 <script src="${pageContext.request.contextPath}/js/assignment-picker.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/review-decision.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/planning-submit.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/reassign-form.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/publishing-checklist.js" defer></script>
 </body>
 </html>
