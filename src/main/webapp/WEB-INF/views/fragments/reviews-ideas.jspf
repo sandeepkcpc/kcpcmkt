@@ -1,0 +1,244 @@
+<%-- Manager Reviews Workspace - Ideas tab. Caller (ReviewsMvcController#buildIdeasTab) sets
+     ${queueRows} (List<IdeaQueueRow>), ${q}/${dateFrom}/${dateTo}/${sort}, pagination attrs
+     (${totalCount}/${currentPage}/${totalPages}/${fromIndex}/${toIndex}/${pageSize}), ${selectedId},
+     and - when an item is selected - ${selectedIdea}/${ideaStatusLabel}/${ideaStatusCssClass}/
+     ${ideaStatusHistory}/${canDecideSelected}. Idea status here is ALWAYS the Idea-only vocabulary
+     (Under Review/Reopened) - this queue only ever contains PA-status ideas, never a downstream
+     Content status. --%>
+<div class="reviews-body">
+    <div class="reviews-queue">
+        <form method="get" action="${pageContext.request.contextPath}/app/reviews" class="reviews-filters" id="reviewsFilterForm">
+            <input type="hidden" name="tab" value="ideas">
+            <input type="hidden" name="sort" value="${sort}">
+            <div class="filter-field filter-field-search">
+                <label for="rvIdeaSearch">Search</label>
+                <input type="text" name="q" id="rvIdeaSearch" placeholder="Search by Idea ID or title..." value="${fn:escapeXml(q)}">
+            </div>
+            <div class="filter-field">
+                <label for="rvIdeaDateFrom">Submitted</label>
+                <div class="filter-date-range">
+                    <input type="date" name="dateFrom" id="rvIdeaDateFrom" value="${dateFrom}">
+                    <span class="filter-date-sep">&ndash;</span>
+                    <input type="date" name="dateTo" id="rvIdeaDateTo" value="${dateTo}">
+                </div>
+            </div>
+            <a class="btn-outline reviews-clear" href="${pageContext.request.contextPath}/app/reviews?tab=ideas">
+                <span aria-hidden="true">&#8635;</span> Clear
+            </a>
+        </form>
+
+        <div class="panel reviews-table-panel">
+            <h2 class="reviews-queue-title">Pending Idea Reviews</h2>
+            <div class="reviews-table-scroll">
+            <table class="data-table reviews-table">
+                <thead>
+                <tr>
+                    <th>Idea ID</th>
+                    <th>Idea</th>
+                    <th>Submitted By</th>
+                    <th>
+                        <c:url var="rvSortUrl" value="/app/reviews">
+                            <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                            <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
+                            <c:param name="pageSize" value="${pageSize}"/>
+                            <c:param name="sort" value="${sort == 'DATE_ASC' ? 'DATE_DESC' : 'DATE_ASC'}"/>
+                        </c:url>
+                        <a class="reviews-sort-link" href="${rvSortUrl}">Submitted On <span class="sort-icon">&#8693;</span></a>
+                    </th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody>
+                <c:forEach var="row" items="${queueRows}">
+                    <c:url var="rvRowUrl" value="/app/reviews">
+                        <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                        <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
+                        <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
+                        <c:param name="page" value="${currentPage}"/><c:param name="selectedId" value="${row.ideaId}"/>
+                    </c:url>
+                    <tr class="reviews-row ${row.ideaId == selectedId ? 'reviews-row-active' : ''}" data-row-url="${rvRowUrl}">
+                        <td><a class="idea-id-link reviews-row-link" href="${rvRowUrl}"><c:out value="${row.businessIdeaCode}"/></a></td>
+                        <td class="idea-queue-title-cell" title="${fn:escapeXml(row.title)}"><c:out value="${row.title}"/></td>
+                        <td><c:out value="${row.submittedByName}"/></td>
+                        <td>${kcpc:ist(row.submittedAt)}</td>
+                        <td><a class="btn-outline reviews-row-link reviews-view-btn" href="${rvRowUrl}" title="View">&#128065;</a></td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty queueRows}">
+                    <tr><td colspan="5" class="muted">No ideas are currently pending review.</td></tr>
+                </c:if>
+                </tbody>
+            </table>
+            </div>
+
+            <div class="pagination reviews-pagination">
+                <span>Showing ${fromIndex} to ${toIndex} of ${totalCount}</span>
+                <div class="reviews-page-size">
+                    <select id="rvIdeaPageSize" name="pageSize" form="reviewsFilterForm">
+                        <option value="10" ${pageSize == 10 ? 'selected' : ''}>10 per page</option>
+                        <option value="25" ${pageSize == 25 ? 'selected' : ''}>25 per page</option>
+                        <option value="50" ${pageSize == 50 ? 'selected' : ''}>50 per page</option>
+                    </select>
+                </div>
+                <div class="pagination-controls">
+                    <c:choose>
+                        <c:when test="${currentPage > 1}">
+                            <c:url var="rvPrevUrl" value="/app/reviews">
+                                <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
+                                <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
+                                <c:param name="page" value="${currentPage - 1}"/>
+                            </c:url>
+                            <a href="${rvPrevUrl}">&#8249;</a>
+                        </c:when>
+                        <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+                    </c:choose>
+                    <c:forEach begin="1" end="${totalPages}" var="p">
+                        <c:choose>
+                            <c:when test="${p == currentPage}"><span class="page-current">${p}</span></c:when>
+                            <c:otherwise>
+                                <c:url var="rvPageUrl" value="/app/reviews">
+                                    <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                    <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
+                                    <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
+                                    <c:param name="page" value="${p}"/>
+                                </c:url>
+                                <a href="${rvPageUrl}">${p}</a>
+                            </c:otherwise>
+                        </c:choose>
+                    </c:forEach>
+                    <c:choose>
+                        <c:when test="${currentPage < totalPages}">
+                            <c:url var="rvNextUrl" value="/app/reviews">
+                                <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
+                                <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
+                                <c:param name="page" value="${currentPage + 1}"/>
+                            </c:url>
+                            <a href="${rvNextUrl}">&#8250;</a>
+                        </c:when>
+                        <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+                    </c:choose>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="reviews-detail">
+        <c:choose>
+            <c:when test="${empty selectedIdea}">
+                <div class="panel reviews-detail-empty">
+                    <p class="muted">No idea selected. Choose a row from the queue to review it.</p>
+                </div>
+            </c:when>
+            <c:otherwise>
+                <div class="panel reviews-detail-card" id="reviewsDetailCard" data-review-type="idea" data-review-id="${selectedIdea.id}">
+                    <div class="reviews-detail-head">
+                        <h2 class="reviews-detail-title">Reviewing Idea</h2>
+                        <span class="status-pill ${ideaStatusCssClass}"><c:out value="${ideaStatusLabel}"/></span>
+                    </div>
+                    <div class="reviews-detail-id-row"><c:out value="${selectedIdea.businessIdeaCode}"/></div>
+
+                    <div class="reviews-detail-section">
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Title</span>
+                            <span class="reviews-field-value"><c:out value="${selectedIdea.title}"/></span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Reference Link</span>
+                            <span class="reviews-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty selectedIdea.referenceLink}">
+                                        <a href="${fn:escapeXml(selectedIdea.referenceLink)}" target="_blank" rel="noopener noreferrer"><c:out value="${selectedIdea.referenceLink}"/></a>
+                                    </c:when>
+                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                </c:choose>
+                            </span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Description / Details</span>
+                            <span class="reviews-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty selectedIdea.notesRemarks}"><c:out value="${selectedIdea.notesRemarks}"/></c:when>
+                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                </c:choose>
+                            </span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Additional Note</span>
+                            <span class="reviews-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty selectedIdea.additionalNote}"><c:out value="${selectedIdea.additionalNote}"/></c:when>
+                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                </c:choose>
+                            </span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Submitted By</span>
+                            <span class="reviews-field-value"><c:out value="${selectedIdea.submittedBy.fullName}"/></span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Submitted On</span>
+                            <span class="reviews-field-value">${kcpc:ist(selectedIdea.submittedAt)}</span>
+                        </div>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Idea Decision History</h3>
+                        <ul class="reviews-history-list">
+                            <c:forEach var="event" items="${ideaStatusHistory}">
+                                <li>
+                                    <span class="idea-action-badge idea-action-badge-${fn:toLowerCase(event.eventLabel)}"><c:out value="${event.eventLabel}"/></span>
+                                    <span class="reviews-history-meta">${kcpc:ist(event.timestamp)} &middot; <c:out value="${event.triggeredByName}"/></span>
+                                    <c:if test="${not empty event.reason}"><p class="reviews-history-reason"><c:out value="${event.reason}"/></p></c:if>
+                                </li>
+                            </c:forEach>
+                            <c:if test="${empty ideaStatusHistory}"><li class="muted">No history yet.</li></c:if>
+                        </ul>
+                    </div>
+
+                    <c:choose>
+                        <c:when test="${canDecideSelected}">
+                            <div class="reviews-detail-section reviews-decision-section">
+                                <h3 class="reviews-detail-subhead">Your Decision</h3>
+                                <div class="reviews-decision-buttons">
+                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-decision="APPROVE">&#10003; Approve</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-reject" data-decision="REJECT">&#10007; Reject</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-retain" data-decision="RETAIN">&#128278; Retain</button>
+                                </div>
+                                <div class="field-row reviews-marks-row">
+                                    <div>
+                                        <label>Cameraperson Mark (Approve only)
+                                            <select id="reviewsIdeaCameramanMark">
+                                                <option value="0.0">0</option><option value="0.5">0.5</option>
+                                                <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label>Editor Mark (Approve only)
+                                            <select id="reviewsIdeaEditorMark">
+                                                <option value="0.0">0</option><option value="0.5">0.5</option>
+                                                <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+                                <label id="reviewsIdeaReasonLabel" for="reviewsIdeaReason">Decision Reason (mandatory for Reject; optional for Retain)</label>
+                                <textarea id="reviewsIdeaReason" rows="3" maxlength="500" placeholder="Provide a reason for your decision..."></textarea>
+                                <div class="idea-detail-reason-counter-row">
+                                    <span class="char-counter" data-counter-for="reviewsIdeaReason">0 / 500</span>
+                                </div>
+                                <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
+                            </div>
+                        </c:when>
+                        <c:otherwise>
+                            <p class="note-box">You cannot make a review decision on this idea &mdash; either it is
+                                routed to another authorized reviewer, or you do not hold Idea Review permission.</p>
+                        </c:otherwise>
+                    </c:choose>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+</div>

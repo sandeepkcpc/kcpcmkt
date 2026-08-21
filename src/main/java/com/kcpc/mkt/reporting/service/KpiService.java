@@ -46,10 +46,17 @@ public class KpiService {
                     + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG','PP','PFUP') THEN cp.planned_live_date "
                     + "ELSE NULL END";
 
+    /** Defect fix: Planning-phase codes (PL/PLRV/PLAP) were previously bucketed into 'Shoot' here.
+     * Boundaries now match the already-shipped, already-correct Content Detail stepper
+     * (deliverable-detail.jsp's cdStageIndex 0..4: Planning/Shoot/Edit/Publishing/Performance) so
+     * the two screens never disagree about which stage a status belongs to - PLAP/SAP stay grouped
+     * with Shoot there (shoot-side approval gates), not Planning/Edit. */
     private static final String STAGE_LABEL_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV','PLAP','SA','SIP','SRV') THEN 'Shoot' "
-                    + "WHEN wi.current_status_code IN ('SAP','EA','ED','ERV') THEN 'Edit' "
-                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG','PP','PFUP') THEN 'Publish' "
+            "CASE WHEN wi.current_status_code IN ('PL','PLRV') THEN 'Planning' "
+                    + "WHEN wi.current_status_code IN ('PLAP','SA','SIP','SRV','SAP') THEN 'Shoot' "
+                    + "WHEN wi.current_status_code IN ('EA','ED','ERV') THEN 'Edit' "
+                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG') THEN 'Publishing' "
+                    + "WHEN wi.current_status_code IN ('PP','PFUP') THEN 'Performance' "
                     + "ELSE 'Other' END";
 
     @PersistenceContext
@@ -343,14 +350,24 @@ public class KpiService {
                 + "where wi.first_completed_at is not null", Map.of());
         out.add(KpiValue.scalar("KPI-027", "Content Turnaround Time", "DELAY_SLA", formatDays(avgTurnaround)));
 
+        // Defect fix: this previously took max(actual_publication_timestamp) over EVERY
+        // actual_publication_events row for a plan, including REPOST events - unlike its sibling
+        // KPI-030 below (and PipelineDashboardService's "Actual Live Date"/platform-status logic),
+        // which both treat only an ORIGINAL event as "the real publish moment". A REPOST can carry
+        // a timestamp unrelated to the plan's current Shoot cycle, decoupling last_pub from
+        // first_sap and producing an impossible negative cycle time. Filtering to ORIGINAL aligns
+        // this with the rest of the codebase; the outer >= guard is defense-in-depth so a
+        // chronologically-impossible row is EXCLUDED from the average rather than corrupting it -
+        // never a fabricated/corrected number, just real data that can't be a valid cycle.
         Double avgShootToPublish = scalarDouble(
                 "select avg(extract(epoch from (last_pub.max_ts - sap.first_sap)) / 86400.0) from ("
                         + "  select workflow_instance_id, min(transition_timestamp) as first_sap "
                         + "  from workflow_transition_history where to_status_code = 'SAP' group by workflow_instance_id"
                         + ") sap join content_plans cp on cp.workflow_instance_id = sap.workflow_instance_id "
                         + "join (select content_plan_id, max(actual_publication_timestamp) as max_ts "
-                        + "      from actual_publication_events group by content_plan_id) last_pub "
-                        + "  on last_pub.content_plan_id = cp.content_plan_id", Map.of());
+                        + "      from actual_publication_events where event_type = 'ORIGINAL' group by content_plan_id) last_pub "
+                        + "  on last_pub.content_plan_id = cp.content_plan_id "
+                        + "where last_pub.max_ts >= sap.first_sap", Map.of());
         out.add(KpiValue.scalar("KPI-028", "Shoot-to-Publish Cycle Time", "DELAY_SLA", formatDays(avgShootToPublish)));
 
         out.add(KpiValue.distribution("KPI-029", "Delay Distribution (by stage)", "DELAY_SLA", groupCounts(
@@ -430,6 +447,10 @@ public class KpiService {
         result.put("completionRate", formatPercent(completionRate));
         result.put("delayTotal", delayTotal);
         result.put("onTimeRate", formatPercent(onTimeRate));
+        // Display-only "Data as of" timestamp for the Team > Performance screen header - same
+        // query-time-snapshot convention TeamWorkloadResult#generatedAt already uses, not a stored
+        // last-refresh concept; no KPI value/formula above is affected by adding this.
+        result.put("generatedAt", java.time.Instant.now());
         return result;
     }
 

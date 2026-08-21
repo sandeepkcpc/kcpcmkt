@@ -194,7 +194,14 @@ class MyIdeasVisibilityTest {
         HttpResponse<String> detailAfterReopen = employee.get("/app/ideas/" + ideaB.getId());
         assertThat(detailAfterReopen.body()).contains("Current Idea Status").contains(">Reopened<");
         assertThat(detailAfterReopen.body()).contains("Idea Decision History");
-        assertThat(detailAfterReopen.body()).contains("Reopened by");
+        // Idea Detail's redesigned Decision History is a real table (Date & Time | Action | By |
+        // Remarks columns), not inline "<action> by <actor>" text - the Reopened action and its
+        // actor now live in separate cells, so assert both are present in that table's markup
+        // rather than requiring the old concatenated phrase.
+        int historyStart = detailAfterReopen.body().indexOf("Idea Decision History");
+        String historySnippet = detailAfterReopen.body().substring(historyStart,
+                Math.min(historyStart + 1200, detailAfterReopen.body().length()));
+        assertThat(historySnippet).contains("idea-action-badge-reopened\">Reopened<").contains("KCPC CEO");
 
         // Reopened is folded into the "Under Review" KPI bucket (still filterable/displayed as its
         // own distinct row status), so Under Review count includes both the Reopened idea and any

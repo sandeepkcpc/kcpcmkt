@@ -25,11 +25,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ENG-075: Content Pipeline's Platforms column - one icon+count chip per planned Platform, active/
- * clickable (opening a popover of every Channel's real status) only once at least one Channel has
- * a genuine {@code ActualPublicationEvent} (ORIGINAL) with a usable Evidence URL; muted and
- * non-clickable for a planned-only Platform. A pure display feature over
- * {@code PipelineDashboardService.buildRows} - never touches the actual publishing workflow,
+ * ENG-076 (defect fix): Content Pipeline's Platforms column - one icon+count chip per planned
+ * Platform, ALWAYS a real clickable {@code <button>} opening a popover of every real (Planned
+ * Output, Publication Target) task's status - "active" (green) vs "muted" (grey) is a purely
+ * cosmetic color cue (any published vs all still pending), never a click-eligibility gate, since
+ * the popover is for viewing task status, not only for opening live links. A pure display feature
+ * over {@code PipelineDashboardService.buildRows} - never touches the actual publishing workflow,
  * permissions, or evidence records themselves. Drives a real Content Plan end-to-end through
  * Shoot/Edit/Publishing (same fixture shape as {@link CeoPipelineDashboardTest}) since ENG-043
  * means CEO native authority does not bypass the active-assignee execution gates.
@@ -162,15 +163,24 @@ class PipelinePlatformPopoverTest {
         assertThat(pageBody).contains("kcpcbandhani").contains("Published").contains("Open &#8599;");
         assertThat(pageBody).contains("href=\"" + originalEvidenceUrl + "\"");
 
-        // YouTube: planned only, nothing published -> muted, non-clickable, no Open link near it.
+        // YouTube: planned only, nothing published -> muted color, but STILL a real clickable
+        // <button> with its own popover (0/1 published) - clickability is never gated on whether
+        // anything has been published yet.
         assertThat(pageBody).contains("pipeline-platform-chip muted");
-        assertThat(pageBody).contains("aria-label=\"YouTube: planned, not published yet\"");
-        assertThat(pageBody).contains("Planned &bull; Not published yet");
-        int youtubeMutedIdx = pageBody.indexOf("aria-label=\"YouTube: planned, not published yet\"");
-        assertThat(youtubeMutedIdx).isPositive();
-        int youtubeChipEnd = pageBody.indexOf("</span>", youtubeMutedIdx);
-        String youtubeChipBlock = pageBody.substring(youtubeMutedIdx, youtubeChipEnd);
-        assertThat(youtubeChipBlock).doesNotContain("Open &#8599;").doesNotContain("<button");
+        assertThat(pageBody).contains("aria-label=\"YouTube: 0 of 1 published\"");
+        assertThat(pageBody).contains("YouTube (1)"); // popover header
+        assertThat(pageBody).contains("0/1 published");
+        int youtubeHeaderIdx = pageBody.indexOf("YouTube (1)");
+        assertThat(youtubeHeaderIdx).isPositive();
+        int youtubeTableEnd = pageBody.indexOf("</table>", youtubeHeaderIdx);
+        String youtubePopoverBlock = pageBody.substring(youtubeHeaderIdx, youtubeTableEnd);
+        // No Output column anywhere in the popover; the one pending row shows "-" for status/link,
+        // never a disabled button, empty cell, "N/A", or mojibake/em-dash.
+        assertThat(youtubePopoverBlock).doesNotContain("Open &#8599;").doesNotContain(">Output<")
+                .contains(">Pending<").doesNotContain("N/A").doesNotContain("â").doesNotContain("—");
+        int youtubeChipIdx = pageBody.indexOf("aria-label=\"YouTube: 0 of 1 published\"");
+        int youtubeChipTagStart = pageBody.lastIndexOf("<button", youtubeChipIdx);
+        assertThat(youtubeChipTagStart).isPositive();
 
         // Evidence URL correction: the popover must show the CURRENT effective (corrected) URL,
         // not the original - and the original event row itself is never mutated (a new, separate

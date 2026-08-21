@@ -91,6 +91,7 @@ public class AdminMvcController {
         }
         model.addAttribute("users", userRepository.findAll());
         model.addAttribute("businessRoles", businessRoleRepository.findByActiveTrue());
+        model.addAttribute("activeAdminTab", "users");
         return "admin-users";
     }
 
@@ -116,6 +117,7 @@ public class AdminMvcController {
             return "redirect:/app/home";
         }
         model.addAttribute("grants", permissionGrantAdminService.listActiveGrants(principal.user()));
+        model.addAttribute("activeAdminTab", "permissions");
         return "admin-permissions";
     }
 
@@ -231,15 +233,29 @@ public class AdminMvcController {
         }
         model.addAttribute("roles", businessRoleRepository.findAll());
         model.addAttribute("accessClasses", AccessClass.values());
+        model.addAttribute("activeAdminTab", "business-roles");
         return "admin-business-roles";
     }
 
     @PostMapping("/business-roles")
     public String createBusinessRole(@RequestParam String roleName, @RequestParam AccessClass accessClass,
+                                      @RequestParam(required = false, defaultValue = "false") boolean participatesInWorkflow,
                                       @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            businessRoleAdminService.create(principal.user(), roleName, accessClass);
+            businessRoleAdminService.create(principal.user(), roleName, accessClass, participatesInWorkflow);
             ra.addFlashAttribute("successMessage", "Business Role created.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/business-roles";
+    }
+
+    @PostMapping("/business-roles/{id}/workflow-participation")
+    public String setBusinessRoleWorkflowParticipation(@PathVariable UUID id, @RequestParam boolean participatesInWorkflow,
+                                                         @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            businessRoleAdminService.setWorkflowParticipation(principal.user(), id, participatesInWorkflow);
+            ra.addFlashAttribute("successMessage", "Business Role workflow participation updated.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
@@ -290,6 +306,7 @@ public class AdminMvcController {
         model.addAttribute("platforms", platformRepository.findAll());
         model.addAttribute("channels", channelRepository.findAll());
         model.addAttribute("targets", targetRepository.findAll());
+        model.addAttribute("activeAdminTab", "catalogue");
         return "admin-catalogue";
     }
 

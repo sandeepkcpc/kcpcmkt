@@ -15,6 +15,46 @@
 
     var currentRequest = null;
 
+    // Active Tasks by Stage's own numbers never depend on the Stage filter any more (that filter
+    // now scopes Assignee Load only) - so when Stage is the ONLY query param that changed since
+    // the last render, only the Assignee Load card's markup is swapped in, leaving the Stage card
+    // (and the rest of the page - filter form, "Data as of" header) untouched instead of
+    // redrawing something whose data provably didn't change.
+    function onlyStageParamChanged(oldSearch, newSearch) {
+        var oldParams = new URLSearchParams(oldSearch);
+        var newParams = new URLSearchParams(newSearch);
+        var oldKeys = Array.from(oldParams.keys()).filter(function (k) { return k !== 'stage'; });
+        var newKeys = Array.from(newParams.keys()).filter(function (k) { return k !== 'stage'; });
+        if (oldKeys.length !== newKeys.length) {
+            return false;
+        }
+        for (var i = 0; i < newKeys.length; i++) {
+            var key = newKeys[i];
+            if (oldParams.get(key) !== newParams.get(key)) {
+                return false;
+            }
+        }
+        return oldParams.get('stage') !== newParams.get('stage');
+    }
+
+    function applyWorkloadHtml(html, assigneeCardOnly) {
+        if (assigneeCardOnly) {
+            var currentAssigneeCard = region.querySelector('.team-workload-card-assignee');
+            if (currentAssigneeCard) {
+                var temp = document.createElement('div');
+                temp.innerHTML = html;
+                var newAssigneeCard = temp.querySelector('.team-workload-card-assignee');
+                if (newAssigneeCard) {
+                    currentAssigneeCard.replaceWith(newAssigneeCard);
+                    syncTeamWorkloadCardHeights();
+                    return;
+                }
+            }
+        }
+        region.innerHTML = html;
+        syncTeamWorkloadCardHeights();
+    }
+
     function loadWorkload(url, pushHistory) {
         if (currentRequest) {
             currentRequest.abort();
@@ -22,6 +62,9 @@
         var controller = new AbortController();
         currentRequest = controller;
         region.classList.add('team-workload-loading');
+        var oldSearch = window.location.search;
+        var newSearch = url.indexOf('?') === -1 ? '' : url.slice(url.indexOf('?'));
+        var assigneeCardOnly = onlyStageParamChanged(oldSearch, newSearch);
 
         fetch(url, {headers: {'X-Requested-With': 'fetch'}, signal: controller.signal})
             .then(function (response) {
@@ -34,7 +77,7 @@
                 if (controller.signal.aborted) {
                     return;
                 }
-                region.innerHTML = html;
+                applyWorkloadHtml(html, assigneeCardOnly);
                 region.classList.remove('team-workload-loading');
                 if (pushHistory) {
                     history.pushState(null, '', url);
@@ -50,6 +93,32 @@
                 window.location.href = url;
             });
     }
+
+    // Active Tasks by Stage is always exactly 6 fixed rows (5 stages + Total) - its rendered
+    // height is the one both cards must match. CSS alone can't stretch Assignee Load to that
+    // height and then clip its overflow (a Grid/Flex row's height is set by its tallest content,
+    // which would just be Assignee Load itself) - so this measures the Stage card after every
+    // render and applies it as an explicit height on the Assignee card, whose own
+    // .team-workload-table-scroll (flex:1, overflow-y:auto) turns any overflow into an internal
+    // scrollbar instead of growing the card/page.
+    function syncTeamWorkloadCardHeights() {
+        var stageCard = region.querySelector('.team-workload-card-stage');
+        var assigneeCard = region.querySelector('.team-workload-card-assignee');
+        if (!stageCard || !assigneeCard) {
+            return;
+        }
+        assigneeCard.style.height = '';
+        if (window.matchMedia('(max-width: 1100px)').matches) {
+            return; // stacked single-column layout below this width - no sync needed
+        }
+        assigneeCard.style.height = stageCard.offsetHeight + 'px';
+    }
+
+    window.addEventListener('resize', function () {
+        clearTimeout(window.__teamWorkloadResizeTimer);
+        window.__teamWorkloadResizeTimer = setTimeout(syncTeamWorkloadCardHeights, 150);
+    });
+    syncTeamWorkloadCardHeights();
 
     // Filter form: Business Role/Employee/Stage/Date Range/Delayed Only all submit together.
     region.addEventListener('submit', function (event) {

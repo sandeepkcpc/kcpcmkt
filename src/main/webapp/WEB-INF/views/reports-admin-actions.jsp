@@ -1,5 +1,7 @@
 <%@ page contentType="text/html;charset=UTF-8" pageEncoding="UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,25 +11,12 @@
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
-<main class="app-main">
-    <h1>Administrative Actions Report (Perm #16)</h1>
-    <p class="muted">Read-only management summary derived from immutable audit data.</p>
-    <table class="data-table">
-        <thead><tr><th>Action Type</th><th>Count</th><th>Reasons (sample)</th></tr></thead>
-        <tbody>
-        <c:forEach var="e" items="${report}">
-            <tr>
-                <td>${e.key}</td>
-                <td>${e.value.count}</td>
-                <td>
-                    <c:forEach var="r" items="${e.value.reasons}" varStatus="s">
-                        ${r}<c:if test="${!s.last}">; </c:if>
-                    </c:forEach>
-                </td>
-            </tr>
-        </c:forEach>
-        </tbody>
-    </table>
+<main class="app-main app-main-wide reports-page">
+    <%@ include file="fragments/reports-tabs.jspf" %>
+    <div id="reportsAdminActionsDynamicRegion">
+        <%@ include file="fragments/reports-admin-actions-content.jspf" %>
+    </div>
 </main>
+<script src="${pageContext.request.contextPath}/js/reports-workspace.js" defer></script>
 </body>
 </html>

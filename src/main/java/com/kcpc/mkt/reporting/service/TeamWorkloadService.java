@@ -116,12 +116,10 @@ public class TeamWorkloadService {
         stageCounts.put("Publishing", countInWindow(activePlans, PUBLISHING_WINDOW, delayedOnly, today));
         stageCounts.put("Performance", countInWindow(activePlans, PERFORMANCE_WINDOW, delayedOnly, today));
         long totalActiveByStage = stageCounts.values().stream().mapToLong(Long::longValue).sum();
-        if (stage != null && !stage.isBlank() && !"ALL".equalsIgnoreCase(stage) && stageCounts.containsKey(stage)) {
-            long only = stageCounts.get(stage);
-            stageCounts = new LinkedHashMap<>();
-            stageCounts.put(stage, only);
-            totalActiveByStage = only;
-        }
+        // Active Tasks by Stage is a lifecycle summary ("how much active content is in each
+        // stage right now") - the Stage dropdown must never filter/recompute it down to one row;
+        // that dropdown scopes Assignee Load only (below), a completely different reporting
+        // concept ("who currently has workload for the selected stage").
 
         Set<UUID> onHoldInstanceIds = workHoldRecordRepository.findByResumedAtIsNull().stream()
                 .map(h -> h.getWorkflowInstance().getId()).collect(Collectors.toSet());
@@ -133,30 +131,43 @@ public class TeamWorkloadService {
         Map<UUID, List<PublishingAssignment>> publishByUser = publishingAssignmentRepository.findByActiveTrue().stream()
                 .collect(Collectors.groupingBy(a -> a.getPublisher().getId()));
 
+        // Assignee Load ("who currently has workload for the selected stage") is the ONE panel
+        // the Stage dropdown scopes - ALL (or blank) keeps today's normal combined view unchanged;
+        // a specific stage restricts rows to that stage's own real assignment concept, never a
+        // fabricated one (Planning uses ContentPlan#preparedBy - the same authoritative provenance
+        // PlanningPreparer/the self-review-conflict guard already relies on - since Planning has no
+        // ShootingAssignment-style table; Performance has no assignee concept in this codebase at
+        // all, so selecting it intentionally yields zero rows rather than inventing one).
+        String stageFilter = (stage == null || stage.isBlank()) ? "ALL" : stage;
+        boolean wantsAllStages = "ALL".equalsIgnoreCase(stageFilter);
+
         List<AssigneeLoadRow> rows = new ArrayList<>();
         boolean wantsRole = businessRole != null && !businessRole.isBlank() && !"ALL".equalsIgnoreCase(businessRole);
-        if (!wantsRole || "Camera Person".equals(businessRole)) {
+        if ((wantsAllStages || "Shoot".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Camera Person".equals(businessRole))) {
             for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Camera Person")) {
                 rows.add(rowFromAssignments(u, "Camera Person", shootByUser.get(u.getId()), ShootingAssignment::getContentPlan,
                         SHOOT_WINDOW, ContentPlan::getPlannedShootDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if (!wantsRole || "Video Editor".equals(businessRole)) {
+        if ((wantsAllStages || "Edit".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Video Editor".equals(businessRole))) {
             for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Video Editor")) {
                 rows.add(rowFromAssignments(u, "Video Editor", editByUser.get(u.getId()), EditingAssignment::getContentPlan,
                         EDIT_WINDOW, ContentPlan::getPlannedEditDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if (!wantsRole || "Publisher".equals(businessRole)) {
+        if ((wantsAllStages || "Publishing".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Publisher".equals(businessRole))) {
             for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Publisher")) {
                 rows.add(rowFromAssignments(u, "Publisher", publishByUser.get(u.getId()), PublishingAssignment::getContentPlan,
                         PUBLISHING_WINDOW, ContentPlan::getPlannedLiveDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if (!wantsRole || "Model".equals(businessRole)) {
+        if (wantsAllStages && (!wantsRole || "Model".equals(businessRole))) {
             for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")) {
                 rows.add(modelRow(u, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
+        }
+        if ("Planning".equalsIgnoreCase(stageFilter)) {
+            rows.addAll(planningRows(activePlans, businessRole, wantsRole, delayedOnly, onHoldInstanceIds, today));
         }
 
         if (employeeId != null) {
@@ -264,5 +275,51 @@ public class TeamWorkloadService {
             }
         }
         return new AssigneeLoadRow(u.getId(), u.getFullName(), "Model", active, delayed, onHold);
+    }
+
+    /**
+     * Planning has no Shoot/Edit/Publishing-style assignment table - {@link ContentPlan#getPreparedBy()}
+     * (the same authoritative preparer reference {@link com.kcpc.mkt.planning.domain.PlanningPreparer}
+     * / the self-review-conflict guard already use) is the one real "who did the planning work"
+     * concept this backend supports, so it - never a fabricated Planning task/assignment - is what
+     * Stage=Planning shows in Assignee Load. {@code plans} is already the outer method's
+     * date-range-filtered {@code activePlans}, so no date check is repeated here (same convention
+     * {@link #countInWindow} already uses for the stage-summary panel).
+     */
+    private List<AssigneeLoadRow> planningRows(List<ContentPlan> plans, String businessRole, boolean wantsRole,
+                                                boolean delayedOnly, Set<UUID> onHoldInstanceIds, LocalDate today) {
+        Map<UUID, List<ContentPlan>> planningByPreparer = plans.stream()
+                .filter(p -> PLANNING_WINDOW.contains(p.getWorkflowInstance().getCurrentStatusCode()))
+                .filter(p -> p.getPreparedBy() != null)
+                .collect(Collectors.groupingBy(p -> p.getPreparedBy().getId()));
+
+        List<AssigneeLoadRow> rows = new ArrayList<>();
+        for (List<ContentPlan> preparedPlans : planningByPreparer.values()) {
+            User preparer = preparedPlans.get(0).getPreparedBy();
+            String roleName = preparer.getBusinessRole() != null ? preparer.getBusinessRole().getRoleName() : null;
+            if (wantsRole && !businessRole.equals(roleName)) {
+                continue;
+            }
+            long active = 0;
+            long delayed = 0;
+            long onHold = 0;
+            for (ContentPlan plan : preparedPlans) {
+                WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
+                boolean isDelayed = PipelineDashboardService.delayDays(status, plan, today) != null;
+                if (delayedOnly && !isDelayed) {
+                    continue;
+                }
+                active++;
+                if (isDelayed) {
+                    delayed++;
+                }
+                if (onHoldInstanceIds.contains(plan.getWorkflowInstance().getId())) {
+                    onHold++;
+                }
+            }
+            rows.add(new AssigneeLoadRow(preparer.getId(), preparer.getFullName(), roleName, active, delayed, onHold));
+        }
+        rows.sort(java.util.Comparator.comparing(AssigneeLoadRow::getAssigneeName));
+        return rows;
     }
 }

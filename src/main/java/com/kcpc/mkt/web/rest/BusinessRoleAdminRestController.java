@@ -37,7 +37,7 @@ public class BusinessRoleAdminRestController {
     @PostMapping
     public ResponseEntity<BusinessRole> create(@Valid @RequestBody CreateBusinessRoleRequest request,
                                                 @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        var role = businessRoleAdminService.create(principal.user(), request.roleName(), request.accessClass());
+        var role = businessRoleAdminService.create(principal.user(), request.roleName(), request.accessClass(), true);
         return ResponseEntity.status(HttpStatus.CREATED).body(role);
     }
 

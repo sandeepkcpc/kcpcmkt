@@ -14,19 +14,23 @@ public class DelayedDeliverableRow {
 
     private final UUID contentPlanId;
     private final String contentId;
+    private final String contentTitle;
     private final String stage;
     private final String priority;
     private final LocalDate plannedDate;
     private final long delayDays;
+    private final String assignedTo;
 
-    public DelayedDeliverableRow(UUID contentPlanId, String contentId, String stage, String priority,
-                                  LocalDate plannedDate, long delayDays) {
+    public DelayedDeliverableRow(UUID contentPlanId, String contentId, String contentTitle, String stage, String priority,
+                                  LocalDate plannedDate, long delayDays, String assignedTo) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
+        this.contentTitle = contentTitle;
         this.stage = stage;
         this.priority = priority;
         this.plannedDate = plannedDate;
         this.delayDays = delayDays;
+        this.assignedTo = assignedTo;
     }
 
     public UUID getContentPlanId() {
@@ -35,6 +39,10 @@ public class DelayedDeliverableRow {
 
     public String getContentId() {
         return contentId;
+    }
+
+    public String getContentTitle() {
+        return contentTitle;
     }
 
     public String getStage() {
@@ -51,5 +59,11 @@ public class DelayedDeliverableRow {
 
     public long getDelayDays() {
         return delayDays;
+    }
+
+    /** Current-stage assignee(s) only, comma-joined; null if the stage has no single-owner
+     * assignment table (Publishing/Performance) - render as "-" in the UI, never fabricated. */
+    public String getAssignedTo() {
+        return assignedTo;
     }
 }

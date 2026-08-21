@@ -1,0 +1,67 @@
+<%-- CEO/MM Reports - KPI Dashboard tab. Caller sets ${grouped} (LinkedHashMap<String,List<KpiValue>>,
+     keyed by "N. Group Label (KPI-xxx..yyy)"), ${selectedDateFrom}/${selectedDateTo},
+     ${reportsDataAsOf}. No Business Role filter is offered here - KpiService#queryGovernedKpis has
+     no Business-Role-scoped parameter today, and faking one in JavaScript would silently lie about
+     what's actually being measured (spec: "If Business Role filtering is not supported... do not
+     fake it"). --%>
+<div class="page-header-row">
+    <div>
+        <h1>Marketing KPI Dashboard</h1>
+        <p class="muted">Marketing operations performance and workflow KPIs</p>
+    </div>
+    <%@ include file="reports-asof-badge.jspf" %>
+</div>
+
+<form method="get" action="${pageContext.request.contextPath}/app/reports/kpis" class="reports-filters" id="reportsKpiFilterForm">
+    <div class="filter-field">
+        <label for="kpiDateFrom">Date Range</label>
+        <div class="filter-date-range">
+            <input type="date" name="startDate" id="kpiDateFrom" value="${selectedDateFrom}">
+            <span class="filter-date-sep">&ndash;</span>
+            <input type="date" name="endDate" id="kpiDateTo" value="${selectedDateTo}">
+        </div>
+    </div>
+    <a class="btn-outline reports-clear" href="${pageContext.request.contextPath}/app/reports/kpis">
+        <span aria-hidden="true">&#8635;</span> Clear
+    </a>
+    <p class="reports-filter-note muted">Date Range applies to Productivity KPIs (008&ndash;011) only - other groups are always current-state snapshots.</p>
+</form>
+
+<c:forEach var="group" items="${grouped}">
+    <div class="panel reports-kpi-group">
+        <h2 class="reports-kpi-group-title">${group.key}</h2>
+        <div class="kpi-grid">
+            <c:forEach var="kpi" items="${group.value}">
+                <div class="kpi-tile">
+                    <div class="kpi-head">
+                        <span class="kpi-title"><c:out value="${kpi.label}"/></span>
+                        <span class="kpi-code"><c:out value="${kpi.code}"/></span>
+                    </div>
+                    <div class="kpi-value ${kpi.displayValue == 'N/A' ? 'kpi-na' : ''}">
+                        <c:choose>
+                            <c:when test="${kpi.displayValue == 'N/A'}">-</c:when>
+                            <c:otherwise>${kpi.displayValue}</c:otherwise>
+                        </c:choose>
+                    </div>
+                    <c:if test="${not empty kpi.breakdown}">
+                        <ul class="kpi-breakdown">
+                            <c:forEach var="b" items="${kpi.breakdown}" varStatus="bs" end="4">
+                                <li><span class="kpi-breakdown-name"><c:out value="${b.key}"/></span><span class="kpi-breakdown-count">${b.value}</span></li>
+                            </c:forEach>
+                        </ul>
+                        <c:if test="${fn:length(kpi.breakdown) > 5}">
+                            <details class="kpi-breakdown-more">
+                                <summary>View breakdown (${fn:length(kpi.breakdown)} contributors)</summary>
+                                <ul class="kpi-breakdown">
+                                    <c:forEach var="b" items="${kpi.breakdown}">
+                                        <li><span class="kpi-breakdown-name"><c:out value="${b.key}"/></span><span class="kpi-breakdown-count">${b.value}</span></li>
+                                    </c:forEach>
+                                </ul>
+                            </details>
+                        </c:if>
+                    </c:if>
+                </div>
+            </c:forEach>
+        </div>
+    </div>
+</c:forEach>

@@ -1,0 +1,11 @@
+-- Centralized workflow-participation gate: an EMPLOYEE-class Business Role that does not
+-- participate in the Content Production workflow (Planning/Shoot/Edit/Publishing) is restricted
+-- to My Ideas + Submit Idea only, both in nav and via direct URL. This is an explicit, CEO-set
+-- structural attribute of the Business Role itself - never derived from the role's name/
+-- designation, and never itself an OperationalPermission grant (ERD-CON-063 still holds; existing
+-- permission checks remain the sole authority inside allowed areas).
+--
+-- DEFAULT TRUE backfills every existing role (including Camera Person/Video Editor/Publisher/
+-- Model and every current back-office role) as participating - nobody's nav/access changes the
+-- moment this ships. The CEO opts specific roles out afterward from the Business Roles screen.
+ALTER TABLE business_roles ADD COLUMN participates_in_workflow BOOLEAN NOT NULL DEFAULT TRUE;

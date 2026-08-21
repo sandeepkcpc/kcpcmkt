@@ -45,6 +45,22 @@ public class AuthorizationService {
     }
 
     /**
+     * Centralized workflow-participation gate: single source of truth for whether an EMPLOYEE is
+     * restricted to My Ideas + Submit Idea only (nav visibility - {@code MvcNavigationAdvice} - and
+     * the server-side {@code WorkflowParticipationInterceptor} both call this, never re-derive it).
+     * Never based on the Business Role's name/designation, and never based on OperationalPermission
+     * grants - those stay a separate, per-user, in-area authorization layer. CEO_OWNER and
+     * MARKETING_MANAGER are never restricted by this rule.
+     */
+    public boolean isNonProductionEmployee(User user) {
+        if (user.resolvedAccessClass() != AccessClass.EMPLOYEE) {
+            return false;
+        }
+        var role = user.getBusinessRole();
+        return role == null || !role.isParticipatesInWorkflow();
+    }
+
+    /**
      * Resolves authority for a governed action. Returns {@code empty()} when the user acts under
      * native CEO/MM authority (no grant record involved). Returns the specific {@link
      * PermissionGrant} when an Employee acts under a valid delegated grant whose scope covers

@@ -252,7 +252,7 @@
                             <c:when test="${isEditActiveAssignee and empty openHold}">
                                 <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/review/submit">
                                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                    <button type="submit" class="shoot-primary-action">&#9654; Continue Edit</button>
+                                    <button type="submit" class="shoot-primary-action">&#9654; Submit for Review</button>
                                 </form>
                             </c:when>
                             <c:when test="${not empty openHold}">

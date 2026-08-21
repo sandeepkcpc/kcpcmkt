@@ -95,43 +95,45 @@
             <h2>Assignee Load</h2>
             <span class="info-icon" title="Each employee's own actual active/delayed/on-hold assignments - never the same count as Active Tasks by Stage.">&#9432;</span>
         </div>
-        <table class="data-table team-workload-assignee-table">
-            <thead>
-            <tr>
-                <th>Assignee</th>
-                <th>Business Role</th>
-                <th class="num">Active Tasks</th>
-                <th class="num">Delayed Tasks</th>
-                <th class="num">On Hold Tasks</th>
-            </tr>
-            </thead>
-            <tbody>
-            <c:forEach var="row" items="${result.assigneeRows}">
+        <div class="team-workload-table-scroll" id="teamWorkloadAssigneeScroll">
+            <table class="data-table team-workload-assignee-table">
+                <thead>
                 <tr>
-                    <td>
-                        <span class="team-workload-assignee-cell">
-                            <span class="content-detail-avatar"><c:out value="${fn:toUpperCase(fn:substring(row.assigneeName, 0, 1))}"/></span>
-                            <c:out value="${row.assigneeName}"/>
-                        </span>
-                    </td>
-                    <td class="muted"><c:out value="${row.businessRoleName}"/></td>
-                    <td class="num">${row.activeTasks}</td>
-                    <td class="num">${row.delayedTasks}</td>
-                    <td class="num">${row.onHoldTasks}</td>
+                    <th>Assignee</th>
+                    <th>Business Role</th>
+                    <th class="num">Active Tasks</th>
+                    <th class="num">Delayed Tasks</th>
+                    <th class="num">On Hold Tasks</th>
                 </tr>
-            </c:forEach>
-            <c:if test="${empty result.assigneeRows}">
-                <tr><td colspan="5" class="muted">No matching employees.</td></tr>
-            </c:if>
-            <tr class="team-workload-total-row">
-                <td><strong>Total</strong></td>
-                <td></td>
-                <td class="num"><strong>${result.totalActiveAssignee}</strong></td>
-                <td class="num"><strong>${result.totalDelayedAssignee}</strong></td>
-                <td class="num"><strong>${result.totalOnHoldAssignee}</strong></td>
-            </tr>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                <c:forEach var="row" items="${result.assigneeRows}">
+                    <tr>
+                        <td>
+                            <span class="team-workload-assignee-cell">
+                                <span class="content-detail-avatar"><c:out value="${fn:toUpperCase(fn:substring(row.assigneeName, 0, 1))}"/></span>
+                                <c:out value="${row.assigneeName}"/>
+                            </span>
+                        </td>
+                        <td class="muted"><c:out value="${row.businessRoleName}"/></td>
+                        <td class="num">${row.activeTasks}</td>
+                        <td class="num">${row.delayedTasks}</td>
+                        <td class="num">${row.onHoldTasks}</td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty result.assigneeRows}">
+                    <tr><td colspan="5" class="muted">No matching employees.</td></tr>
+                </c:if>
+                <tr class="team-workload-total-row">
+                    <td><strong>Total</strong></td>
+                    <td></td>
+                    <td class="num"><strong>${result.totalActiveAssignee}</strong></td>
+                    <td class="num"><strong>${result.totalDelayedAssignee}</strong></td>
+                    <td class="num"><strong>${result.totalOnHoldAssignee}</strong></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 

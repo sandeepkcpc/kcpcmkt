@@ -947,28 +947,33 @@ button[type="submit"].success { background: #1a7f4b; }
 .pipeline-sort-indicator { font-size: 0.6rem; color: #b6bcc7; }
 .pipeline-sort-indicator.active { color: var(--kcpc-accent); }
 
-/* ENG-075: Platforms column - one icon+count chip per planned Platform, active/clickable only once
-   at least one Channel on it has a real publication event with a usable Evidence URL; muted/
-   non-clickable (planned only) otherwise. Clicking an active chip opens a small popover listing
-   every Channel's own status instead of navigating away. */
+/* ENG-076 (defect fix): Platforms column - one icon+count chip per planned Platform. Every chip is
+   a real, always-clickable <button> that opens a popover listing every real (Planned Output,
+   Publication Target) publishing task's status - "active"/"muted" is a purely cosmetic color cue
+   (any published vs all still pending), never a click-eligibility gate. The popover is for viewing
+   task status, not only for opening live links, so a fully-pending platform must be just as
+   clickable as a fully/partially published one. */
 .pipeline-platform-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .pipeline-platform-chip-wrap { position: relative; }
 .pipeline-platform-chip {
     display: inline-flex; align-items: center; gap: 0.3rem;
     padding: 0.16rem 0.5rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
-    line-height: 1.3; white-space: nowrap; border: 1px solid transparent;
+    line-height: 1.3; white-space: nowrap; border: 1px solid transparent; cursor: pointer;
 }
-button.pipeline-platform-chip.active {
-    background: #dcfce7; color: #166534; border-color: #bbf7d0; cursor: pointer;
+.pipeline-platform-chip.active {
+    background: #dcfce7; color: #166534; border-color: #bbf7d0;
 }
-button.pipeline-platform-chip.active:hover { background: #bbf7d0; }
-button.pipeline-platform-chip.active:focus-visible { outline: 2px solid var(--kcpc-accent); outline-offset: 1px; }
-span.pipeline-platform-chip.muted { background: #f1f5f9; color: #94a3b8; cursor: default; }
+.pipeline-platform-chip.active:hover { background: #bbf7d0; }
+.pipeline-platform-chip.muted {
+    background: #f1f5f9; color: #94a3b8;
+}
+.pipeline-platform-chip.muted:hover { background: #e2e8f0; }
+.pipeline-platform-chip:focus-visible { outline: 2px solid var(--kcpc-accent); outline-offset: 1px; }
 /* ENG-076: icons are local, full-color brand-badge SVGs (static/icons/platforms/ - own artwork
    using each platform's real brand colors, not emoji, not a CDN icon font, and not the exact
    copyrighted official logo files), rendered via <img>. Muted/planned-only state only reduces
-   opacity - it must NOT desaturate/grey the icon, so brand identity stays visible even when the
-   chip itself is non-clickable. */
+   opacity - it must NOT desaturate/grey the icon, so brand identity stays visible even though the
+   chip is still fully clickable. */
 .pipeline-platform-icon { width: 18px; height: 18px; display: block; flex: none; border-radius: 5px; }
 .pipeline-platform-chip.muted .pipeline-platform-icon { opacity: 0.5; }
 .pipeline-platform-count { font-size: 0.76rem; font-weight: 700; }
@@ -982,7 +987,7 @@ span.pipeline-platform-chip.muted { background: #f1f5f9; color: #94a3b8; cursor:
 .pipeline-platform-popover {
     position: fixed; top: -9999px; left: -9999px; z-index: 1000;
     background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22); padding: 0.7rem; min-width: 240px; max-width: 300px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22); padding: 0.7rem; min-width: 340px; max-width: 460px;
     white-space: normal;
 }
 .pipeline-platform-popover-header {
@@ -991,17 +996,24 @@ span.pipeline-platform-chip.muted { background: #f1f5f9; color: #94a3b8; cursor:
 }
 .pipeline-platform-popover-title { font-weight: 700; font-size: 0.85rem; color: var(--kcpc-ink); }
 .pipeline-platform-progress { margin-left: auto; font-size: 0.72rem; font-weight: 700; color: #166534; }
-.pipeline-platform-popover-channels { display: flex; flex-direction: column; gap: 0.4rem; }
-.pipeline-channel-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
-    font-size: 0.8rem;
+/* ENG-076 (defect fix): the popover is a real table (one row per Planned Output x Publication
+   Target task, never deduplicated by channel) so Type/Channel/Status/Link can each get their own
+   column - a flex row couldn't align independent columns across rows whose Type text length
+   varies. No Output column - Type + Channel are enough to tell rows apart here. */
+.pipeline-platform-popover-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.pipeline-platform-popover-table th {
+    text-align: left; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+    color: #94a3b8; padding: 0 0.5rem 0.35rem 0;
 }
-.pipeline-channel-handle { color: var(--kcpc-ink); font-weight: 600; white-space: nowrap; }
+.pipeline-channel-row td { padding: 0.3rem 0.5rem 0.3rem 0; vertical-align: middle; white-space: nowrap; }
+.pipeline-channel-type { color: var(--kcpc-ink); }
+.pipeline-channel-row.pending .pipeline-channel-type { color: #94a3b8; }
+.pipeline-channel-handle { color: var(--kcpc-ink); font-weight: 600; }
 .pipeline-channel-row.pending .pipeline-channel-handle { color: #94a3b8; font-weight: 500; }
-.pipeline-channel-status { font-size: 0.74rem; font-weight: 600; color: #166534; white-space: nowrap; }
+.pipeline-channel-status { font-size: 0.74rem; font-weight: 600; color: #166534; }
 .pipeline-channel-status.muted { color: #94a3b8; font-weight: 500; }
 .pipeline-channel-open {
-    font-size: 0.74rem; font-weight: 700; color: var(--kcpc-accent); text-decoration: none; white-space: nowrap;
+    font-size: 0.74rem; font-weight: 700; color: var(--kcpc-accent); text-decoration: none;
 }
 .pipeline-channel-open:hover { text-decoration: underline; }
 
@@ -1959,6 +1971,38 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 }
 .team-workload-tab.active { color: var(--kcpc-accent); border-bottom-color: var(--kcpc-accent); }
 .team-workload-tab:hover:not(.active) { color: var(--kcpc-ink); }
+/* Team > Performance's own tab bar is the one place this app's shared active-tab color (red/pink,
+   .team-workload-tab.active above) is deliberately overridden to blue, matching the reference
+   screenshot exactly - scoped to .team-kpi-tabs only, so Workload's own tab bar is untouched. */
+.team-kpi-tabs .team-workload-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+
+/* Team > Performance KPI cards - deliberately its own centered-content layout (title above a
+   pastel circular icon, then the value as the strongest visual element, then a muted subtitle)
+   rather than the shared left-aligned .kpi-card row layout used elsewhere, matching the reference
+   screenshot; still the same pastel icon-background palette already established by .kpi-card-icon
+   variants, just applied to a centered card shape. Aggregate-only by design - no per-employee
+   breakdown is ever rendered from this card set. */
+.team-perf-kpi-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 1100px) { .team-perf-kpi-cards { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .team-perf-kpi-cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .team-perf-kpi-cards { grid-template-columns: 1fr; } }
+.team-perf-kpi-card {
+    display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.45rem;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 8px;
+    padding: 1.25rem 1rem;
+}
+.team-perf-kpi-icon {
+    width: 2.6rem; height: 2.6rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+}
+.team-perf-kpi-card.perf-completed .team-perf-kpi-icon { background: #d1fae5; color: #047857; }
+.team-perf-kpi-card.perf-inprogress .team-perf-kpi-icon { background: #dbeafe; color: #1d4ed8; }
+.team-perf-kpi-card.perf-rate .team-perf-kpi-icon { background: #ede9fe; color: #6d28d9; }
+.team-perf-kpi-card.perf-delay .team-perf-kpi-icon { background: #ffedd5; color: #c2410c; }
+.team-perf-kpi-card.perf-ontime .team-perf-kpi-icon { background: #ccfbf1; color: #0f766e; }
+.team-perf-kpi-title { font-size: 0.85rem; font-weight: 600; color: #6b7280; }
+.team-perf-kpi-value { font-size: 1.6rem; font-weight: 800; color: var(--kcpc-ink); }
+.team-perf-kpi-subtitle { font-size: 0.78rem; color: #6b7280; }
 
 .team-workload-filters {
     display: flex; align-items: flex-end; gap: 1.25rem; flex-wrap: wrap;
@@ -1979,11 +2023,22 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 }
 .team-workload-clear { height: 2.3rem; display: inline-flex; align-items: center; }
 
-.team-workload-cards { display: grid; grid-template-columns: 2fr 3fr; gap: 1.25rem; align-items: start; }
+/* Active Tasks by Stage / Assignee Load: kept at the ~40/60 width ratio, but now stretched to
+   equal height too (Assignee Load can hold far more rows than the always-6-row Stage summary).
+   The equal-height itself is enforced by team-workload-dashboard.js measuring the Stage card's
+   rendered height and applying it to the Assignee card - CSS `align-items: stretch` alone can't
+   do this, since a Grid/Flex row's height is set by its tallest CONTENT, and Assignee Load's
+   content is exactly the thing that must NOT be allowed to grow the row. Once JS sets that fixed
+   height, `.team-workload-table-scroll` (flex:1, overflow-y:auto) is what turns the overflow into
+   an internal scrollbar instead of the card (or page) growing. */
+.team-workload-cards { display: grid; grid-template-columns: 2fr 3fr; gap: 1.25rem; align-items: stretch; }
 @media (max-width: 1100px) { .team-workload-cards { grid-template-columns: 1fr; } }
-.team-workload-card { margin-bottom: 0; }
+.team-workload-card { margin-bottom: 0; display: flex; flex-direction: column; }
 .team-workload-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
 .team-workload-card-header h2 { margin: 0; }
+.team-workload-table-scroll { overflow-y: auto; min-height: 0; }
+.team-workload-card-assignee .team-workload-table-scroll { flex: 1; }
+.team-workload-assignee-table thead th { position: sticky; top: 0; background: #f9fafb; z-index: 1; }
 .team-workload-stage-table td, .team-workload-assignee-table td { vertical-align: middle; }
 .team-workload-stage-table .num, .team-workload-assignee-table .num { text-align: right; }
 .team-workload-total-row { background: #f9fafb; font-weight: 700; }
@@ -2182,3 +2237,424 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
     .idea-detail-fields-grid { grid-template-columns: 1fr; }
     .idea-detail-review-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================================
+   Manager Reviews Workspace - one page, four pending-review queues (Ideas/
+   Planning/Shoot/Edit). Queue+detail split uses its own 62/38 ratio (spec asks
+   for 60-65/35-40, distinct from .content-detail-body's 73/27) since the queue
+   table needs more room here than Content Detail's summary sidebar did.
+   ============================================================================ */
+.reviews-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1rem; }
+.reviews-tab {
+    display: inline-flex; align-items: center; padding: 0.65rem 0.9rem;
+    color: #6b7280; font-weight: 600; font-size: 0.9rem; text-decoration: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.reviews-tab:hover { color: var(--kcpc-ink); }
+.reviews-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+.reviews-tab .count-badge { margin-left: 0.4rem; }
+
+.reviews-filters {
+    display: flex; align-items: flex-end; gap: 0.85rem; flex-wrap: wrap;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 8px;
+    padding: 0.75rem 1rem; margin-bottom: 0.9rem; font-size: 0.85rem;
+}
+.reviews-filters .filter-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.reviews-filters .filter-field label { font-size: 0.72rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.02em; }
+.reviews-filters input[type="text"], .reviews-filters input[type="date"], .reviews-filters select {
+    padding: 0.4rem 0.55rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.85rem;
+}
+.reviews-filters .filter-field-search input { min-width: 220px; }
+.filter-field-checkbox { flex-direction: row !important; align-items: center; gap: 0.4rem !important; padding-bottom: 0.45rem; }
+.filter-field-checkbox label { display: flex; align-items: center; gap: 0.4rem; text-transform: none !important; font-weight: 600 !important; font-size: 0.85rem !important; color: var(--kcpc-ink) !important; }
+.reviews-clear { display: inline-flex; align-items: center; gap: 0.3rem; height: 2.2rem; white-space: nowrap; }
+
+.reviews-body { display: flex; gap: 1.25rem; align-items: flex-start; }
+.reviews-queue { flex: 1 1 62%; min-width: 0; }
+.reviews-detail { flex: 0 1 38%; min-width: 340px; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }
+
+.reviews-table-panel { padding: 1rem 1.2rem; }
+.reviews-queue-title { margin: 0 0 0.85rem; font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+.reviews-table-scroll { overflow-x: auto; }
+.reviews-table { width: 100%; }
+.reviews-table th { white-space: nowrap; }
+.reviews-row { cursor: pointer; }
+.reviews-row.reviews-row-active { background: #eff6ff; }
+.reviews-row:hover { background: #f9fafb; }
+.reviews-row.reviews-row-active:hover { background: #eff6ff; }
+.reviews-view-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.9rem; padding: 0.3rem 0; }
+.reviews-sort-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
+.reviews-sort-link:hover { color: var(--kcpc-accent); }
+
+.reviews-pagination { padding-top: 0.85rem; margin-top: 0.6rem; border-top: 1px solid var(--kcpc-border); flex-wrap: wrap; gap: 1rem; }
+.reviews-page-size select { padding: 0.35rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.82rem; }
+
+/* Loading state, scoped to the queue/detail region only - never the whole page (spec §14). Cleared
+   in both the fetch success AND catch paths in reviews-workspace.js (this session already found and
+   fixed the opposite mistake once, in pipeline-dashboard.js - see that file's history). */
+.reviews-loading { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+
+.reviews-detail-empty { padding: 1.5rem; text-align: center; }
+.reviews-detail-card { padding: 1.1rem 1.3rem; display: flex; flex-direction: column; gap: 0.1rem; }
+.reviews-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.reviews-detail-title { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.reviews-detail-id-row { font-size: 0.8rem; color: #6b7280; margin: 0.1rem 0 0.6rem; }
+
+.reviews-detail-section { padding: 0.75rem 0; border-top: 1px solid var(--kcpc-border); }
+.reviews-detail-card > .reviews-detail-section:first-of-type { border-top: none; padding-top: 0.5rem; }
+.reviews-detail-subhead { margin: 0 0 0.5rem; font-size: 0.72rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+.reviews-field-row { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.28rem 0; font-size: 0.85rem; }
+.reviews-field-label { width: 150px; flex: none; color: #6b7280; font-weight: 600; }
+.reviews-field-value { color: var(--kcpc-ink); font-weight: 500; word-break: break-word; }
+.reviews-freetext { margin: 0; font-size: 0.85rem; color: var(--kcpc-ink); white-space: pre-wrap; }
+
+.reviews-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.reviews-history-list li { padding-bottom: 0.5rem; border-bottom: 1px solid var(--kcpc-border); font-size: 0.82rem; }
+.reviews-history-list li:last-child { border-bottom: none; padding-bottom: 0; }
+.reviews-history-meta { display: block; margin-top: 0.2rem; font-size: 0.76rem; color: #6b7280; }
+.reviews-history-reason { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--kcpc-ink); }
+.reviews-history-details { margin-top: 0.6rem; font-size: 0.82rem; }
+.reviews-history-details summary { cursor: pointer; color: #1d4ed8; font-weight: 600; }
+
+.reviews-feedback-box { border-radius: 8px; padding: 0.7rem 0.85rem; font-size: 0.84rem; }
+.reviews-feedback-box.status-completed { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.reviews-feedback-box.status-rejected { background: #fff7ed; border: 1px solid #fed7aa; }
+.reviews-feedback-box p { margin: 0 0 0.4rem; color: var(--kcpc-ink); }
+.reviews-feedback-meta { font-size: 0.76rem; color: #6b7280; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+.idea-action-badge.status-completed { background: #dcfce7; color: #166534; }
+.idea-action-badge.status-rejected { background: #fff7ed; color: #9a3412; }
+
+.reviews-decision-section { display: flex; flex-direction: column; gap: 0.5rem; }
+.reviews-decision-buttons, .reviews-plan-decision-buttons { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.reviews-decision-btn {
+    flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    padding: 0.55rem 0.9rem; border-radius: 7px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--kcpc-border); background: #fff; color: var(--kcpc-ink);
+}
+.reviews-decision-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.reviews-decision-approve { background: #16a34a; border-color: #16a34a; color: #fff; }
+.reviews-decision-approve:hover:not(:disabled) { background: #15803d; }
+.reviews-decision-reject { background: #fff; border-color: #fecaca; color: #b91c1c; }
+.reviews-decision-reject:hover:not(:disabled) { background: #fee2e2; }
+.reviews-decision-retain { background: #fff; border-color: #93c5fd; color: #1d4ed8; }
+.reviews-decision-retain:hover:not(:disabled) { background: #eff6ff; }
+.reviews-decision-rework { background: #fff; border-color: #fecaca; color: #b91c1c; }
+.reviews-decision-rework:hover:not(:disabled) { background: #fee2e2; }
+.reviews-marks-row { margin: 0.2rem 0; }
+#reviewsIdeaReason, #reviewsPlanReason { width: 100%; padding: 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font: inherit; resize: vertical; margin-top: 0.3rem; }
+#reviewsIdeaReasonLabel, #reviewsPlanReasonLabel { font-weight: 600; font-size: 0.85rem; }
+.reviews-decision-error {
+    background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; border-radius: 6px;
+    padding: 0.5rem 0.7rem; font-size: 0.82rem;
+}
+
+.reviews-qualifying-picker { margin: 0.2rem 0; }
+.reviews-qualifying-checklist { display: flex; flex-direction: column; gap: 0.3rem; max-height: 140px; overflow-y: auto; margin-top: 0.35rem; }
+
+.planning-mode-badge { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.planning-mode-standard { background: #dcfce7; color: #166534; }
+.planning-mode-urgent { background: #ffedd5; color: #c2410c; }
+
+.delay-badge { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.delay-badge.delay-ontime { background: #dcfce7; color: #166534; }
+.delay-badge.delay-late { background: #fee2e2; color: #b91c1c; }
+
+@media (max-width: 1100px) {
+    .reviews-body { flex-direction: column; }
+    .reviews-queue, .reviews-detail { flex: 1 1 100%; width: 100%; min-width: 0; }
+    .reviews-detail { position: static; max-height: none; }
+}
+
+/* ============================================================================
+   CEO/MM Reports Workspace - KPI Dashboard / Delayed Deliverables / Administrative
+   Actions / Audit History / Export, one shared tab bar + table/filter/pagination
+   visual language. Missing/absent values render as a plain "-" everywhere in this
+   section (never an em-dash/mdash) - see the JSPs; this stylesheet doesn't need to
+   do anything special for that, a hyphen is just text.
+   ============================================================================ */
+.reports-asof {
+    display: flex; align-items: center; gap: 0.5rem; background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border); border-radius: 8px; padding: 0.6rem 1rem;
+    font-size: 0.85rem; color: #4b5563; white-space: nowrap; height: fit-content;
+}
+.reports-asof svg { width: 15px; height: 15px; flex: none; }
+
+.reports-tabs { display: flex; gap: 1.5rem; border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1.25rem; }
+.reports-tab {
+    padding: 0.6rem 0.1rem; font-weight: 600; font-size: 0.92rem; color: #6b7280;
+    text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.reports-tab.active { color: var(--kcpc-accent); border-bottom-color: var(--kcpc-accent); }
+.reports-tab:hover:not(.active) { color: var(--kcpc-ink); }
+
+/* Loading state, scoped to one report's own dynamic region only - never the whole page (spec
+   §17). Cleared in both the fetch success AND catch paths in reports-workspace.js. */
+.reports-loading { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+
+.reports-filters {
+    display: flex; align-items: flex-end; gap: 1.1rem; flex-wrap: wrap;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    padding: 0.9rem 1.1rem; margin-bottom: 1.1rem;
+}
+.reports-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.reports-filters .filter-field label { font-size: 0.76rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.02em; }
+.reports-filters input[type="text"], .reports-filters input[type="date"], .reports-filters select {
+    padding: 0.45rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.85rem;
+    height: 2.35rem; background: var(--kcpc-surface); color: var(--kcpc-ink);
+}
+.reports-filters .filter-field-search input { min-width: 220px; }
+.reports-clear, .reports-filter-submit { height: 2.35rem; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.reports-filter-submit svg { width: 14px; height: 14px; }
+.reports-filter-note { flex-basis: 100%; margin: 0.4rem 0 0; font-size: 0.78rem; }
+
+.reports-kpi-group { padding: 1.1rem 1.3rem; }
+.reports-kpi-group-title { margin: 0 0 0.9rem; font-size: 1rem; font-weight: 700; }
+.kpi-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
+.kpi-title { font-weight: 600; font-size: 0.85rem; color: var(--kcpc-ink); }
+.kpi-code { font-size: 0.7rem; color: #9ca3af; font-weight: 600; white-space: nowrap; }
+.kpi-breakdown { list-style: none; margin: 0.55rem 0 0; padding: 0.5rem 0 0; border-top: 1px solid var(--kcpc-border); display: flex; flex-direction: column; gap: 0.2rem; }
+.kpi-breakdown li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.76rem; color: #4b5563; }
+.kpi-breakdown-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpi-breakdown-count { font-weight: 700; color: var(--kcpc-ink); flex: none; }
+.kpi-breakdown-more { margin-top: 0.4rem; font-size: 0.78rem; }
+.kpi-breakdown-more summary { cursor: pointer; color: #1d4ed8; font-weight: 600; }
+.kpi-breakdown-more .kpi-breakdown { border-top: none; padding-top: 0.4rem; }
+
+.reports-table-panel { padding: 1rem 1.2rem; }
+.reports-table-scroll { overflow-x: auto; }
+.reports-table { width: 100%; }
+.reports-table th { white-space: nowrap; }
+.reports-pagination { padding-top: 0.85rem; margin-top: 0.6rem; border-top: 1px solid var(--kcpc-border); flex-wrap: wrap; gap: 1rem; }
+.reports-page-size select { padding: 0.35rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.82rem; }
+.reports-open-btn { white-space: nowrap; }
+.reports-info-banner { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+.reports-meta-subtext { font-size: 0.76rem; color: #6b7280; }
+.reports-reason-cell { max-width: 320px; }
+.reports-timestamp-cell { white-space: nowrap; }
+.page-ellipsis { color: #9ca3af; padding: 0 0.2rem; }
+
+.delay-badge.delay-mild { background: #ffedd5; color: #c2410c; }
+.delay-badge.delay-strong { background: #fee2e2; color: #b91c1c; }
+
+.admin-action-badge {
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.admin-action-badge.admin-action-reassign { background: #dbeafe; color: #1d4ed8; }
+.admin-action-badge.admin-action-reschedule { background: #ede9fe; color: #6d28d9; }
+.admin-action-badge.admin-action-hold { background: #fee2e2; color: #b91c1c; }
+.admin-action-badge.admin-action-resume { background: #dcfce7; color: #166534; }
+.admin-action-badge.admin-action-cancel { background: #f3f4f6; color: #6b7280; }
+.admin-action-badge.admin-action-reopen { background: #fef9c3; color: #854d0e; }
+.admin-action-badge.admin-action-idea_retained { background: #fef3c7; color: #92400e; }
+.admin-action-badge.admin-action-permission_grant { background: #dcfce7; color: #166534; }
+.admin-action-badge.admin-action-permission_revoke { background: #fee2e2; color: #b91c1c; }
+.admin-action-badge.admin-action-generic { background: #eef2ff; color: #3730a3; }
+
+/* Export screen */
+.export-format-panel { padding: 1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1rem; }
+.export-format-label { font-weight: 700; font-size: 0.85rem; }
+.export-format-select { padding: 0.5rem 0.7rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.9rem; min-width: 180px; }
+.export-scope-panel { padding: 1.1rem 1.3rem; }
+.export-scope-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.export-scope-head h2 { margin: 0; font-size: 1rem; }
+.export-selected-count { font-size: 0.82rem; color: #6b7280; font-weight: 600; }
+.export-scope-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; }
+.export-scope-group-head { margin-bottom: 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--kcpc-border); }
+.export-select-all { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer; }
+.export-scope-checklist { display: flex; flex-direction: column; gap: 0.5rem; }
+.export-scope-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--kcpc-ink); cursor: pointer; }
+.export-note { margin: 1rem 0; }
+.export-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.export-summary { font-size: 0.85rem; color: #6b7280; }
+
+@media (max-width: 900px) {
+    .reports-filters { flex-direction: column; align-items: stretch; }
+    .reports-filters .filter-field-search input { min-width: 0; }
+}
+
+/* Administration shell - Users/Business Roles/Permissions/Publishing Catalogue, one secondary
+   tab bar (fragments/admin-tabs.jspf), same visual recipe as .reports-tabs/.reports-tab. */
+.admin-tabs { display: flex; gap: 1.5rem; border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1.25rem; }
+.admin-tab {
+    padding: 0.6rem 0.1rem; font-weight: 600; font-size: 0.92rem; color: #6b7280;
+    text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.admin-tab.active { color: var(--kcpc-accent); border-bottom-color: var(--kcpc-accent); }
+
+/* ENG-091: Administration screens visual modernization (Users/Business Roles/Permissions/
+   Publishing Catalogue) - UI only, reusing the app's existing card/table/badge/button/banner
+   system (.panel, .data-table, .status-pill, .btn-primary, .btn-outline, .note-box, .pagination)
+   wherever it already fits, adding only the handful of layout/badge primitives those screens
+   still needed (2-col/3-col workspace grids, a compact search+segmented-filter toolbar, a
+   green/grey Active-Deactivated badge pair, small icon-buttons for catalogue row actions, and a
+   user-avatar chip). No route, form field, or validation behavior changes anywhere in this block
+   or the markup that uses it. */
+.admin-page-lead { color: #6b7280; font-size: 0.9rem; margin: -0.75rem 0 1.25rem; max-width: 780px; }
+
+/* Active/Deactivated - same shape as every other .status-pill, own colors (green vs neutral grey,
+   never red, so a deactivated row doesn't read as an error state). */
+.status-pill.status-active { background: #dcfce7; color: #166534; }
+.status-pill.status-inactive { background: #f3f4f6; color: #6b7280; }
+
+/* Users/Permissions tables: row-compactness + long-email safety without touching .data-table
+   globally (other screens' tables keep their current row height/wrapping). */
+.admin-table td, .admin-table th { padding: 0.55rem 0.75rem; }
+.admin-table .admin-email-cell { word-break: break-all; }
+.admin-table .admin-access-class { color: #6b7280; font-size: 0.82rem; }
+
+/* Compact icon-buttons (catalogue row Edit, and any other row-level icon action) - square, same
+   family as .btn-outline (blue) but sized for a single glyph instead of a text label. */
+.icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2rem; height: 2rem; padding: 0; border-radius: 6px;
+    border: 1px solid var(--kcpc-border); background: var(--kcpc-surface); color: #6b7280;
+    cursor: pointer; font-size: 0.95rem; line-height: 1;
+}
+.icon-btn:hover { background: #f4f5f7; color: var(--kcpc-ink); }
+
+/* Compact destructive/affirmative outline actions (Deactivate/Activate row buttons) - same family
+   as .btn-outline (blue) but red for Deactivate and green for Activate, matching the reference
+   screens; still a plain <button type="submit"> inside the existing <form>, never a new endpoint. */
+/* button.btn-outline-* (not just .btn-outline-*): these only ever land on a <button> nested
+   inside a .panel/.action-form, and ".panel button"/".action-form button" (element+class - higher
+   specificity than a bare class selector) would otherwise win the cascade and repaint these solid
+   red regardless of this rule's own background/color/border/padding here. */
+button.btn-outline-danger {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+    background: transparent; color: #b91c1c; border: 1px solid #fecaca; border-radius: 6px;
+    padding: 0.35rem 0.8rem; margin-top: 0; font-size: 0.8rem; font-weight: 600; cursor: pointer; width: auto;
+}
+button.btn-outline-danger:hover { background: #fef2f2; }
+button.btn-outline-success {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+    background: transparent; color: #166534; border: 1px solid #bbf7d0; border-radius: 6px;
+    padding: 0.35rem 0.8rem; margin-top: 0; font-size: 0.8rem; font-weight: 600; cursor: pointer; width: auto;
+}
+button.btn-outline-success:hover { background: #f0fdf4; }
+
+/* Search + segmented All/Active/Deactivated toolbar (Business Roles) - client-side only (the
+   underlying list is already fully server-rendered, un-paginated), same 42px control-height
+   convention pipeline-filter-bar established. */
+.admin-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    flex-wrap: wrap; margin-bottom: 1rem;
+}
+.admin-search-field { position: relative; flex: 1 1 240px; max-width: 320px; }
+.admin-search-field input {
+    width: 100%; height: 2.35rem; padding: 0 0.75rem 0 2.1rem;
+    border: 1px solid var(--kcpc-border); border-radius: 7px; font-size: 0.85rem;
+}
+.admin-search-icon {
+    position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%);
+    color: #9ca3af; font-size: 0.85rem; pointer-events: none;
+}
+.segmented-control { display: inline-flex; gap: 0.3rem; background: transparent; }
+.segmented-btn {
+    height: 2.35rem; padding: 0 0.9rem; border-radius: 7px; border: 1px solid var(--kcpc-border);
+    background: var(--kcpc-surface); color: var(--kcpc-ink); font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;
+}
+.segmented-btn .dot { width: 0.4rem; height: 0.4rem; border-radius: 999px; display: inline-block; }
+.segmented-btn.dot-active .dot { background: #166534; }
+.segmented-btn.dot-inactive .dot { background: #b91c1c; }
+.segmented-btn.active { background: var(--kcpc-accent); border-color: var(--kcpc-accent); color: #fff; }
+.segmented-btn.active .dot { background: #fff; }
+
+/* Business Roles two-column desktop workspace. */
+.admin-2col { display: grid; grid-template-columns: 65% 1fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 1100px) {
+    .admin-2col { grid-template-columns: 1fr; }
+}
+
+/* Publishing Catalogue: Platforms/Channels as an equal-width, equal-height top row (they're both
+   simple two-column tables and read better side by side than each claiming a third of the width),
+   Publication Targets as a full-width card below it (it carries the widest table - Platform |
+   Channel | Target Name | Active | Actions - and needs the room). align-items:stretch + height:
+   100% on the cards is what makes the two top cards match height even when their row counts
+   differ, rather than each shrinking to its own content. */
+.catalogue-master-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+.catalogue-master-row > .panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+}
+.publication-targets-card { margin-top: 16px; }
+/* A long Platforms/Channels list scrolls inside its own card instead of stretching the card (and
+   therefore its sibling) taller than the page can comfortably show. */
+.catalogue-table-scroll { max-height: 360px; overflow-y: auto; }
+@media (max-width: 700px) {
+    .catalogue-master-row { grid-template-columns: 1fr; }
+}
+/* Permissions / User Detail three-column workspace (User Detail | Current Granted Permissions |
+   Grant Permission) and the small circular initials avatar used in User Detail. */
+.admin-userdetail-grid { display: grid; grid-template-columns: 1fr 1.4fr 1.1fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 1200px) {
+    .admin-userdetail-grid { grid-template-columns: 1fr; }
+}
+.admin-avatar {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.5rem; height: 2.5rem; border-radius: 999px;
+    background: #eef2ff; color: #3730a3; font-weight: 700; font-size: 0.9rem;
+}
+.admin-userdetail-identity { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.admin-userdetail-identity .admin-userdetail-name { font-weight: 700; }
+.admin-userdetail-identity .admin-userdetail-email { color: #6b7280; font-size: 0.82rem; }
+.admin-userdetail-field { display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 0.9rem; }
+.admin-userdetail-field .admin-userdetail-field-label { font-size: 0.78rem; color: #6b7280; font-weight: 600; }
+.admin-userdetail-field .admin-userdetail-field-value { font-size: 0.88rem; }
+
+/* Publishing Catalogue platform icon reused verbatim from the Pipeline dashboard's own local
+   full-color SVG set (static/icons/platforms/) - same <img> markup, no new asset pipeline. */
+.catalogue-platform-cell { display: flex; align-items: center; gap: 0.5rem; }
+.catalogue-platform-icon { width: 18px; height: 18px; display: block; flex: none; border-radius: 5px; }
+.catalogue-row-actions { display: flex; gap: 0.4rem; }
+.catalogue-edit-panel { padding: 0.9rem 1rem; border-top: 1px solid var(--kcpc-border); background: #fafafa; }
+/* Create Platform/Channel/Target body - toggled via the header's "+ Create X" button
+   (data-toggle-panel, admin-shared.js) rather than a <details> disclosure, so the trigger can sit
+   top-right in .card-head-row instead of above/below the table. */
+.catalogue-create-body { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--kcpc-border); }
+
+/* Card header row (title + right-aligned "+ Create X" trigger) - Platforms/Channels/Targets cards. */
+.card-head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.card-head-row h2 { margin: 0; }
+/* Same ".panel button" specificity problem as button.btn-outline-danger/-success above - without
+   this, the "+ Create X" header button would render solid red instead of the intended compact
+   blue outline, and pick up an unwanted margin-top that misaligns it in the header row. */
+.card-head-row button.btn-outline {
+    background: transparent; color: #1d4ed8; border: 1px solid #93c5fd;
+    padding: 0.35rem 0.8rem; margin-top: 0; font-size: 0.8rem; font-weight: 600;
+}
+.card-head-row button.btn-outline:hover { background: #eff6ff; }
+
+/* Password visibility toggle (Create User's Initial Password field) - purely client-side
+   show/hide, never changes what gets submitted. */
+.password-field { position: relative; }
+.password-field input { padding-right: 2.25rem; }
+.password-field .password-toggle {
+    position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem; padding: 0.2rem;
+    margin: 0; width: auto; opacity: 0.7;
+}
+.password-field .password-toggle.password-visible { color: var(--kcpc-accent); opacity: 1; }
+
+/* Compact single-row Create User form (Full Name | Email | Initial Password | Business Role |
+   Reason) on desktop, stacking on narrower viewports. */
+.admin-inline-form { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; align-items: start; }
+.admin-inline-form label { margin-top: 0; }
+@media (max-width: 1100px) {
+    .admin-inline-form { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+    .admin-inline-form { grid-template-columns: 1fr; }
+}
+.admin-inline-form-actions { display: flex; align-items: flex-end; }
+.admin-inline-form-actions button { margin-top: 0; width: 100%; }
+.admin-tab:hover:not(.active) { color: var(--kcpc-ink); }

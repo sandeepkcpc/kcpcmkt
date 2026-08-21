@@ -1,0 +1,33 @@
+<%-- Manager Reviews Workspace - shared by reviews.jsp (full page) and the AJAX-partial response
+     ReviewsMvcController#reviews returns for X-Requested-With: fetch requests. Caller sets
+     ${activeTab}/${ideasPendingCount}/${planningPendingCount}/${shootPendingCount}/${editPendingCount}
+     plus whichever tab-specific attributes that tab's builder method populated before including
+     this file. Tab bar lives here (not in reviews.jsp) so its counts/active state refresh on every
+     AJAX swap, including right after a decision changes a pending count. --%>
+<div class="reviews-tabs">
+    <a class="reviews-tab ${activeTab == 'ideas' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=ideas" data-tab="ideas">
+        Ideas <span class="count-badge">${ideasPendingCount}</span>
+    </a>
+    <a class="reviews-tab ${activeTab == 'planning' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=planning" data-tab="planning">
+        Planning <span class="count-badge">${planningPendingCount}</span>
+    </a>
+    <a class="reviews-tab ${activeTab == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=shoot" data-tab="shoot">
+        Shoot <span class="count-badge">${shootPendingCount}</span>
+    </a>
+    <a class="reviews-tab ${activeTab == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=edit" data-tab="edit">
+        Edit <span class="count-badge">${editPendingCount}</span>
+    </a>
+</div>
+
+<%-- ENG: single CSRF token source for every AJAX decision POST reviews-workspace.js issues (all
+     same-origin, same session) - read by id, appended as a body param, exactly like
+     assignment-picker.js's existing csrfInput.name/csrfInput.value convention. --%>
+<input type="hidden" id="reviewsCsrfToken" name="${_csrf.parameterName}" value="${_csrf.token}">
+
+
+<c:choose>
+    <c:when test="${activeTab == 'planning'}"><%@ include file="reviews-planning.jspf" %></c:when>
+    <c:when test="${activeTab == 'shoot'}"><%@ include file="reviews-shoot.jspf" %></c:when>
+    <c:when test="${activeTab == 'edit'}"><%@ include file="reviews-edit.jspf" %></c:when>
+    <c:otherwise><%@ include file="reviews-ideas.jspf" %></c:otherwise>
+</c:choose>

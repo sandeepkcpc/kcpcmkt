@@ -57,7 +57,8 @@ public class IdeaMvcController {
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
 
     private static final int MY_IDEAS_PAGE_SIZE = 6;
-    private static final Set<String> IDEA_LIFECYCLE_TRIGGER_COMMANDS =
+    /** Package-visible: reused as-is by ReviewsMvcController's Ideas tab (see {@link #statusLabel}). */
+    static final Set<String> IDEA_LIFECYCLE_TRIGGER_COMMANDS =
             Set.of("SUBMIT_IDEA", "APPROVE_IDEA", "REJECT_IDEA", "RETAIN_IDEA", "REOPEN_IDEA");
 
     public IdeaMvcController(IdeaService ideaService, IdeaRepository ideaRepository,
@@ -316,7 +317,10 @@ public class IdeaMvcController {
      * just-reopened-from-Retained idea are both PA) - the most recent idea-lifecycle trigger
      * command disambiguates it into "Under Review" vs. "Reopened".
      */
-    private static String statusLabel(WorkflowStatus status, String latestLifecycleTrigger) {
+    /** Package-visible (not private): reused as-is by ReviewsMvcController's Ideas tab, so the
+     * Idea-only status vocabulary (never a downstream WorkflowStatus name) can't drift between the
+     * two screens. Pure function, no repository/authorization access - safe to share directly. */
+    static String statusLabel(WorkflowStatus status, String latestLifecycleTrigger) {
         return switch (status) {
             case PA -> "REOPEN_IDEA".equals(latestLifecycleTrigger) ? "Reopened" : "Under Review";
             case RJ -> "Rejected";
@@ -325,7 +329,7 @@ public class IdeaMvcController {
         };
     }
 
-    private static String statusCssClass(String statusLabel) {
+    static String statusCssClass(String statusLabel) {
         return switch (statusLabel) {
             case "Under Review" -> "status-underreview";
             case "Reopened" -> "status-reopened";
@@ -372,14 +376,15 @@ public class IdeaMvcController {
      * ENG-061: re-labels each raw transition into Idea-domain vocabulary (never a raw
      * {@code WorkflowStatus} name like "Planning") for the "Idea Decision History" panel.
      */
-    private static List<IdeaHistoryEvent> toHistoryEvents(List<WorkflowTransitionHistory> lifecycleHistory) {
+    /** Package-visible: reused as-is by ReviewsMvcController's Ideas tab (see {@link #statusLabel}). */
+    static List<IdeaHistoryEvent> toHistoryEvents(List<WorkflowTransitionHistory> lifecycleHistory) {
         return lifecycleHistory.stream()
                 .map(t -> new IdeaHistoryEvent(lifecycleEventLabel(t.getTriggerCommand()), t.getTransitionTimestamp(),
                         t.getTriggeredBy().getFullName(), t.getTransitionReason()))
                 .toList();
     }
 
-    private static String lifecycleEventLabel(String triggerCommand) {
+    static String lifecycleEventLabel(String triggerCommand) {
         return switch (triggerCommand) {
             case "SUBMIT_IDEA" -> "Submitted";
             case "APPROVE_IDEA" -> "Approved";

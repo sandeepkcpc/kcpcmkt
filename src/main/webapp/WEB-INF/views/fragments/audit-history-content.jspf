@@ -1,0 +1,179 @@
+<%-- CEO/MM Reports - Audit History tab (the detailed, immutable forensic trail - never merged with
+     Administrative Actions' management-friendly summary). Caller sets ${logs} (List<AuditLogResponse>,
+     already the current page only - real server-side pagination via
+     SystemAuditLogRepository#search), ${actors}/${actionTypes}/${eventCategories} (real distinct
+     backend values, never a guessed vocabulary), ${selectedActorId}/${selectedActionType}/
+     ${selectedEventCategory}/${selectedContentId}/${selectedDateFrom}/${selectedDateTo}/${sort},
+     pagination attrs, ${reportsDataAsOf}. --%>
+<div class="page-header-row">
+    <div>
+        <h1>Audit History</h1>
+    </div>
+    <%@ include file="reports-asof-badge.jspf" %>
+</div>
+
+<div class="note-box reports-info-banner">
+    Audit records are immutable and cannot be edited or deleted.
+</div>
+
+<form method="get" action="${pageContext.request.contextPath}/app/audit" class="reports-filters" id="auditFilterForm">
+    <input type="hidden" name="sort" value="${sort}">
+    <div class="filter-field">
+        <label for="auditActor">Actor</label>
+        <select name="actorId" id="auditActor">
+            <option value="">Select actor</option>
+            <c:forEach var="a" items="${actors}">
+                <option value="${a.id}" ${selectedActorId == a.id ? 'selected' : ''}><c:out value="${a.fullName}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="auditAction">Action</label>
+        <select name="actionType" id="auditAction">
+            <option value="">Select action</option>
+            <c:forEach var="t" items="${actionTypes}">
+                <option value="${t}" ${selectedActionType == t ? 'selected' : ''}><c:out value="${t}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="auditContentId">Content ID</label>
+        <input type="text" name="contentId" id="auditContentId" placeholder="Enter content ID" value="${fn:escapeXml(selectedContentId)}">
+    </div>
+    <div class="filter-field">
+        <label for="auditModule">Module</label>
+        <select name="eventCategory" id="auditModule">
+            <option value="">Select module</option>
+            <c:forEach var="m" items="${eventCategories}">
+                <option value="${m}" ${selectedEventCategory == m ? 'selected' : ''}><c:out value="${m}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="auditFrom">From</label>
+        <input type="date" name="startDate" id="auditFrom" value="${selectedDateFrom}">
+    </div>
+    <div class="filter-field">
+        <label for="auditTo">To</label>
+        <input type="date" name="endDate" id="auditTo" value="${selectedDateTo}">
+    </div>
+    <button type="submit" class="btn-primary reports-filter-submit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Filter
+    </button>
+    <a class="btn-outline reports-clear" href="${pageContext.request.contextPath}/app/audit">
+        <span aria-hidden="true">&#8635;</span> Clear
+    </a>
+</form>
+
+<div class="panel reports-table-panel">
+    <div class="reports-table-scroll">
+    <table class="data-table reports-table">
+        <thead>
+        <tr>
+            <th>
+                <c:url var="auditSortUrl" value="/app/audit">
+                    <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                    <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                    <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                    <c:param name="pageSize" value="${pageSize}"/>
+                    <c:param name="sort" value="${sort == 'asc' ? 'desc' : 'asc'}"/>
+                </c:url>
+                <a class="reviews-sort-link" href="${auditSortUrl}">Timestamp <span class="sort-icon">${sort == 'asc' ? '&#8593;' : '&#8595;'}</span></a>
+            </th>
+            <th>Actor</th><th>Action</th><th>Record</th><th>Module</th><th>Reason / Change</th>
+        </tr>
+        </thead>
+        <tbody>
+        <c:forEach var="log" items="${logs}">
+            <tr>
+                <td class="reports-timestamp-cell">${kcpc:ist(log.eventTimestamp)}</td>
+                <td>
+                    <div><c:out value="${log.actorFullName}"/></div>
+                </td>
+                <td><span class="admin-action-badge admin-action-generic"><c:out value="${log.eventType}"/></span></td>
+                <td class="reports-meta-subtext"><c:out value="${fn:replace(log.targetEntityName, '_', ' ')}"/> &middot; <c:out value="${fn:substring(log.targetEntityId, 0, 8)}"/></td>
+                <td><c:out value="${log.eventCategory}"/></td>
+                <td class="reports-reason-cell"><c:out value="${empty log.actionReason ? '-' : log.actionReason}"/></td>
+            </tr>
+        </c:forEach>
+        <c:if test="${empty logs}">
+            <tr><td colspan="6" class="muted">No audit records match the current filters.</td></tr>
+        </c:if>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="pagination reports-pagination">
+        <span>Showing ${fromIndex} to ${toIndex} of <fmt:formatNumber value="${totalCount}"/> records</span>
+        <div class="reports-page-size">
+            <select id="auditPageSize" name="pageSize" form="auditFilterForm">
+                <option value="10" ${pageSize == 10 ? 'selected' : ''}>10 per page</option>
+                <option value="25" ${pageSize == 25 ? 'selected' : ''}>25 per page</option>
+                <option value="50" ${pageSize == 50 ? 'selected' : ''}>50 per page</option>
+                <option value="100" ${pageSize == 100 ? 'selected' : ''}>100 per page</option>
+            </select>
+        </div>
+        <div class="pagination-controls">
+            <c:choose>
+                <c:when test="${currentPage > 1}">
+                    <c:url var="auPrevUrl" value="/app/audit">
+                        <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                        <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                        <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                        <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${currentPage - 1}"/>
+                    </c:url>
+                    <a href="${auPrevUrl}">&#8249;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+            </c:choose>
+            <c:set var="auWindowStart" value="${currentPage - 2 > 1 ? currentPage - 2 : 1}"/>
+            <c:set var="auWindowEnd" value="${currentPage + 2 < totalPages ? currentPage + 2 : totalPages}"/>
+            <c:if test="${auWindowStart > 1}">
+                <c:url var="auFirstUrl" value="/app/audit">
+                    <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                    <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                    <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                    <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="1"/>
+                </c:url>
+                <a href="${auFirstUrl}">1</a><span class="page-ellipsis">&hellip;</span>
+            </c:if>
+            <c:forEach begin="${auWindowStart}" end="${auWindowEnd}" var="p">
+                <c:choose>
+                    <c:when test="${p == currentPage}"><span class="page-current">${p}</span></c:when>
+                    <c:otherwise>
+                        <c:url var="auPageUrl" value="/app/audit">
+                            <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                            <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                            <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                            <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${p}"/>
+                        </c:url>
+                        <a href="${auPageUrl}">${p}</a>
+                    </c:otherwise>
+                </c:choose>
+            </c:forEach>
+            <c:if test="${auWindowEnd < totalPages}">
+                <span class="page-ellipsis">&hellip;</span>
+                <c:url var="auLastUrl" value="/app/audit">
+                    <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                    <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                    <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                    <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${totalPages}"/>
+                </c:url>
+                <a href="${auLastUrl}">${totalPages}</a>
+            </c:if>
+            <c:choose>
+                <c:when test="${currentPage < totalPages}">
+                    <c:url var="auNextUrl" value="/app/audit">
+                        <c:param name="actorId" value="${selectedActorId}"/><c:param name="actionType" value="${selectedActionType}"/>
+                        <c:param name="contentId" value="${selectedContentId}"/><c:param name="eventCategory" value="${selectedEventCategory}"/>
+                        <c:param name="startDate" value="${selectedDateFrom}"/><c:param name="endDate" value="${selectedDateTo}"/>
+                        <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${currentPage + 1}"/>
+                    </c:url>
+                    <a href="${auNextUrl}">&#8250;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+            </c:choose>
+        </div>
+    </div>
+</div>

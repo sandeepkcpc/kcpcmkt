@@ -451,7 +451,7 @@ public class DeliverableMvcController {
 
         // ENG-082: CEO/MM management shell - Platforms×Channels summary (Publishing tab) and the
         // combined Planning/Shoot/Edit Review Feedback History, only needed on this fallback path.
-        model.addAttribute("platformSummaries", buildContentDetailPlatformSummaries(plan, outputTargetMappings));
+        model.addAttribute("platformSummaries", buildContentDetailPlatformSummaries(plan, outputs));
         List<ShootFeedbackEntry> feedbackHistory = buildReviewFeedbackHistory(plan);
         model.addAttribute("reviewFeedbackHistory", feedbackHistory);
         model.addAttribute("availableActions", buildAvailableActions(plan, status, model, user, nativeAuthority, openHold));
@@ -472,30 +472,51 @@ public class DeliverableMvcController {
     }
 
     /**
-     * ENG-082: Content Detail's Publishing tab Platform×Channel chips - reuses
+     * ENG-082 (defect fix): Content Detail's Publishing tab Platform×Channel chips - reuses
      * {@link com.kcpc.mkt.reporting.service.PipelineDashboardService#buildPlatformSummaries}
      * verbatim (same "published only when a real ORIGINAL event exists with a non-blank, current/
      * correction-resolved effective Evidence URL" rule the Pipeline dashboard already uses for the
-     * exact same data), just scoped to this one plan instead of the dashboard's multi-plan batch.
-     * {@code outputTargetMappings} is already computed above for the Planning tab's per-output
-     * target chips - flattened here rather than re-queried.
+     * exact same data), scoped to this one plan instead of the dashboard's multi-plan batch.
+     * Mappings are re-queried per real output ({@code mappingRepository.findByPlannedOutput_IdIn}
+     * over every one of this plan's {@code outputs}), NOT flattened from {@code outputTargetMappings}
+     * - that map is grouped by reel-group representative for the Planning tab's editing UI (one row
+     * per group), so flattening it here would under-count exactly like the original Pipeline
+     * dashboard defect this fix addresses (e.g. a 2-Reel-Type group's second type's mappings would
+     * be silently dropped). Every screen - Publisher's checklist, Pipeline dashboard, and this
+     * Content Detail summary - must agree on the same real per-output publishing scope.
      */
     private List<com.kcpc.mkt.reporting.dto.PipelinePlatformSummary> buildContentDetailPlatformSummaries(
-            ContentPlan plan, Map<UUID, List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping>> outputTargetMappings) {
+            ContentPlan plan, List<PlannedOutput> outputs) {
+        List<UUID> outputIds = outputs.stream().map(PlannedOutput::getId).toList();
+        if (outputIds.isEmpty()) {
+            return List.of();
+        }
         List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping> allMappings =
-                outputTargetMappings.values().stream().flatMap(List::stream).toList();
+                mappingRepository.findByPlannedOutput_IdIn(outputIds);
         if (allMappings.isEmpty()) {
             return List.of();
         }
+        // ENG-082 (defect fix): label fields (title/type) must be read from these already-fully-
+        // loaded PlannedOutput entities, never from mapping.getPlannedOutput() - that association is
+        // LAZY and this controller isn't @Transactional, so touching a label field on it directly
+        // would throw LazyInitializationException the moment the session that loaded it is gone.
+        Map<UUID, PlannedOutput> outputsById = outputs.stream()
+                .collect(java.util.stream.Collectors.toMap(PlannedOutput::getId, o -> o));
+        // ENG-082 (defect fix): one real ORIGINAL event per exact (Planned Output, Publication
+        // Target) pair - never collapsed across Planned Outputs sharing the same target, matching
+        // buildPublishingChecklist's own per-output event lookup exactly.
         List<ActualPublicationEvent> originalEvents = eventRepository.findByContentPlan(plan).stream()
                 .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
-        Map<UUID, ActualPublicationEvent> latestEventByTarget = new java.util.HashMap<>();
+        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget = new java.util.HashMap<>();
         for (ActualPublicationEvent e : originalEvents) {
-            latestEventByTarget.merge(e.getPublicationTarget().getId(), e,
-                    (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
+            latestEventByOutputAndTarget
+                    .computeIfAbsent(e.getPlannedOutput().getId(), k -> new java.util.HashMap<>())
+                    .merge(e.getPublicationTarget().getId(), e,
+                            (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
         }
-        java.util.Set<UUID> representativeEventIds = latestEventByTarget.values().stream()
-                .map(ActualPublicationEvent::getId).collect(java.util.stream.Collectors.toSet());
+        java.util.Set<UUID> representativeEventIds = latestEventByOutputAndTarget.values().stream()
+                .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId)
+                .collect(java.util.stream.Collectors.toSet());
         Map<UUID, com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection> latestCorrectionByEventId = new java.util.HashMap<>();
         if (!representativeEventIds.isEmpty()) {
             for (var corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
@@ -503,8 +524,35 @@ public class DeliverableMvcController {
                         (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
             }
         }
+        // ENG-082 (defect fix): a mapping currently DESIGNATED N/A is excluded entirely - matches
+        // buildPublishingChecklist's own rule exactly, so the Content Detail's Platforms×Channels
+        // chips can never show a different task set than the Publisher's own checklist. Keyed by
+        // each mapping's REAL Planned Output id (never outputTargetMappings' reel-group key, a
+        // separate generated id that never matches any individual PlannedOutput's own id) so the
+        // lookup in buildPlatformSummaries (keyed the same real way) actually hits.
+        Map<UUID, java.util.Set<UUID>> naTargetIdsByOutput = new java.util.HashMap<>();
+        java.util.Set<UUID> realOutputIds = allMappings.stream()
+                .map(m -> m.getPlannedOutput().getId()).collect(java.util.stream.Collectors.toSet());
+        for (UUID outputId : realOutputIds) {
+            PlannedOutput output = outputsById.get(outputId);
+            if (output == null) {
+                continue;
+            }
+            Map<UUID, PublicationTargetNaRecord> latestNaByTarget = new java.util.HashMap<>();
+            for (PublicationTargetNaRecord r : naRecordRepository.findByPlannedOutput(output)) {
+                latestNaByTarget.merge(r.getPublicationTarget().getId(), r,
+                        (a, b) -> a.getRecordedAt().isAfter(b.getRecordedAt()) ? a : b);
+            }
+            java.util.Set<UUID> naTargets = latestNaByTarget.values().stream()
+                    .filter(r -> r.getActionType() == NaActionType.DESIGNATED)
+                    .map(r -> r.getPublicationTarget().getId())
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!naTargets.isEmpty()) {
+                naTargetIdsByOutput.put(outputId, naTargets);
+            }
+        }
         return com.kcpc.mkt.reporting.service.PipelineDashboardService.buildPlatformSummaries(
-                allMappings, latestEventByTarget, latestCorrectionByEventId);
+                allMappings, outputsById, latestEventByOutputAndTarget, latestCorrectionByEventId, naTargetIdsByOutput);
     }
 
     /**

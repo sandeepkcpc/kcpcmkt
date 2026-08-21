@@ -1,0 +1,17 @@
+<%-- Shared secondary tab bar for the unified CEO/MM Reports workspace (KPI Dashboard / Delayed
+     Deliverables / Administrative Actions / Audit History / Export) - included by all 5 screens
+     (both the full page and their AJAX partial companions) so the tab bar, active-state, and "Data
+     as of" badge are always visually identical. Caller sets ${activeReportTab} (one of "kpis" /
+     "delayed" / "admin-actions" / "audit" / "export") and ${reportsDataAsOf} (an Instant) before
+     including this file. Reuses .team-workload-tabs/.team-workload-tab's exact visual recipe
+     (ENG-087) under a new .reports-tabs/.reports-tab name, and .team-workload-asof's badge style
+     under .reports-asof, so Team and Reports look like the same product without coupling the two
+     features' CSS together. The "Data as of" badge is rendered per-screen (next to that screen's
+     own H1), not here - see reports-asof-badge.jspf. --%>
+<div class="reports-tabs">
+    <a class="reports-tab ${activeReportTab == 'kpis' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/kpis">KPI Dashboard</a>
+    <a class="reports-tab ${activeReportTab == 'delayed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/delayed">Delayed Deliverables</a>
+    <a class="reports-tab ${activeReportTab == 'admin-actions' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/admin-actions">Administrative Actions</a>
+    <a class="reports-tab ${activeReportTab == 'audit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/audit">Audit History</a>
+    <a class="reports-tab ${activeReportTab == 'export' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/export">Export</a>
+</div>

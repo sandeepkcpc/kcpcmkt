@@ -1,0 +1,126 @@
+<%-- CEO/MM Reports - Delayed Deliverables tab. Caller sets ${rows} (List<DelayedDeliverableRow>),
+     ${q}/${selectedStage}/${selectedPriority}, pagination attrs, ${reportsDataAsOf}. Stage is
+     always one of the 5 real lifecycle stages (Planning/Shoot/Edit/Publishing/Performance) -
+     AdminReportingService#delayedDeliverables was fixed this pass to stop miscounting Planning as
+     Shoot (see docs/plan). Assigned To is the CURRENT stage's own assignee(s) only, never a future
+     stage's. --%>
+<div class="page-header-row">
+    <div>
+        <h1>Delayed Deliverables</h1>
+    </div>
+    <%@ include file="reports-asof-badge.jspf" %>
+</div>
+
+<div class="note-box reports-info-banner">
+    DLY is a supplementary delay flag over the primary workflow status. A content item may still be active while being flagged delayed.
+</div>
+
+<form method="get" action="${pageContext.request.contextPath}/app/reports/delayed" class="reports-filters" id="reportsDelayedFilterForm">
+    <div class="filter-field filter-field-search">
+        <label for="delayedSearch">Search</label>
+        <input type="text" name="q" id="delayedSearch" placeholder="Search Content ID or title..." value="${fn:escapeXml(q)}">
+    </div>
+    <div class="filter-field">
+        <label for="delayedStage">Stage</label>
+        <select name="stage" id="delayedStage">
+            <option value="" ${empty selectedStage ? 'selected' : ''}>All Stages</option>
+            <option value="Planning" ${selectedStage == 'Planning' ? 'selected' : ''}>Planning</option>
+            <option value="Shoot" ${selectedStage == 'Shoot' ? 'selected' : ''}>Shoot</option>
+            <option value="Edit" ${selectedStage == 'Edit' ? 'selected' : ''}>Edit</option>
+            <option value="Publishing" ${selectedStage == 'Publishing' ? 'selected' : ''}>Publishing</option>
+            <option value="Performance" ${selectedStage == 'Performance' ? 'selected' : ''}>Performance</option>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="delayedPriority">Priority</label>
+        <select name="priority" id="delayedPriority">
+            <option value="" ${empty selectedPriority ? 'selected' : ''}>All Priorities</option>
+            <option value="HIGH" ${selectedPriority == 'HIGH' ? 'selected' : ''}>High</option>
+            <option value="MEDIUM" ${selectedPriority == 'MEDIUM' ? 'selected' : ''}>Medium</option>
+            <option value="LOW" ${selectedPriority == 'LOW' ? 'selected' : ''}>Low</option>
+        </select>
+    </div>
+    <a class="btn-outline reports-clear" href="${pageContext.request.contextPath}/app/reports/delayed">
+        <span aria-hidden="true">&#8635;</span> Clear
+    </a>
+</form>
+
+<div class="panel reports-table-panel">
+    <div class="reports-table-scroll">
+    <table class="data-table reports-table">
+        <thead>
+        <tr><th>Content ID</th><th>Content</th><th>Stage</th><th>Assigned To</th><th>Planned Date</th><th>Days Delayed</th><th>Priority</th><th>Open</th></tr>
+        </thead>
+        <tbody>
+        <c:forEach var="r" items="${rows}">
+            <tr>
+                <td><a class="idea-id-link" href="${pageContext.request.contextPath}/app/deliverables/${r.contentPlanId}"><c:out value="${r.contentId}"/></a></td>
+                <td class="idea-queue-title-cell" title="${fn:escapeXml(r.contentTitle)}"><c:out value="${empty r.contentTitle ? '-' : r.contentTitle}"/></td>
+                <td><span class="pipeline-status-badge stage-${fn:toLowerCase(r.stage)}"><c:out value="${r.stage}"/></span></td>
+                <td><c:out value="${empty r.assignedTo ? '-' : r.assignedTo}"/></td>
+                <td>${empty r.plannedDate ? '-' : r.plannedDate}</td>
+                <td>
+                    <c:choose>
+                        <c:when test="${r.delayDays >= 3}"><span class="delay-badge delay-strong">+${r.delayDays} days</span></c:when>
+                        <c:otherwise><span class="delay-badge delay-mild">+${r.delayDays} day<c:if test="${r.delayDays != 1}">s</c:if></span></c:otherwise>
+                    </c:choose>
+                </td>
+                <td><span class="priority-pill priority-${fn:toLowerCase(r.priority)}"><c:out value="${r.priority}"/></span></td>
+                <td><a class="btn-outline reports-open-btn" href="${pageContext.request.contextPath}/app/deliverables/${r.contentPlanId}">Open &rsaquo;</a></td>
+            </tr>
+        </c:forEach>
+        <c:if test="${empty rows}">
+            <tr><td colspan="8" class="muted">No delayed deliverables match the current filters.</td></tr>
+        </c:if>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="pagination reports-pagination">
+        <span>Showing ${fromIndex} to ${toIndex} of ${totalCount}</span>
+        <div class="reports-page-size">
+            <select id="delayedPageSize" name="pageSize" form="reportsDelayedFilterForm">
+                <option value="10" ${pageSize == 10 ? 'selected' : ''}>10 per page</option>
+                <option value="25" ${pageSize == 25 ? 'selected' : ''}>25 per page</option>
+                <option value="50" ${pageSize == 50 ? 'selected' : ''}>50 per page</option>
+            </select>
+        </div>
+        <div class="pagination-controls">
+            <c:choose>
+                <c:when test="${currentPage > 1}">
+                    <c:url var="dPrevUrl" value="/app/reports/delayed">
+                        <c:param name="q" value="${q}"/><c:param name="stage" value="${selectedStage}"/>
+                        <c:param name="priority" value="${selectedPriority}"/><c:param name="pageSize" value="${pageSize}"/>
+                        <c:param name="page" value="${currentPage - 1}"/>
+                    </c:url>
+                    <a href="${dPrevUrl}">&#8249;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+            </c:choose>
+            <c:forEach begin="1" end="${totalPages}" var="p">
+                <c:choose>
+                    <c:when test="${p == currentPage}"><span class="page-current">${p}</span></c:when>
+                    <c:otherwise>
+                        <c:url var="dPageUrl" value="/app/reports/delayed">
+                            <c:param name="q" value="${q}"/><c:param name="stage" value="${selectedStage}"/>
+                            <c:param name="priority" value="${selectedPriority}"/><c:param name="pageSize" value="${pageSize}"/>
+                            <c:param name="page" value="${p}"/>
+                        </c:url>
+                        <a href="${dPageUrl}">${p}</a>
+                    </c:otherwise>
+                </c:choose>
+            </c:forEach>
+            <c:choose>
+                <c:when test="${currentPage < totalPages}">
+                    <c:url var="dNextUrl" value="/app/reports/delayed">
+                        <c:param name="q" value="${q}"/><c:param name="stage" value="${selectedStage}"/>
+                        <c:param name="priority" value="${selectedPriority}"/><c:param name="pageSize" value="${pageSize}"/>
+                        <c:param name="page" value="${currentPage + 1}"/>
+                    </c:url>
+                    <a href="${dNextUrl}">&#8250;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+            </c:choose>
+        </div>
+    </div>
+</div>

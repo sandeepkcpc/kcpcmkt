@@ -39,14 +39,33 @@ public class BusinessRoleAdminService {
 
     /** New ordinary Business Roles default to EMPLOYEE unless explicitly designated otherwise by the CEO. */
     @Transactional
-    public BusinessRole create(User ceo, String roleName, AccessClass accessClass) {
+    public BusinessRole create(User ceo, String roleName, AccessClass accessClass, boolean participatesInWorkflow) {
         requireCeo(ceo);
         if (roleName == null || roleName.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Business Role name is mandatory");
         }
-        BusinessRole role = businessRoleRepository.save(new BusinessRole(roleName, accessClass));
+        BusinessRole role = new BusinessRole(roleName, accessClass);
+        role.setParticipatesInWorkflow(participatesInWorkflow);
+        role = businessRoleRepository.save(role);
         auditService.record(ceo, Optional.empty(), "USER_ADMIN", "BUSINESS_ROLE_CREATED", "business_roles",
                 role.getId(), null);
+        return role;
+    }
+
+    /**
+     * Centralized workflow-participation gate (AuthorizationService#isNonProductionEmployee):
+     * never itself an OperationalPermission grant (ERD-CON-063) - purely the nav/landing
+     * restriction for EMPLOYEEs whose role doesn't participate in Content Production.
+     */
+    @Transactional
+    public BusinessRole setWorkflowParticipation(User ceo, UUID businessRoleId, boolean participatesInWorkflow) {
+        requireCeo(ceo);
+        BusinessRole role = businessRoleRepository.findById(businessRoleId)
+                .orElseThrow(() -> DomainException.notFound("Business Role not found: " + businessRoleId));
+        role.setParticipatesInWorkflow(participatesInWorkflow);
+        businessRoleRepository.save(role);
+        auditService.record(ceo, Optional.empty(), "USER_ADMIN", "BUSINESS_ROLE_WORKFLOW_PARTICIPATION_UPDATED",
+                "business_roles", role.getId(), null);
         return role;
     }
 

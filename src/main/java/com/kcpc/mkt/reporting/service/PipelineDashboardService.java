@@ -14,10 +14,13 @@ import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
+import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection;
+import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
+import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.reporting.dto.PipelineChannelStatus;
 import com.kcpc.mkt.reporting.dto.PipelineFilterCriteria;
 import com.kcpc.mkt.reporting.dto.PipelinePlatformSummary;
@@ -58,6 +61,7 @@ public class PipelineDashboardService {
     private final PlannedOutputPublicationTargetMappingRepository mappingRepository;
     private final ActualPublicationEventRepository actualPublicationEventRepository;
     private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
+    private final PublicationTargetNaRecordRepository naRecordRepository;
     private final ReviewCycleRepository reviewCycleRepository;
 
     public PipelineDashboardService(ShootingAssignmentRepository shootingAssignmentRepository,
@@ -67,6 +71,7 @@ public class PipelineDashboardService {
                                      PlannedOutputPublicationTargetMappingRepository mappingRepository,
                                      ActualPublicationEventRepository actualPublicationEventRepository,
                                      PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
+                                     PublicationTargetNaRecordRepository naRecordRepository,
                                      ReviewCycleRepository reviewCycleRepository) {
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -75,6 +80,7 @@ public class PipelineDashboardService {
         this.mappingRepository = mappingRepository;
         this.actualPublicationEventRepository = actualPublicationEventRepository;
         this.evidenceCorrectionRepository = evidenceCorrectionRepository;
+        this.naRecordRepository = naRecordRepository;
         this.reviewCycleRepository = reviewCycleRepository;
     }
 
@@ -103,6 +109,7 @@ public class PipelineDashboardService {
         Map<UUID, UUID> planIdByOutputId = outputs.stream()
                 .collect(Collectors.toMap(PlannedOutput::getId, o -> o.getContentPlan().getId()));
         List<UUID> outputIds = outputs.stream().map(PlannedOutput::getId).toList();
+        Map<UUID, PlannedOutput> outputsById = outputs.stream().collect(Collectors.toMap(PlannedOutput::getId, o -> o));
 
         Map<UUID, List<PlannedOutputPublicationTargetMapping>> mappingsByPlan = new HashMap<>();
         if (!outputIds.isEmpty()) {
@@ -125,25 +132,50 @@ public class PipelineDashboardService {
                                 earliest -> earliest.map(e -> LocalDate.ofInstant(e.getActualPublicationTimestamp(), BUSINESS_ZONE))
                                         .orElse(null))));
 
-        // ENG-075: Platforms column icon+popover - per (plan, Publication Target), the single
-        // representative ORIGINAL event (latest by timestamp, in the rare case the same channel
-        // was mapped from more than one Planned Output and each got its own event) and its CURRENT
-        // effective Evidence URL (the latest PublicationEvidenceCorrection if one exists, else the
-        // event's own URL) - never a planned-only mapping treated as published.
-        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByPlanAndTarget = new HashMap<>();
+        // Defect fix (Platforms column popover): each row of the popover must represent one real
+        // Planned Output x Publication Target task - NOT one distinct Publication Target - since
+        // the same Facebook channel, say, can be independently mapped from several different
+        // Planned Outputs (a Photography output AND a Reel output can both target the same page),
+        // each with its own separate publish status. The event lookup below is therefore keyed by
+        // (plannedOutputId, targetId), matching ActualPublicationEvent's own real grain (it already
+        // records its own plannedOutput) and exactly the same grain
+        // DeliverableMvcController#buildPublishingChecklist already uses for the Publisher's own
+        // task list - so the two screens can never disagree about how many publishing tasks exist.
+        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget = new HashMap<>();
         for (ActualPublicationEvent e : originalEvents) {
-            latestEventByPlanAndTarget
-                    .computeIfAbsent(e.getContentPlan().getId(), k -> new HashMap<>())
+            latestEventByOutputAndTarget
+                    .computeIfAbsent(e.getPlannedOutput().getId(), k -> new HashMap<>())
                     .merge(e.getPublicationTarget().getId(), e,
                             (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
         }
-        Set<UUID> representativeEventIds = latestEventByPlanAndTarget.values().stream()
+        Set<UUID> representativeEventIds = latestEventByOutputAndTarget.values().stream()
                 .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId).collect(Collectors.toSet());
         Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId = new HashMap<>();
         if (!representativeEventIds.isEmpty()) {
             for (PublicationEvidenceCorrection corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
                 latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
                         (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
+            }
+        }
+
+        // Same N/A exclusion rule buildPublishingChecklist already applies (a target DESIGNATED
+        // N/A for a given output is left off entirely - "not applicable", not merely unpublished).
+        Map<UUID, Set<UUID>> naTargetIdsByOutput = new HashMap<>();
+        if (!outputIds.isEmpty()) {
+            Map<UUID, List<PublicationTargetNaRecord>> naRecordsByOutput = naRecordRepository
+                    .findByPlannedOutput_IdIn(outputIds).stream()
+                    .collect(Collectors.groupingBy(r -> r.getPlannedOutput().getId()));
+            for (var entry : naRecordsByOutput.entrySet()) {
+                Set<UUID> naTargets = entry.getValue().stream()
+                        .collect(Collectors.groupingBy(r -> r.getPublicationTarget().getId()))
+                        .entrySet().stream()
+                        .filter(e2 -> e2.getValue().stream().max(Comparator.comparing(PublicationTargetNaRecord::getRecordedAt))
+                                .map(r -> r.getActionType() == NaActionType.DESIGNATED).orElse(false))
+                        .map(Map.Entry::getKey)
+                        .collect(Collectors.toSet());
+                if (!naTargets.isEmpty()) {
+                    naTargetIdsByOutput.put(entry.getKey(), naTargets);
+                }
             }
         }
 
@@ -176,8 +208,10 @@ public class PipelineDashboardService {
                     actualShootDateByWorkflowInstance.get(workflowInstanceId),
                     actualEditDateByWorkflowInstance.get(workflowInstanceId),
                     actualLiveDateByPlan.get(planId),
-                    latestEventByPlanAndTarget.getOrDefault(planId, Map.of()),
-                    latestCorrectionByEventId));
+                    outputsById,
+                    latestEventByOutputAndTarget,
+                    latestCorrectionByEventId,
+                    naTargetIdsByOutput));
         }
         return rows;
     }
@@ -185,8 +219,10 @@ public class PipelineDashboardService {
     private PipelineRow buildRow(ContentPlan plan, List<User> camerapersons, List<User> editors,
                                   List<String> talent, List<PlannedOutputPublicationTargetMapping> mappings,
                                   LocalDate actualShootDate, LocalDate actualEditDate, LocalDate actualLiveDate,
-                                  Map<UUID, ActualPublicationEvent> latestEventByTarget,
-                                  Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId) {
+                                  Map<UUID, PlannedOutput> outputsById,
+                                  Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget,
+                                  Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId,
+                                  Map<UUID, Set<UUID>> naTargetIdsByOutput) {
         String sku = plan.isSkuNotApplicable() ? "N/A" : blankToDash(plan.getSkuReference());
         String category = blankToDash(plan.getCategoryText());
         String referenceLink = plan.getIdea().getReferenceLink();
@@ -219,8 +255,8 @@ public class PipelineDashboardService {
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
         Integer delayDays = delayDays(status, plan, today);
 
-        List<PipelinePlatformSummary> platformSummaries = buildPlatformSummaries(mappings, latestEventByTarget,
-                latestCorrectionByEventId);
+        List<PipelinePlatformSummary> platformSummaries = buildPlatformSummaries(mappings, outputsById,
+                latestEventByOutputAndTarget, latestCorrectionByEventId, naTargetIdsByOutput);
 
         return new PipelineRow(plan.getId(), plan.getContentId(), sku, plan.getIdea().getTitle(), referenceLink,
                 referenceLinkIsUrl, category, blankToDash(channels), actor, blankToDash(cameraPersonNames),
@@ -232,37 +268,61 @@ public class PipelineDashboardService {
     }
 
     /**
-     * ENG-075: groups this plan's distinct planned (Platform, Channel) pairs (deduplicated by
-     * Publication Target id, since the same target can be mapped from more than one Planned
-     * Output) by Platform, resolving each Channel's real publication status from the already
-     * batch-loaded representative-event/correction maps. A channel is "published" only when a real
-     * ORIGINAL event exists AND its effective Evidence URL is non-blank - a planned-only mapping
-     * with no event is always "not published", never inferred otherwise.
+     * ENG-075 (defect fix): groups this plan's real publishing tasks - one row per (Planned
+     * Output, Publication Target) mapping, NEVER deduplicated by Publication Target alone - by
+     * Platform, resolving each row's real publication status from the already batch-loaded
+     * per-(output,target) event/correction maps. A row is "published" only when a real ORIGINAL
+     * event exists for that EXACT (output, target) pair AND its effective Evidence URL
+     * (correction-resolved if a correction exists, the event's own URL otherwise) is non-blank - a
+     * planned-only mapping with no event is always "not published", never inferred otherwise. A
+     * mapping currently DESIGNATED N/A is excluded entirely (not shown as pending), matching
+     * {@code DeliverableMvcController#buildPublishingChecklist}'s existing rule for the Publisher's
+     * own task list exactly - so the platform chip count/popover here and the Publisher's checklist
+     * can never show a different number of tasks for the same Content ID. Same channel appearing
+     * more than once in the result (e.g. two different Reel outputs both mapped to the same
+     * Facebook page) is expected, not a bug - each row's Output/Type fields distinguish them.
      * ENG-082: {@code public static} (was {@code private}) so {@code DeliverableMvcController} can
      * reuse this exact same plan-scoped transform for the Content Detail Publishing tab's
-     * Platform×Channel chips, instead of re-deriving the "which channel is published, using the
-     * correction-resolved effective Evidence URL" rule a second time. Takes zero repository
-     * dependencies and does zero DB access itself either way - callers do their own batch-loading
-     * of {@code mappings}/{@code latestEventByTarget}/{@code latestCorrectionByEventId} first
-     * (see {@link #buildRows} for the multi-plan batch form; a single-plan caller just scopes the
-     * same three queries to one plan instead of many).
+     * Platform×Channel chips. Takes zero repository dependencies and does zero DB access itself -
+     * callers do their own batch-loading of {@code mappings}/{@code latestEventByOutputAndTarget}/
+     * {@code latestCorrectionByEventId}/{@code naTargetIdsByOutput} first (see {@link #buildRows}
+     * for the multi-plan batch form; a single-plan caller just scopes the same queries to one plan).
+     * {@code outputsById} must map every mapping's Planned Output id to an already-fully-loaded
+     * (non-lazy) {@code PlannedOutput} - label fields are read from THIS map, never from
+     * {@code mapping.getPlannedOutput()} directly, since that association is LAZY and a caller
+     * outside an open Hibernate session (e.g. {@code DeliverableMvcController}, not
+     * {@code @Transactional}) would otherwise hit a {@code LazyInitializationException} the moment
+     * a label field is read. Only {@code mapping.getPlannedOutput().getId()} is ever read directly
+     * off the mapping - a JPA proxy's identifier is already known without a DB hit, so that alone
+     * never forces initialization.
      */
-    public static List<PipelinePlatformSummary> buildPlatformSummaries(List<PlannedOutputPublicationTargetMapping> mappings,
-                                                                   Map<UUID, ActualPublicationEvent> latestEventByTarget,
-                                                                   Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId) {
-        Map<String, Map<UUID, PublicationTarget>> targetsByPlatform = new java.util.LinkedHashMap<>();
+    public static List<PipelinePlatformSummary> buildPlatformSummaries(
+            List<PlannedOutputPublicationTargetMapping> mappings,
+            Map<UUID, PlannedOutput> outputsById,
+            Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget,
+            Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId,
+            Map<UUID, Set<UUID>> naTargetIdsByOutput) {
+        Map<String, List<PlannedOutputPublicationTargetMapping>> mappingsByPlatform = new java.util.LinkedHashMap<>();
         for (PlannedOutputPublicationTargetMapping m : mappings) {
-            PublicationTarget target = m.getPublicationTarget();
-            targetsByPlatform.computeIfAbsent(target.getPlatform().getPlatformName(), k -> new java.util.LinkedHashMap<>())
-                    .putIfAbsent(target.getId(), target);
+            UUID outputId = m.getPlannedOutput().getId();
+            UUID targetId = m.getPublicationTarget().getId();
+            if (naTargetIdsByOutput.getOrDefault(outputId, Set.of()).contains(targetId)) {
+                continue;
+            }
+            mappingsByPlatform.computeIfAbsent(m.getPublicationTarget().getPlatform().getPlatformName(),
+                    k -> new ArrayList<>()).add(m);
         }
 
         List<PipelinePlatformSummary> summaries = new ArrayList<>();
-        for (var entry : targetsByPlatform.entrySet()) {
-            List<PipelineChannelStatus> channelStatuses = new ArrayList<>();
+        for (var entry : mappingsByPlatform.entrySet()) {
+            List<PipelineChannelStatus> rows = new ArrayList<>();
             int publishedCount = 0;
-            for (PublicationTarget target : entry.getValue().values()) {
-                ActualPublicationEvent event = latestEventByTarget.get(target.getId());
+            for (PlannedOutputPublicationTargetMapping m : entry.getValue()) {
+                UUID outputId = m.getPlannedOutput().getId();
+                PlannedOutput output = outputsById.get(outputId);
+                PublicationTarget target = m.getPublicationTarget();
+                ActualPublicationEvent event = latestEventByOutputAndTarget
+                        .getOrDefault(outputId, Map.of()).get(target.getId());
                 String effectiveUrl = null;
                 if (event != null) {
                     PublicationEvidenceCorrection latestCorrection = latestCorrectionByEventId.get(event.getId());
@@ -272,10 +332,12 @@ public class PipelineDashboardService {
                 if (published) {
                     publishedCount++;
                 }
-                channelStatuses.add(new PipelineChannelStatus(target.getChannel().getChannelHandle(), published,
-                        published ? effectiveUrl : null));
+                String typeLabel = output.getOutputType().name()
+                        + (output.getReelType() != null ? " · " + output.getReelType().name() : "");
+                rows.add(new PipelineChannelStatus(target.getChannel().getChannelHandle(), typeLabel,
+                        published, published ? effectiveUrl : null));
             }
-            summaries.add(new PipelinePlatformSummary(entry.getKey(), channelStatuses.size(), publishedCount, channelStatuses));
+            summaries.add(new PipelinePlatformSummary(entry.getKey(), rows.size(), publishedCount, rows));
         }
         return summaries;
     }

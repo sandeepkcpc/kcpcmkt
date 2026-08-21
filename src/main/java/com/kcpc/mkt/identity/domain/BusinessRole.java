@@ -30,6 +30,15 @@ public class BusinessRole extends BaseEntity {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
+    /** Centralized workflow-participation gate (never a designation/name check, never itself an
+     * OperationalPermission grant - ERD-CON-063): whether this Business Role takes part in the
+     * Content Production workflow. An EMPLOYEE whose Business Role has this FALSE is restricted to
+     * My Ideas + Submit Idea, both in nav and via direct URL (see AuthorizationService
+     * #isNonProductionEmployee, the single source of truth for this rule). Defaults TRUE so a
+     * newly created role participates unless the CEO explicitly opts it out. */
+    @Column(name = "participates_in_workflow", nullable = false)
+    private boolean participatesInWorkflow = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -69,6 +78,14 @@ public class BusinessRole extends BaseEntity {
 
     public boolean isActive() {
         return active;
+    }
+
+    public boolean isParticipatesInWorkflow() {
+        return participatesInWorkflow;
+    }
+
+    public void setParticipatesInWorkflow(boolean participatesInWorkflow) {
+        this.participatesInWorkflow = participatesInWorkflow;
     }
 
     public Instant getCreatedAt() {

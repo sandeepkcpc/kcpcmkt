@@ -1,0 +1,37 @@
+<%-- Shared by reviews-planning.jspf / reviews-shoot.jspf / reviews-edit.jspf: renders ${reviewHistory}
+     (List<ShootFeedbackEntry>, newest-decided-first, built fresh from the immutable ReviewCycle
+     rows for this plan+gate - see ReviewsMvcController#reviewHistory). The single most recent entry
+     is shown prominently as "Previous Feedback"; the rest (if any) sit behind a details toggle so
+     the panel doesn't grow unbounded on a plan with many rework rounds. --%>
+<c:if test="${not empty reviewHistory}">
+    <div class="reviews-detail-section">
+        <h3 class="reviews-detail-subhead">Previous Feedback</h3>
+        <c:set var="rvLatestFeedback" value="${reviewHistory[0]}"/>
+        <div class="reviews-feedback-box ${rvLatestFeedback.decisionCssClass}">
+            <p>
+                <c:choose>
+                    <c:when test="${not empty rvLatestFeedback.reason}"><c:out value="${rvLatestFeedback.reason}"/></c:when>
+                    <c:otherwise><span class="muted">No written feedback for this decision.</span></c:otherwise>
+                </c:choose>
+            </p>
+            <span class="reviews-feedback-meta">
+                <span class="idea-action-badge ${rvLatestFeedback.decisionCssClass}"><c:out value="${rvLatestFeedback.decisionLabel}"/></span>
+                Reviewed by <c:out value="${rvLatestFeedback.reviewerName}"/> &middot; ${kcpc:ist(rvLatestFeedback.decidedAt)}
+            </span>
+        </div>
+        <c:if test="${fn:length(reviewHistory) > 1}">
+            <details class="reviews-history-details">
+                <summary>View Review History (${fn:length(reviewHistory)} cycles)</summary>
+                <ul class="reviews-history-list">
+                    <c:forEach var="h" items="${reviewHistory}">
+                        <li>
+                            <span class="idea-action-badge ${h.decisionCssClass}"><c:out value="${h.decisionLabel}"/></span>
+                            <span class="reviews-history-meta">Cycle ${h.cycleNumber} &middot; <c:out value="${h.reviewerName}"/> &middot; ${kcpc:ist(h.decidedAt)}</span>
+                            <c:if test="${not empty h.reason}"><p class="reviews-history-reason"><c:out value="${h.reason}"/></p></c:if>
+                        </li>
+                    </c:forEach>
+                </ul>
+            </details>
+        </c:if>
+    </div>
+</c:if>

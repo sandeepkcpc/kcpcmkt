@@ -1,0 +1,20 @@
+<%-- Shared secondary tab bar for the unified Administration shell (Users / Business Roles /
+     Permissions / Publishing Catalogue) - included by all 4 screens so the tab bar and active-state
+     are always visually identical, matching the same pattern already established for Reports
+     (fragments/reports-tabs.jspf) and Team (ENG-087). Caller sets ${activeAdminTab} (one of
+     "users"/"business-roles"/"permissions"/"catalogue") before including this file.
+
+     Users/Business Roles/Permissions stay CEO_OWNER-only (AdminMvcController#isCeo already gates
+     all three server-side; this only hides the tab, never the only guard) - Publishing Catalogue
+     is shown to anyone who reached this shell at all, since it alone also accepts a delegated
+     PERM_17_PLATFORM_CATALOGUE_MANAGE grant (AdminMvcController#catalogue's own broader check,
+     unchanged). Nothing here decides authorization - the backend re-validates every route
+     unconditionally regardless of which tabs are rendered. --%>
+<div class="admin-tabs">
+    <c:if test="${accessClass == 'CEO_OWNER'}">
+        <a class="admin-tab ${activeAdminTab == 'users' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/admin/users">Users</a>
+        <a class="admin-tab ${activeAdminTab == 'business-roles' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/admin/business-roles">Business Roles</a>
+        <a class="admin-tab ${activeAdminTab == 'permissions' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/admin/permissions">Permissions</a>
+    </c:if>
+    <a class="admin-tab ${activeAdminTab == 'catalogue' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/admin/catalogue">Publishing Catalogue</a>
+</div>

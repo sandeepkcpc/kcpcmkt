@@ -1,0 +1,16 @@
+<%-- ENG-091: resolves ${platformIconSrc} for the platform name in ${platformIconFor}. Same mapping
+     as fragments/pipeline-platform-chip.jspf's own icon lookup (icons are local, full-color brand
+     SVGs under static/icons/platforms/ - no CDN, no emoji); kept as its own small fragment rather
+     than reusing that file directly since the chip fragment also renders a whole popover, which
+     the Publishing Catalogue table cells here don't need. Any platform not in this list falls back
+     to generic.svg - cosmetic only, so a new/unseeded platform still renders. --%>
+<c:choose>
+    <c:when test="${platformIconFor == 'Instagram'}"><c:set var="platformIconFile" value="instagram.svg"/></c:when>
+    <c:when test="${platformIconFor == 'Facebook'}"><c:set var="platformIconFile" value="facebook.svg"/></c:when>
+    <c:when test="${platformIconFor == 'YouTube'}"><c:set var="platformIconFile" value="youtube.svg"/></c:when>
+    <c:when test="${platformIconFor == 'Threads'}"><c:set var="platformIconFile" value="threads.svg"/></c:when>
+    <c:when test="${platformIconFor == 'Moj'}"><c:set var="platformIconFile" value="moj.svg"/></c:when>
+    <c:when test="${platformIconFor == 'TikTok'}"><c:set var="platformIconFile" value="tiktok.svg"/></c:when>
+    <c:otherwise><c:set var="platformIconFile" value="generic.svg"/></c:otherwise>
+</c:choose>
+<c:set var="platformIconSrc" value="${pageContext.request.contextPath}/icons/platforms/${platformIconFile}"/>

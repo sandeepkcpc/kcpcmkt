@@ -1,0 +1,221 @@
+<%-- Manager Reviews Workspace - Planning tab. Caller sets ${queueRows} (List<ReviewPlanItem>),
+     ${q}/${modeFilter}/${priorityFilter}, pagination attrs, ${selectedId}, and when selected:
+     ${selectedItem} (ReviewPlanItem), ${canDecideSelected}/${selfReviewBlocked}, ${reviewHistory}
+     (List<ShootFeedbackEntry>), ${outputCountsByType}/${outputReelTypes}, ${talentEntries},
+     ${shootingAssignments}. Only WorkflowStatus.PLRV plans ever reach this fragment. --%>
+<div class="reviews-body">
+    <div class="reviews-queue">
+        <form method="get" action="${pageContext.request.contextPath}/app/reviews" class="reviews-filters" id="reviewsFilterForm">
+            <input type="hidden" name="tab" value="planning">
+            <div class="filter-field filter-field-search">
+                <label for="rvPlanSearch">Search</label>
+                <input type="text" name="q" id="rvPlanSearch" placeholder="Search by Content ID or title..." value="${fn:escapeXml(q)}">
+            </div>
+            <div class="filter-field">
+                <label for="rvPlanMode">Mode</label>
+                <select name="mode" id="rvPlanMode">
+                    <option value="ALL" ${modeFilter == 'ALL' ? 'selected' : ''}>All Modes</option>
+                    <option value="STANDARD" ${modeFilter == 'STANDARD' ? 'selected' : ''}>Standard</option>
+                    <option value="URGENT" ${modeFilter == 'URGENT' ? 'selected' : ''}>Urgent</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label for="rvPlanPriority">Priority</label>
+                <select name="priority" id="rvPlanPriority">
+                    <option value="ALL" ${priorityFilter == 'ALL' ? 'selected' : ''}>All Priorities</option>
+                    <option value="HIGH" ${priorityFilter == 'HIGH' ? 'selected' : ''}>High</option>
+                    <option value="MEDIUM" ${priorityFilter == 'MEDIUM' ? 'selected' : ''}>Medium</option>
+                    <option value="LOW" ${priorityFilter == 'LOW' ? 'selected' : ''}>Low</option>
+                </select>
+            </div>
+            <a class="btn-outline reviews-clear" href="${pageContext.request.contextPath}/app/reviews?tab=planning">
+                <span aria-hidden="true">&#8635;</span> Clear
+            </a>
+        </form>
+
+        <div class="panel reviews-table-panel">
+            <h2 class="reviews-queue-title">Planning Reviews Pending</h2>
+            <div class="reviews-table-scroll">
+            <table class="data-table reviews-table">
+                <thead>
+                <tr>
+                    <th>Content ID</th><th>Idea</th><th>Mode</th><th>Planned Shoot</th>
+                    <th>Planned Edit</th><th>Planned Live</th><th>Priority</th><th>Action</th>
+                </tr>
+                </thead>
+                <tbody>
+                <c:forEach var="item" items="${queueRows}">
+                    <c:url var="rvRowUrl" value="/app/reviews">
+                        <c:param name="tab" value="planning"/><c:param name="q" value="${q}"/>
+                        <c:param name="mode" value="${modeFilter}"/><c:param name="priority" value="${priorityFilter}"/>
+                        <c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${currentPage}"/>
+                        <c:param name="selectedId" value="${item.plan.id}"/>
+                    </c:url>
+                    <tr class="reviews-row ${item.plan.id == selectedId ? 'reviews-row-active' : ''}" data-row-url="${rvRowUrl}">
+                        <td><a class="idea-id-link reviews-row-link" href="${rvRowUrl}"><c:out value="${item.row.contentId}"/></a></td>
+                        <td class="idea-queue-title-cell" title="${fn:escapeXml(item.row.ideaTitle)}"><c:out value="${item.row.ideaTitle}"/></td>
+                        <td><span class="planning-mode-badge planning-mode-${fn:toLowerCase(item.plan.planningMode)}"><c:out value="${item.plan.planningMode}"/></span></td>
+                        <td>${item.row.plannedShootDate}</td>
+                        <td>${item.row.plannedEditDate}</td>
+                        <td>${item.row.plannedLiveDate}</td>
+                        <td><span class="priority-pill priority-${fn:toLowerCase(item.row.priority)}"><c:out value="${item.row.priority}"/></span></td>
+                        <td><a class="btn-outline reviews-row-link reviews-view-btn" href="${rvRowUrl}" title="View">&#128065;</a></td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty queueRows}">
+                    <tr><td colspan="8" class="muted">No Planning reviews are currently pending.</td></tr>
+                </c:if>
+                </tbody>
+            </table>
+            </div>
+
+            <div class="pagination reviews-pagination">
+                <span>Showing ${fromIndex} to ${toIndex} of ${totalCount}</span>
+                <div class="reviews-page-size">
+                    <select id="rvPlanPageSize" name="pageSize" form="reviewsFilterForm">
+                        <option value="10" ${pageSize == 10 ? 'selected' : ''}>10 per page</option>
+                        <option value="25" ${pageSize == 25 ? 'selected' : ''}>25 per page</option>
+                        <option value="50" ${pageSize == 50 ? 'selected' : ''}>50 per page</option>
+                    </select>
+                </div>
+                <div class="pagination-controls">
+                    <c:choose>
+                        <c:when test="${currentPage > 1}">
+                            <c:url var="rvPrevUrl" value="/app/reviews">
+                                <c:param name="tab" value="planning"/><c:param name="q" value="${q}"/>
+                                <c:param name="mode" value="${modeFilter}"/><c:param name="priority" value="${priorityFilter}"/>
+                                <c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${currentPage - 1}"/>
+                            </c:url>
+                            <a href="${rvPrevUrl}">&#8249;</a>
+                        </c:when>
+                        <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+                    </c:choose>
+                    <c:forEach begin="1" end="${totalPages}" var="p">
+                        <c:choose>
+                            <c:when test="${p == currentPage}"><span class="page-current">${p}</span></c:when>
+                            <c:otherwise>
+                                <c:url var="rvPageUrl" value="/app/reviews">
+                                    <c:param name="tab" value="planning"/><c:param name="q" value="${q}"/>
+                                    <c:param name="mode" value="${modeFilter}"/><c:param name="priority" value="${priorityFilter}"/>
+                                    <c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${p}"/>
+                                </c:url>
+                                <a href="${rvPageUrl}">${p}</a>
+                            </c:otherwise>
+                        </c:choose>
+                    </c:forEach>
+                    <c:choose>
+                        <c:when test="${currentPage < totalPages}">
+                            <c:url var="rvNextUrl" value="/app/reviews">
+                                <c:param name="tab" value="planning"/><c:param name="q" value="${q}"/>
+                                <c:param name="mode" value="${modeFilter}"/><c:param name="priority" value="${priorityFilter}"/>
+                                <c:param name="pageSize" value="${pageSize}"/><c:param name="page" value="${currentPage + 1}"/>
+                            </c:url>
+                            <a href="${rvNextUrl}">&#8250;</a>
+                        </c:when>
+                        <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+                    </c:choose>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="reviews-detail">
+        <c:choose>
+            <c:when test="${empty selectedItem}">
+                <div class="panel reviews-detail-empty"><p class="muted">No item selected. Choose a row from the queue to review it.</p></div>
+            </c:when>
+            <c:otherwise>
+                <c:set var="plan" value="${selectedItem.plan}"/>
+                <c:set var="row" value="${selectedItem.row}"/>
+                <div class="panel reviews-detail-card" id="reviewsDetailCard" data-review-type="planning" data-review-id="${plan.id}">
+                    <div class="reviews-detail-head">
+                        <h2 class="reviews-detail-title">Planning Review &mdash; <c:out value="${row.contentId}"/></h2>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Basic Planning</h3>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Idea / Content Title</span><span class="reviews-field-value"><c:out value="${row.ideaTitle}"/></span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planning Mode</span><span class="reviews-field-value"><span class="planning-mode-badge planning-mode-${fn:toLowerCase(plan.planningMode)}"><c:out value="${plan.planningMode}"/></span></span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Urgency Reason</span><span class="reviews-field-value">${empty plan.urgencyReason ? '&mdash;' : plan.urgencyReason}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '&mdash;' : row.priority}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">SKU Reference</span><span class="reviews-field-value">${empty row.sku ? '&mdash;' : row.sku}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Category</span><span class="reviews-field-value">${empty row.category ? '&mdash;' : row.category}</span></div>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Planned Dates</h3>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Shoot Date</span><span class="reviews-field-value">${empty row.plannedShootDate ? '&mdash;' : row.plannedShootDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Edit Date</span><span class="reviews-field-value">${empty row.plannedEditDate ? '&mdash;' : row.plannedEditDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Live Date</span><span class="reviews-field-value">${empty row.plannedLiveDate ? '&mdash;' : row.plannedLiveDate}</span></div>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Planned Outputs</h3>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Outputs</span><span class="reviews-field-value">
+                            <c:forEach var="oc" items="${outputCountsByType}" varStatus="ocs">${oc.value} <c:out value="${oc.key}"/><c:if test="${!ocs.last}">, </c:if></c:forEach>
+                            <c:if test="${empty outputCountsByType}"><span class="muted">&mdash;</span></c:if>
+                        </span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Reel Type</span><span class="reviews-field-value">
+                            <c:forEach var="rt" items="${outputReelTypes}" varStatus="rts"><c:out value="${rt}"/><c:if test="${!rts.last}">, </c:if></c:forEach>
+                            <c:if test="${empty outputReelTypes}"><span class="muted">&mdash;</span></c:if>
+                        </span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Channels</span><span class="reviews-field-value">${empty row.channels ? '&mdash;' : row.channels}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Platforms</span><span class="reviews-field-value">${empty row.platforms ? '&mdash;' : row.platforms}</span></div>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">People</h3>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Model(s)</span><span class="reviews-field-value">
+                            <c:forEach var="t" items="${talentEntries}" varStatus="ts"><c:out value="${t.talentName}"/><c:if test="${!ts.last}">, </c:if></c:forEach>
+                            <c:if test="${empty talentEntries}"><span class="muted">&mdash;</span></c:if>
+                        </span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Cameraperson(s)</span><span class="reviews-field-value">${empty row.cameraPersons ? '&mdash;' : row.cameraPersons}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Shoot Lead</span><span class="reviews-field-value">
+                            <c:set var="planLead" value=""/>
+                            <c:forEach var="a" items="${shootingAssignments}"><c:if test="${a.lead}"><c:set var="planLead" value="${a.cameraperson.fullName}"/></c:if></c:forEach>
+                            <c:out value="${empty planLead ? '&mdash;' : planLead}"/>
+                        </span></div>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Shoot Instructions</h3>
+                        <p class="reviews-freetext">${empty plan.shootDescription ? '&mdash;' : plan.shootDescription}</p>
+                    </div>
+
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Drive</h3>
+                        <c:choose>
+                            <c:when test="${not empty row.driveLink}"><a href="${fn:escapeXml(row.driveLink)}" target="_blank" rel="noopener noreferrer">Open Drive Link &#8599;</a></c:when>
+                            <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                        </c:choose>
+                    </div>
+
+                    <%@ include file="reviews-history-block.jspf" %>
+
+                    <c:choose>
+                        <c:when test="${canDecideSelected}">
+                            <div class="reviews-detail-section reviews-decision-section">
+                                <div class="reviews-plan-decision-buttons">
+                                    <button type="button" class="reviews-decision-btn reviews-decision-rework" data-approve="false">&#8635; Request Rework</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-approve="true">&#10003; Approve Planning</button>
+                                </div>
+                                <label id="reviewsPlanReasonLabel" for="reviewsPlanReason">Reviewer Comments (optional; mandatory for Request Rework)</label>
+                                <textarea id="reviewsPlanReason" rows="3" maxlength="500" placeholder="Add comments for the planning team..."></textarea>
+                                <div class="idea-detail-reason-counter-row"><span class="char-counter" data-counter-for="reviewsPlanReason">0 / 500</span></div>
+                                <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
+                            </div>
+                        </c:when>
+                        <c:otherwise>
+                            <p class="note-box">
+                                <c:choose>
+                                    <c:when test="${selfReviewBlocked}">You prepared this plan &mdash; the decision block is disabled.</c:when>
+                                    <c:otherwise>You do not hold Planning Review authority.</c:otherwise>
+                                </c:choose>
+                            </p>
+                        </c:otherwise>
+                    </c:choose>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+</div>
