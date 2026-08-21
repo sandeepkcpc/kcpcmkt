@@ -82,9 +82,15 @@ class PlannedOutputsTableTest {
         assertThat(body).contains("target-platform\">Instagram");
         assertThat(body).contains("target-platform\">YouTube");
         assertThat(body).contains("target-platform\">Facebook");
-        assertThat(body).contains("class=\"channel-chip\"").contains(">kcpcbandhani");
-        // No redundant "(1)" counts or Platform/Channel columns - one row per Platform instead.
-        assertThat(body).doesNotContain("Instagram (1)", "target-group-label", "targets-summary");
+        assertThat(body).contains("class=\"channel-chip\"").contains("data-channel-handle=\"kcpcbandhani\"");
+        // No redundant "(1)" counts or Platform/Channel columns within the Planned Outputs table's
+        // own target-list block specifically - one row per Platform instead. Scoped to that block
+        // (not the whole page body) since ENG-082 added an unrelated "PlatformName (N)" summary cell
+        // to the page's own top summary bar, which legitimately contains this exact substring.
+        int targetListStart = body.indexOf("class=\"target-list\"");
+        int targetListEnd = body.indexOf("</td>", targetListStart);
+        String targetListBlock = body.substring(targetListStart, targetListEnd);
+        assertThat(targetListBlock).doesNotContain("Instagram (1)", "target-group-label", "targets-summary");
     }
 
     @Test

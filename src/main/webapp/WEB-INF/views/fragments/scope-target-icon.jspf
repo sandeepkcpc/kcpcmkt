@@ -1,0 +1,16 @@
+<%-- Publishing Scope verification/read-only tables: caller sets ${cdTargetPlatform} (a platform
+     name string) via <c:set> immediately before including this file. Sets ${cdTargetIconSrc} to
+     the matching local icon under /icons/platforms/ (same file set/fallback convention as
+     fragments/pipeline-platform-chip.jspf, ENG-076) - kept as its own small fragment since this
+     call site renders one icon per individual target chip rather than one per aggregated
+     PipelinePlatformSummary. --%>
+<c:choose>
+    <c:when test="${cdTargetPlatform == 'Instagram'}"><c:set var="cdTargetIconFile" value="instagram.svg"/></c:when>
+    <c:when test="${cdTargetPlatform == 'Facebook'}"><c:set var="cdTargetIconFile" value="facebook.svg"/></c:when>
+    <c:when test="${cdTargetPlatform == 'YouTube'}"><c:set var="cdTargetIconFile" value="youtube.svg"/></c:when>
+    <c:when test="${cdTargetPlatform == 'Threads'}"><c:set var="cdTargetIconFile" value="threads.svg"/></c:when>
+    <c:when test="${cdTargetPlatform == 'Moj'}"><c:set var="cdTargetIconFile" value="moj.svg"/></c:when>
+    <c:when test="${cdTargetPlatform == 'TikTok'}"><c:set var="cdTargetIconFile" value="tiktok.svg"/></c:when>
+    <c:otherwise><c:set var="cdTargetIconFile" value="generic.svg"/></c:otherwise>
+</c:choose>
+<c:set var="cdTargetIconSrc" value="${pageContext.request.contextPath}/icons/platforms/${cdTargetIconFile}"/>

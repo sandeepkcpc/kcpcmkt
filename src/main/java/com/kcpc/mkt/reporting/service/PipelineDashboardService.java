@@ -12,10 +12,15 @@ import com.kcpc.mkt.production.domain.EditingAssignment;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
+import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
+import com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
+import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
+import com.kcpc.mkt.reporting.dto.PipelineChannelStatus;
 import com.kcpc.mkt.reporting.dto.PipelineFilterCriteria;
+import com.kcpc.mkt.reporting.dto.PipelinePlatformSummary;
 import com.kcpc.mkt.reporting.dto.PipelineRow;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
@@ -31,6 +36,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -51,6 +57,7 @@ public class PipelineDashboardService {
     private final PlannedOutputRepository plannedOutputRepository;
     private final PlannedOutputPublicationTargetMappingRepository mappingRepository;
     private final ActualPublicationEventRepository actualPublicationEventRepository;
+    private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
     private final ReviewCycleRepository reviewCycleRepository;
 
     public PipelineDashboardService(ShootingAssignmentRepository shootingAssignmentRepository,
@@ -59,6 +66,7 @@ public class PipelineDashboardService {
                                      PlannedOutputRepository plannedOutputRepository,
                                      PlannedOutputPublicationTargetMappingRepository mappingRepository,
                                      ActualPublicationEventRepository actualPublicationEventRepository,
+                                     PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                                      ReviewCycleRepository reviewCycleRepository) {
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -66,6 +74,7 @@ public class PipelineDashboardService {
         this.plannedOutputRepository = plannedOutputRepository;
         this.mappingRepository = mappingRepository;
         this.actualPublicationEventRepository = actualPublicationEventRepository;
+        this.evidenceCorrectionRepository = evidenceCorrectionRepository;
         this.reviewCycleRepository = reviewCycleRepository;
     }
 
@@ -103,17 +112,40 @@ public class PipelineDashboardService {
             }
         }
 
+        List<ActualPublicationEvent> originalEvents = actualPublicationEventRepository.findByContentPlan_IdIn(planIds)
+                .stream().filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
+
         // Actual Live Date: earliest ORIGINAL-type publication event per plan ("when it first
         // went live") - the one defensible single value across a Content ID's potentially many
         // events/targets (see docs/changes/CEO_CONTENT_PIPELINE_18_COLUMN_CHANGE.md).
-        Map<UUID, LocalDate> actualLiveDateByPlan = actualPublicationEventRepository
-                .findByContentPlan_IdIn(planIds).stream()
-                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL)
+        Map<UUID, LocalDate> actualLiveDateByPlan = originalEvents.stream()
                 .collect(Collectors.groupingBy(e -> e.getContentPlan().getId(),
                         Collectors.collectingAndThen(
                                 Collectors.minBy(Comparator.comparing(ActualPublicationEvent::getActualPublicationTimestamp)),
                                 earliest -> earliest.map(e -> LocalDate.ofInstant(e.getActualPublicationTimestamp(), BUSINESS_ZONE))
                                         .orElse(null))));
+
+        // ENG-075: Platforms column icon+popover - per (plan, Publication Target), the single
+        // representative ORIGINAL event (latest by timestamp, in the rare case the same channel
+        // was mapped from more than one Planned Output and each got its own event) and its CURRENT
+        // effective Evidence URL (the latest PublicationEvidenceCorrection if one exists, else the
+        // event's own URL) - never a planned-only mapping treated as published.
+        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByPlanAndTarget = new HashMap<>();
+        for (ActualPublicationEvent e : originalEvents) {
+            latestEventByPlanAndTarget
+                    .computeIfAbsent(e.getContentPlan().getId(), k -> new HashMap<>())
+                    .merge(e.getPublicationTarget().getId(), e,
+                            (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
+        }
+        Set<UUID> representativeEventIds = latestEventByPlanAndTarget.values().stream()
+                .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId).collect(Collectors.toSet());
+        Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId = new HashMap<>();
+        if (!representativeEventIds.isEmpty()) {
+            for (PublicationEvidenceCorrection corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
+                latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
+                        (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
+            }
+        }
 
         // Actual Shoot/Edit Date: the date the Shoot/Edit Review gate was APPROVED - "when the
         // stage was actually completed and signed off", batch-loaded across every plan's workflow
@@ -143,14 +175,18 @@ public class PipelineDashboardService {
                     mappingsByPlan.getOrDefault(planId, List.of()),
                     actualShootDateByWorkflowInstance.get(workflowInstanceId),
                     actualEditDateByWorkflowInstance.get(workflowInstanceId),
-                    actualLiveDateByPlan.get(planId)));
+                    actualLiveDateByPlan.get(planId),
+                    latestEventByPlanAndTarget.getOrDefault(planId, Map.of()),
+                    latestCorrectionByEventId));
         }
         return rows;
     }
 
     private PipelineRow buildRow(ContentPlan plan, List<User> camerapersons, List<User> editors,
                                   List<String> talent, List<PlannedOutputPublicationTargetMapping> mappings,
-                                  LocalDate actualShootDate, LocalDate actualEditDate, LocalDate actualLiveDate) {
+                                  LocalDate actualShootDate, LocalDate actualEditDate, LocalDate actualLiveDate,
+                                  Map<UUID, ActualPublicationEvent> latestEventByTarget,
+                                  Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId) {
         String sku = plan.isSkuNotApplicable() ? "N/A" : blankToDash(plan.getSkuReference());
         String category = blankToDash(plan.getCategoryText());
         String referenceLink = plan.getIdea().getReferenceLink();
@@ -183,13 +219,65 @@ public class PipelineDashboardService {
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
         Integer delayDays = delayDays(status, plan, today);
 
+        List<PipelinePlatformSummary> platformSummaries = buildPlatformSummaries(mappings, latestEventByTarget,
+                latestCorrectionByEventId);
+
         return new PipelineRow(plan.getId(), plan.getContentId(), sku, plan.getIdea().getTitle(), referenceLink,
                 referenceLinkIsUrl, category, blankToDash(channels), actor, blankToDash(cameraPersonNames),
                 blankToDash(modelNames), blankToDash(editorNames), plan.getFolderLink(), plan.getPlannedShootDate(),
                 plan.getPlannedEditDate(), plan.getPlannedLiveDate(), dateToDash(actualShootDate),
                 dateToDash(actualEditDate), dateToDash(actualLiveDate), blankToDash(platforms),
                 performanceState, performanceLinkEligible, status.getStatusName(), priority,
-                delayDays != null, delayDays);
+                delayDays != null, delayDays, platformSummaries);
+    }
+
+    /**
+     * ENG-075: groups this plan's distinct planned (Platform, Channel) pairs (deduplicated by
+     * Publication Target id, since the same target can be mapped from more than one Planned
+     * Output) by Platform, resolving each Channel's real publication status from the already
+     * batch-loaded representative-event/correction maps. A channel is "published" only when a real
+     * ORIGINAL event exists AND its effective Evidence URL is non-blank - a planned-only mapping
+     * with no event is always "not published", never inferred otherwise.
+     * ENG-082: {@code public static} (was {@code private}) so {@code DeliverableMvcController} can
+     * reuse this exact same plan-scoped transform for the Content Detail Publishing tab's
+     * Platform×Channel chips, instead of re-deriving the "which channel is published, using the
+     * correction-resolved effective Evidence URL" rule a second time. Takes zero repository
+     * dependencies and does zero DB access itself either way - callers do their own batch-loading
+     * of {@code mappings}/{@code latestEventByTarget}/{@code latestCorrectionByEventId} first
+     * (see {@link #buildRows} for the multi-plan batch form; a single-plan caller just scopes the
+     * same three queries to one plan instead of many).
+     */
+    public static List<PipelinePlatformSummary> buildPlatformSummaries(List<PlannedOutputPublicationTargetMapping> mappings,
+                                                                   Map<UUID, ActualPublicationEvent> latestEventByTarget,
+                                                                   Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId) {
+        Map<String, Map<UUID, PublicationTarget>> targetsByPlatform = new java.util.LinkedHashMap<>();
+        for (PlannedOutputPublicationTargetMapping m : mappings) {
+            PublicationTarget target = m.getPublicationTarget();
+            targetsByPlatform.computeIfAbsent(target.getPlatform().getPlatformName(), k -> new java.util.LinkedHashMap<>())
+                    .putIfAbsent(target.getId(), target);
+        }
+
+        List<PipelinePlatformSummary> summaries = new ArrayList<>();
+        for (var entry : targetsByPlatform.entrySet()) {
+            List<PipelineChannelStatus> channelStatuses = new ArrayList<>();
+            int publishedCount = 0;
+            for (PublicationTarget target : entry.getValue().values()) {
+                ActualPublicationEvent event = latestEventByTarget.get(target.getId());
+                String effectiveUrl = null;
+                if (event != null) {
+                    PublicationEvidenceCorrection latestCorrection = latestCorrectionByEventId.get(event.getId());
+                    effectiveUrl = latestCorrection != null ? latestCorrection.getCorrectedEvidenceUrl() : event.getEvidenceUrl();
+                }
+                boolean published = effectiveUrl != null && !effectiveUrl.isBlank();
+                if (published) {
+                    publishedCount++;
+                }
+                channelStatuses.add(new PipelineChannelStatus(target.getChannel().getChannelHandle(), published,
+                        published ? effectiveUrl : null));
+            }
+            summaries.add(new PipelinePlatformSummary(entry.getKey(), channelStatuses.size(), publishedCount, channelStatuses));
+        }
+        return summaries;
     }
 
     /**
@@ -201,7 +289,14 @@ public class PipelineDashboardService {
      * just evaluated here at the whole-plan level for the management dashboard. Planning/terminal/
      * already-resolved statuses have no single applicable Planned date and are never flagged.
      */
-    private Integer delayDays(WorkflowStatus status, ContentPlan plan, LocalDate today) {
+    /**
+     * ENG-087: {@code public static} (was {@code private}) - same reasoning as
+     * {@link #buildPlatformSummaries}: a pure transform (no repository dependency, no DB access),
+     * reused verbatim by the Team Workload dashboard's Assignee Load "Delayed Tasks" column rather
+     * than re-deriving the "planned date for this stage vs today" rule a fourth time (Pipeline row
+     * delay, My Work delay, Team Workload's old native-SQL delay CASE, and this).
+     */
+    public static Integer delayDays(WorkflowStatus status, ContentPlan plan, LocalDate today) {
         LocalDate relevantPlannedDate = switch (status) {
             case SA, SIP, SRV -> plan.getPlannedShootDate();
             case EA, ED, ERV -> plan.getPlannedEditDate();
@@ -251,10 +346,13 @@ public class PipelineDashboardService {
         if (notBlank(c.search())) {
             String q = c.search().trim().toLowerCase();
             String haystack = (nullToEmpty(row.getContentId()) + " " + nullToEmpty(row.getSku()) + " "
-                    + nullToEmpty(row.getIdeaTitle())).toLowerCase();
+                    + nullToEmpty(row.getIdeaTitle()) + " " + nullToEmpty(row.getCategory())).toLowerCase();
             if (!haystack.contains(q)) {
                 return false;
             }
+        }
+        if (notBlank(c.stage()) && !"all".equalsIgnoreCase(c.stage()) && !matchesStage(row, c.stage())) {
+            return false;
         }
         if (notBlank(c.sku()) && !containsIgnoreCase(row.getSku(), c.sku())) {
             return false;
@@ -337,6 +435,28 @@ public class PipelineDashboardService {
         }
     }
 
+    // ENG-073: Stage filter tabs - coarse groupings of the row's own friendly status text
+    // (WorkflowStatus.getStatusName(), already on every PipelineRow), never a new backend status.
+    // "attention" reuses the existing delay computation (ENG-069) rather than any status text.
+    private static final java.util.Set<String> STAGE_PLANNING = java.util.Set.of("Planning", "Planning Review", "Planning Approved");
+    private static final java.util.Set<String> STAGE_SHOOT = java.util.Set.of("Shoot Assigned", "Shoot In Progress", "Shoot Review", "Shoot Approved");
+    private static final java.util.Set<String> STAGE_EDIT = java.util.Set.of("Edit Assigned", "Editing", "Edit Review", "Edit Approved");
+    private static final java.util.Set<String> STAGE_PUBLISHING = java.util.Set.of("Ready for Publishing", "Publishing");
+    private static final java.util.Set<String> STAGE_PERFORMANCE = java.util.Set.of("Performance Pending", "Performance Update");
+
+    private boolean matchesStage(PipelineRow row, String stage) {
+        return switch (stage.toLowerCase()) {
+            case "attention" -> row.isDelayed();
+            case "planning" -> STAGE_PLANNING.contains(row.getStatus());
+            case "shoot" -> STAGE_SHOOT.contains(row.getStatus());
+            case "edit" -> STAGE_EDIT.contains(row.getStatus());
+            case "publishing" -> STAGE_PUBLISHING.contains(row.getStatus());
+            case "performance" -> STAGE_PERFORMANCE.contains(row.getStatus());
+            case "completed" -> "Completed".equals(row.getStatus());
+            default -> true;
+        };
+    }
+
     private boolean containsIgnoreCase(String haystack, String needle) {
         return haystack != null && haystack.toLowerCase().contains(needle.trim().toLowerCase());
     }
@@ -369,6 +489,15 @@ public class PipelineDashboardService {
             case "actualEditDate" -> Comparator.comparing(PipelineRow::getActualEditDate, Comparator.nullsLast(Comparator.naturalOrder()));
             case "actualLiveDate" -> Comparator.comparing(PipelineRow::getActualLiveDate, Comparator.nullsLast(Comparator.naturalOrder()));
             case "status" -> Comparator.comparing(PipelineRow::getStatus, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "referenceLink" -> Comparator.comparing(PipelineRow::getReferenceLink, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "category" -> Comparator.comparing(PipelineRow::getCategory, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "channels" -> Comparator.comparing(PipelineRow::getChannels, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "actor" -> Comparator.comparing(PipelineRow::getActor, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "cameraPersons" -> Comparator.comparing(PipelineRow::getCameraPersons, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "models" -> Comparator.comparing(PipelineRow::getModels, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "videoEditors" -> Comparator.comparing(PipelineRow::getVideoEditors, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "platforms" -> Comparator.comparing(PipelineRow::getPlatforms, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "performanceState" -> Comparator.comparing(PipelineRow::getPerformanceState, Comparator.nullsLast(Comparator.naturalOrder()));
             default -> null;
         };
     }

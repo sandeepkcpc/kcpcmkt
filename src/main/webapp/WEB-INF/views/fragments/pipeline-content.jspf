@@ -1,0 +1,268 @@
+<%@ page pageEncoding="UTF-8" %>
+<%-- Jasper does not reliably inherit pageEncoding from the including page for statically-included
+     fragments containing non-ASCII literals (e.g. the em dash below) - declare it here too so this
+     fragment's own bytes are parsed as UTF-8 regardless of which page includes it. --%>
+<%-- ENG-081: the Content Pipeline's whole dynamic region (stage tabs through the footer note) -
+     everything that changes when filters/sort/stage/pagination change. Included by pipeline.jsp
+     (full page, wrapped in #pipelineDynamicRegion) for a normal/no-JS navigation, and rendered
+     standalone by pipeline-content.jsp (no <html>/<head>/nav) for pipeline-dashboard.js's fetch()
+     calls, which just drop the raw response into #pipelineDynamicRegion's innerHTML - so this file
+     must stay a complete, self-contained region with no dependency on anything outside it other
+     than the model attributes LandingMvcController#pipeline already provides either way. --%>
+<%-- ENG-073: Stage filter tabs - the at-a-glance summary (replacing the earlier standalone KPI
+     cards), each a coarse status-group quick filter. Preserves every other active filter via
+     ${filterQueryString}; only "stage" itself changes per tab. --%>
+<div class="pipeline-stage-tabs">
+    <a class="pipeline-stage-tab ${stageParam == 'all' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=all&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#9635;</span> All <span class="pipeline-stage-count">${allCount}</span>
+    </a>
+    <a class="pipeline-stage-tab attention ${stageParam == 'attention' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=attention&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#9888;</span> Needs Attention <span class="pipeline-stage-count">${attentionDelayedCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'planning' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=planning&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#128203;</span> Planning <span class="pipeline-stage-count">${planningCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=shoot&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#128247;</span> Shoot <span class="pipeline-stage-count">${shootCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=edit&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#9986;</span> Edit <span class="pipeline-stage-count">${editCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'publishing' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=publishing&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#128228;</span> Publishing <span class="pipeline-stage-count">${publishingCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'performance' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=performance&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#128202;</span> Performance <span class="pipeline-stage-count">${performanceCount}</span>
+    </a>
+    <a class="pipeline-stage-tab ${stageParam == 'completed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=completed&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#9989;</span> Completed <span class="pipeline-stage-count">${completedCount}</span>
+    </a>
+</div>
+
+<%-- ENG-073: one shared GET form spans the compact filter bar through the end of the table.
+     ENG-081: pipeline-dashboard.js intercepts this form's submit (and the Clear/sort/pagination/
+     stage-tab links and the per-page select below) via fetch() and swaps #pipelineDynamicRegion's
+     innerHTML instead of letting the browser navigate - this markup is untouched from the plain
+     server-rendered GET form/link version, which is what still runs as-is with JS disabled. --%>
+<form method="get" action="${pageContext.request.contextPath}/app/pipeline" id="pipelineFilterForm">
+    <input type="hidden" name="stage" value="${stageParam}">
+    <input type="hidden" name="page" value="1">
+    <input type="hidden" name="size" value="${pipelineSize}">
+    <input type="hidden" name="sortBy" value="${sortByParam}">
+    <input type="hidden" name="sortDir" value="${sortDirParam}">
+
+    <div class="pipeline-filter-bar">
+        <div class="pipeline-search-field">
+            <input type="text" name="q" value="${fn:escapeXml(qParam)}" placeholder="Search Content ID, SKU, Idea, Category...">
+            <span class="pipeline-search-icon">&#128269;</span>
+        </div>
+        <label class="pipeline-filter-inline">Priority
+            <select name="priority">
+                <option value="">All</option>
+                <option value="HIGH" ${priorityParam == 'HIGH' ? 'selected' : ''}>High</option>
+                <option value="MEDIUM" ${priorityParam == 'MEDIUM' ? 'selected' : ''}>Medium</option>
+                <option value="LOW" ${priorityParam == 'LOW' ? 'selected' : ''}>Low</option>
+            </select>
+        </label>
+        <label class="pipeline-filter-inline">Platform
+            <select name="platform">
+                <option value="">All Platforms</option>
+                <c:forEach var="p" items="${platformOptions}">
+                    <option value="${p}" ${platformParam == p ? 'selected' : ''}><c:out value="${p}"/></option>
+                </c:forEach>
+            </select>
+        </label>
+        <label class="pipeline-filter-inline pipeline-date-range">Date Range
+            <span class="pipeline-date-range-inputs">
+                <input type="date" name="plannedLiveFrom" value="${plannedLiveFromParam}" aria-label="Date range from">
+                <span>&rarr;</span>
+                <input type="date" name="plannedLiveTo" value="${plannedLiveToParam}" aria-label="Date range to">
+            </span>
+        </label>
+        <label class="pipeline-filter-checkbox">
+            <input type="checkbox" name="delayed" value="true" ${delayedParam ? 'checked' : ''}>
+            Delayed only
+        </label>
+        <button type="submit" class="btn-primary">&#9881; Apply Filters</button>
+        <a class="btn-outline" href="${pageContext.request.contextPath}/app/pipeline">Clear</a>
+    </div>
+
+    <div class="pipeline-scroll">
+        <table class="pipeline-table" id="pipelineTable">
+            <thead>
+            <tr class="pipeline-col-row">
+                <c:set var="sortField" value="contentId"/><c:set var="sortLabel" value="Content ID"/>
+                <th class="pipeline-col-id" data-col="contentId"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <th class="pipeline-col-sku" data-col="sku">SKU</th>
+                <th data-col="idea">Idea</th>
+                <th data-col="referenceLink">Reference Link / Note</th>
+                <th data-col="category">Category</th>
+                <th data-col="channels">Channels</th>
+                <th data-col="actor">Head</th>
+                <th data-col="cameraPersons">Camera Person</th>
+                <th data-col="models">Models</th>
+                <th data-col="videoEditors">Video Editor</th>
+                <th data-col="driveLink">Drive Link</th>
+                <c:set var="sortField" value="plannedShootDate"/><c:set var="sortLabel" value="Planned Shoot Date"/>
+                <th data-col="plannedShootDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <c:set var="sortField" value="plannedEditDate"/><c:set var="sortLabel" value="Planned Edit Date"/>
+                <th data-col="plannedEditDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <c:set var="sortField" value="plannedLiveDate"/><c:set var="sortLabel" value="Planned Live Date"/>
+                <th data-col="plannedLiveDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <c:set var="sortField" value="actualShootDate"/><c:set var="sortLabel" value="Actual Shoot Date"/>
+                <th data-col="actualShootDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <c:set var="sortField" value="actualEditDate"/><c:set var="sortLabel" value="Actual Edit Date"/>
+                <th data-col="actualEditDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <c:set var="sortField" value="actualLiveDate"/><c:set var="sortLabel" value="Actual Live Date"/>
+                <th data-col="actualLiveDate"><%@ include file="pipeline-sort-header.jspf" %></th>
+                <th data-col="platforms">Platforms</th>
+                <th data-col="performance">Performance</th>
+                <th class="pipeline-col-status" data-col="status">Status</th>
+            </tr>
+            </thead>
+            <tbody>
+            <c:forEach var="row" items="${pipelineRows}">
+                <tr>
+                    <td class="pipeline-col-id" data-col="contentId">
+                        <a href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}">${row.contentId}</a>
+                    </td>
+                    <td class="pipeline-col-sku" data-col="sku">${row.sku}</td>
+                    <td class="pipeline-col-wrap" data-col="idea" title="${row.ideaTitle}">${row.ideaTitle}</td>
+                    <td class="pipeline-col-wrap" data-col="referenceLink">
+                        <c:choose>
+                            <c:when test="${row.referenceLinkIsUrl}">
+                                <a href="${row.referenceLink}" target="_blank" rel="noopener noreferrer" title="${row.referenceLink}">${row.referenceLink}</a>
+                            </c:when>
+                            <c:when test="${not empty row.referenceLink}"><span title="${row.referenceLink}">${row.referenceLink}</span></c:when>
+                            <c:otherwise><span class="muted">—</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td data-col="category" title="${row.category}">${row.category}</td>
+                    <td class="pipeline-col-wrap" data-col="channels" title="${row.channels}">${row.channels}</td>
+                    <td data-col="actor" title="${row.actor}">${row.actor}</td>
+                    <td class="pipeline-col-wrap" data-col="cameraPersons" title="${row.cameraPersons}">${row.cameraPersons}</td>
+                    <td class="pipeline-col-wrap" data-col="models" title="${row.models}">${row.models}</td>
+                    <td class="pipeline-col-wrap" data-col="videoEditors" title="${row.videoEditors}">${row.videoEditors}</td>
+                    <td data-col="driveLink">
+                        <c:choose>
+                            <c:when test="${not empty row.driveLink}">
+                                <a class="pipeline-link-icon" href="${row.driveLink}" target="_blank" rel="noopener noreferrer"
+                                   title="Open Drive Link" aria-label="Open Drive Link">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                    </svg>
+                                </a>
+                            </c:when>
+                            <c:otherwise><span class="pipeline-link-muted" title="No Drive Link set">—</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td data-col="plannedShootDate">${empty row.plannedShootDate ? '—' : row.plannedShootDate}</td>
+                    <td data-col="plannedEditDate">${empty row.plannedEditDate ? '—' : row.plannedEditDate}</td>
+                    <td data-col="plannedLiveDate">${empty row.plannedLiveDate ? '—' : row.plannedLiveDate}</td>
+                    <td data-col="actualShootDate">${row.actualShootDate}</td>
+                    <td data-col="actualEditDate">${row.actualEditDate}</td>
+                    <td data-col="actualLiveDate">${row.actualLiveDate}</td>
+                    <td class="pipeline-col-wrap" data-col="platforms">
+                        <div class="pipeline-platform-chips">
+                            <c:forEach var="summary" items="${row.platformSummaries}" varStatus="ps">
+                                <c:set var="popoverId" value="platform-popover-${row.contentPlanId}-${ps.index}"/>
+                                <%@ include file="pipeline-platform-chip.jspf" %>
+                            </c:forEach>
+                            <c:if test="${empty row.platformSummaries}"><span class="pipeline-team-empty">—</span></c:if>
+                        </div>
+                    </td>
+                    <td data-col="performance">
+                        <c:choose>
+                            <c:when test="${row.performanceLinkEligible}">
+                                <a class="performance-cell clickable"
+                                   href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}#performance">${row.performanceState == 'Pending' ? 'Pending' : row.performanceState}</a>
+                            </c:when>
+                            <c:otherwise><span class="muted">—</span></c:otherwise>
+                        </c:choose>
+                    </td>
+                    <td class="pipeline-col-status" data-col="status">
+                        <div class="pipeline-status-cell">
+                            <c:choose>
+                                <c:when test="${row.status == 'Planning' or row.status == 'Planning Review' or row.status == 'Planning Approved'}">
+                                    <span class="pipeline-status-badge stage-planning"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Shoot Assigned' or row.status == 'Shoot In Progress' or row.status == 'Shoot Review' or row.status == 'Shoot Approved'}">
+                                    <span class="pipeline-status-badge stage-shoot"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Edit Assigned' or row.status == 'Editing' or row.status == 'Edit Review' or row.status == 'Edit Approved'}">
+                                    <span class="pipeline-status-badge stage-edit"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Ready for Publishing' or row.status == 'Publishing'}">
+                                    <span class="pipeline-status-badge stage-publishing"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Performance Pending' or row.status == 'Performance Update'}">
+                                    <span class="pipeline-status-badge stage-performance"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Completed'}">
+                                    <span class="pipeline-status-badge stage-completed"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:when test="${row.status == 'Cancelled'}">
+                                    <span class="pipeline-status-badge stage-cancelled"><c:out value="${row.status}"/></span>
+                                </c:when>
+                                <c:otherwise>
+                                    <span class="pipeline-status-badge stage-planning"><c:out value="${row.status}"/></span>
+                                </c:otherwise>
+                            </c:choose>
+                            <c:if test="${row.delayed}">
+                                <span class="pipeline-status-badge stage-delayed">Delayed &middot; ${row.delayDays} day<c:if test="${row.delayDays != 1}">s</c:if></span>
+                            </c:if>
+                        </div>
+                    </td>
+                </tr>
+            </c:forEach>
+            <c:if test="${empty pipelineRows}"><tr><td colspan="20" class="muted">No deliverables yet.</td></tr></c:if>
+            </tbody>
+        </table>
+    </div>
+</form>
+
+<div class="pagination pipeline-pagination">
+    <div class="pipeline-per-page">
+        <span>
+            <c:choose>
+                <c:when test="${pipelineTotalCount == 0}">Showing 0 of 0 entries</c:when>
+                <c:otherwise>Showing ${pipelineFromIndex} to ${pipelineToIndex} of ${pipelineTotalCount} entries</c:otherwise>
+            </c:choose>
+        </span>
+        <%-- ENG-081: the base URL (everything except the page-size value itself) is still built
+             server-side, same as every other link on this page - data-base-url just hands that
+             already-complete string to pipeline-dashboard.js so it only ever concatenates
+             `this.value` onto it, never reconstructs the query string itself. --%>
+        <select id="pipelinePerPage" aria-label="Rows per page"
+                data-base-url="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=${stageParam}&sortBy=${sortByParam}&sortDir=${sortDirParam}&page=1&size=">
+            <option value="10" ${pipelineSize == 10 ? 'selected' : ''}>10 per page</option>
+            <option value="25" ${pipelineSize == 25 ? 'selected' : ''}>25 per page</option>
+            <option value="50" ${pipelineSize == 50 ? 'selected' : ''}>50 per page</option>
+            <option value="100" ${pipelineSize == 100 ? 'selected' : ''}>100 per page</option>
+        </select>
+    </div>
+    <div class="pagination-controls">
+        <c:set var="pipelinePageBase" value="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=${stageParam}&sortBy=${sortByParam}&sortDir=${sortDirParam}&size=${pipelineSize}&page="/>
+        <c:choose>
+            <c:when test="${pipelineCurrentPage > 1}"><a href="${pipelinePageBase}${pipelineCurrentPage - 1}">&#8249;</a></c:when>
+            <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+        </c:choose>
+        <c:forEach begin="1" end="${pipelineTotalPages}" var="p">
+            <c:choose>
+                <c:when test="${p == pipelineCurrentPage}"><span class="page-current">${p}</span></c:when>
+                <c:otherwise><a href="${pipelinePageBase}${p}">${p}</a></c:otherwise>
+            </c:choose>
+        </c:forEach>
+        <c:choose>
+            <c:when test="${pipelineCurrentPage < pipelineTotalPages}"><a href="${pipelinePageBase}${pipelineCurrentPage + 1}">&#8250;</a></c:when>
+            <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+        </c:choose>
+    </div>
+</div>
+
+<div class="pipeline-footer-note">
+    <span>&#8505;</span>
+    <span>Scroll horizontally to view the complete lifecycle columns.</span>
+</div>

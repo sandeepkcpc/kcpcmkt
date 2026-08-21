@@ -129,9 +129,7 @@ class MyWorkVisibilityTest {
         // Shoot Approved - moved out of the Active Shoot Tasks TABLE, into Completed Work with the
         // Approve outcome, and never appears in both tables at once (ENG-057: "Completed Work", not
         // "My Completed Work / History" - the section was renamed/restyled, same underlying
-        // data/rule). ENG-063: "My Review Feedback" legitimately keeps showing the just-approved
-        // decision (it lives inside the Active Work tab panel, not scoped to only-still-active
-        // tasks), so the table-only region is checked separately from the feedback section.
+        // data/rule).
         String bodyAfterApproval = cam.get("/app/my-work").body();
         assertThat(activeShootTasksTableRegion(bodyAfterApproval)).doesNotContain(plan.getContentId());
         String[] halvesAfterApproval = splitOnHistoryHeader(bodyAfterApproval);
@@ -140,7 +138,7 @@ class MyWorkVisibilityTest {
 
     private String activeShootTasksTableRegion(String body) {
         int start = body.indexOf("Active Shoot Tasks");
-        int end = body.indexOf("My Review Feedback");
+        int end = body.indexOf("data-tab-panel=\"history\"");
         assertThat(start).isPositive();
         assertThat(end).isGreaterThan(start);
         return body.substring(start, end);

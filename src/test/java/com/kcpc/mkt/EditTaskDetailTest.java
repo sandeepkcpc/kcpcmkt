@@ -133,8 +133,7 @@ class EditTaskDetailTest {
 
         // Once approved, status is RFP immediately (no resting "Edit Approved" status, unlike
         // Shoot's SAP) - the Editor falls back to the standard shared shell, not the redesigned
-        // page. The Approved decision + preserved rework history are still visible via My Work's
-        // "My Review Feedback" section (covered by EditFeedbackTest), just not on this page anymore.
+        // page.
         String atApproved = editor.get("/app/deliverables/" + planId).body();
         assertThat(atApproved).doesNotContain("class=\"breadcrumb\"");
     }

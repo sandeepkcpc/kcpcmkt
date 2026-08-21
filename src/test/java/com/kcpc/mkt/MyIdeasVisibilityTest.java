@@ -91,8 +91,15 @@ class MyIdeasVisibilityTest {
         assertThat(afterRedirect).doesNotContain(otherTitle);
 
         // CEO's own Idea Queue is unaffected by the EMPLOYEE branch and still sees both ideas.
-        String ceoQueue = ceo.get("/app/ideas").body();
-        assertThat(ceoQueue).contains(ownTitle).contains(otherTitle);
+        // ENG-088 added server-side pagination (default 10/page) to the CEO Idea Queue, so the
+        // unfiltered first page is no longer guaranteed to contain every idea in the system -
+        // search on the shared unique suffix (present in both freshly-created titles) to find
+        // both rows regardless of how many other ideas exist. Assert on the Idea ID (businessIdeaCode)
+        // rather than the raw title text - the new table correctly HTML-escapes title output
+        // (e.g. otherTitle's apostrophe renders as &#039;), so a literal-apostrophe substring
+        // match against escaped markup would fail even though the row is rendering correctly.
+        String ceoQueue = ceo.get("/app/ideas?q=" + unique).body();
+        assertThat(ceoQueue).contains(ownIdea.getBusinessIdeaCode()).contains(otherIdea.getBusinessIdeaCode());
     }
 
     /**

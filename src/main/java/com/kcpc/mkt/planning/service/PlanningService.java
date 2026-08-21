@@ -29,6 +29,8 @@ import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
 import com.kcpc.mkt.planning.repository.PlanningPreparerRepository;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
+import com.kcpc.mkt.publishing.domain.PublicationEventType;
+import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
@@ -66,6 +68,7 @@ public class PlanningService {
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
     private final UserRepository userRepository;
+    private final ActualPublicationEventRepository actualPublicationEventRepository;
 
     public PlanningService(ContentPlanRepository contentPlanRepository,
                             ContentPlanTalentEntryRepository talentEntryRepository,
@@ -76,7 +79,8 @@ public class PlanningService {
                             ShootingAssignmentRepository shootingAssignmentRepository,
                             ReviewCycleRepository reviewCycleRepository,
                             WorkflowTransitionService workflowService, AuthorizationService authorizationService,
-                            AuditService auditService, UserRepository userRepository) {
+                            AuditService auditService, UserRepository userRepository,
+                            ActualPublicationEventRepository actualPublicationEventRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -89,6 +93,7 @@ public class PlanningService {
         this.authorizationService = authorizationService;
         this.auditService = auditService;
         this.userRepository = userRepository;
+        this.actualPublicationEventRepository = actualPublicationEventRepository;
     }
 
     private ContentPlan requireContentPlan(UUID contentPlanId) {
@@ -376,6 +381,17 @@ public class PlanningService {
                 .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
         requirePlanningExecutionAuthority(user, output.getContentPlan().getWorkflowInstance());
         List<PlannedOutput> groupMembers = plannedOutputRepository.findByReelGroupId(output.getReelGroupId());
+        // A target that already has a real ActualPublicationEvent (ORIGINAL) must never be silently
+        // unmapped - the planning scope is no longer just an intention at that point, it's what was
+        // actually published, and removing the mapping would sever that traceability. Checked across
+        // every group member (a REEL group shares one target set) before deleting anything.
+        for (PlannedOutput member : groupMembers) {
+            if (actualPublicationEventRepository.existsByPlannedOutputAndPublicationTarget_IdAndEventType(
+                    member, publicationTargetId, PublicationEventType.ORIGINAL)) {
+                throw DomainException.conflict(ErrorCode.PUBLICATION_TARGET_ALREADY_PUBLISHED,
+                        "This Publication Target has already been published and cannot be removed.");
+            }
+        }
         for (PlannedOutput member : groupMembers) {
             mappingRepository.findByPlannedOutput(member).stream()
                     .filter(m -> m.getPublicationTarget().getId().equals(publicationTargetId))

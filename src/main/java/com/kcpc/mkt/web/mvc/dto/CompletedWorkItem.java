@@ -13,6 +13,7 @@ import java.util.UUID;
 public class CompletedWorkItem {
 
     private final UUID contentPlanId;
+    private final UUID assignmentId;
     private final String contentId;
     private final String title;
     private final String stageWorked;
@@ -22,10 +23,11 @@ public class CompletedWorkItem {
     private final String finalResult;
     private final String remarks;
 
-    public CompletedWorkItem(UUID contentPlanId, String contentId, String title, String stageWorked,
+    public CompletedWorkItem(UUID contentPlanId, UUID assignmentId, String contentId, String title, String stageWorked,
                               LocalDate stageDate, String models, Instant completedOn, String finalResult,
                               String remarks) {
         this.contentPlanId = contentPlanId;
+        this.assignmentId = assignmentId;
         this.contentId = contentId;
         this.title = title;
         this.stageWorked = stageWorked;
@@ -38,6 +40,10 @@ public class CompletedWorkItem {
 
     public UUID getContentPlanId() {
         return contentPlanId;
+    }
+
+    public UUID getAssignmentId() {
+        return assignmentId;
     }
 
     public String getContentId() {

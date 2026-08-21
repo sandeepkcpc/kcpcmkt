@@ -3,19 +3,16 @@ package com.kcpc.mkt.web.mvc;
 import com.kcpc.mkt.identity.domain.AccessClass;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.UserRepository;
+import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.marks.repository.PersonalMarkAttributionRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.production.domain.EditingAssignment;
-import com.kcpc.mkt.production.domain.EditingExecutionParticipant;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
-import com.kcpc.mkt.production.domain.ShootingExecutionParticipant;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
-import com.kcpc.mkt.production.repository.EditingExecutionParticipantRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
-import com.kcpc.mkt.production.repository.ShootingExecutionParticipantRepository;
 import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
@@ -24,8 +21,6 @@ import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.web.mvc.dto.ActiveWorkItem;
 import com.kcpc.mkt.web.mvc.dto.CompletedWorkItem;
 import com.kcpc.mkt.web.mvc.dto.MyShootRow;
-import com.kcpc.mkt.web.mvc.dto.ShootFeedbackEntry;
-import com.kcpc.mkt.web.mvc.dto.ShootFeedbackGroup;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.WorkHoldRecord;
@@ -38,6 +33,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.Instant;
@@ -75,13 +72,10 @@ public class LandingMvcController {
     private final WorkHoldRecordRepository workHoldRecordRepository;
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
     private final ContentPlanTalentEntryRepository talentEntryRepository;
-    private final ShootingExecutionParticipantRepository shootingExecutionParticipantRepository;
-    private final EditingExecutionParticipantRepository editingExecutionParticipantRepository;
     private final UserRepository userRepository;
     private final PipelineDashboardService pipelineDashboardService;
     private final PublishingService publishingService;
-
-    private static final int FEEDBACK_PAGE_SIZE = 5;
+    private final AuthorizationService authorizationService;
 
     private static final Set<WorkflowStatus> SHOOT_ACTIVE_WINDOW =
             EnumSet.of(WorkflowStatus.SA, WorkflowStatus.SIP, WorkflowStatus.SRV);
@@ -100,6 +94,8 @@ public class LandingMvcController {
             WorkflowStatus.EA, WorkflowStatus.ED, WorkflowStatus.ERV, WorkflowStatus.EAP);
     private static final Set<String> PUBLISHING_STATUS_LABELS = statusLabels(
             WorkflowStatus.RFP, WorkflowStatus.PUBG);
+    private static final Set<String> PERFORMANCE_STATUS_LABELS = statusLabels(
+            WorkflowStatus.PP, WorkflowStatus.PFUP);
 
     private static Set<String> statusLabels(WorkflowStatus... statuses) {
         Set<String> labels = new LinkedHashSet<>();
@@ -118,11 +114,10 @@ public class LandingMvcController {
                                  WorkHoldRecordRepository workHoldRecordRepository,
                                  WorkflowTransitionHistoryRepository transitionHistoryRepository,
                                  ContentPlanTalentEntryRepository talentEntryRepository,
-                                 ShootingExecutionParticipantRepository shootingExecutionParticipantRepository,
-                                 EditingExecutionParticipantRepository editingExecutionParticipantRepository,
                                  UserRepository userRepository,
                                  PipelineDashboardService pipelineDashboardService,
-                                 PublishingService publishingService) {
+                                 PublishingService publishingService,
+                                 AuthorizationService authorizationService) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -132,31 +127,32 @@ public class LandingMvcController {
         this.workHoldRecordRepository = workHoldRecordRepository;
         this.transitionHistoryRepository = transitionHistoryRepository;
         this.talentEntryRepository = talentEntryRepository;
-        this.shootingExecutionParticipantRepository = shootingExecutionParticipantRepository;
-        this.editingExecutionParticipantRepository = editingExecutionParticipantRepository;
         this.userRepository = userRepository;
         this.pipelineDashboardService = pipelineDashboardService;
         this.publishingService = publishingService;
+        this.authorizationService = authorizationService;
     }
 
     /** Role-appropriate dispatch, kept as the shared post-login redirect target. */
     @GetMapping("/app/home")
     public String home(@AuthenticationPrincipal KcpcUserPrincipal principal) {
-        AccessClass accessClass = principal.user().resolvedAccessClass();
+        User user = principal.user();
+        AccessClass accessClass = user.resolvedAccessClass();
         if (accessClass == AccessClass.CEO_OWNER || accessClass == AccessClass.MARKETING_MANAGER) {
             return "redirect:/app/pipeline";
+        }
+        // ENG-067: Model's own landing page is My Shoots (their assigned shoots as talent), not the
+        // execution-focused My Work dashboard - Model isn't Camera Person/Video Editor/Publisher and
+        // holds no stage assignment of their own to execute.
+        String businessRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
+        if ("Model".equals(businessRoleName)) {
+            return "redirect:/app/my-shoots";
         }
         return "redirect:/app/my-work";
     }
 
     @GetMapping("/app/my-work")
-    public String myWork(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
-                          @RequestParam(required = false, defaultValue = "") String feedbackQ,
-                          @RequestParam(required = false, defaultValue = "ALL") String feedbackFilter,
-                          @RequestParam(required = false, defaultValue = "1") int feedbackPage,
-                          @RequestParam(required = false, defaultValue = "") String editFeedbackQ,
-                          @RequestParam(required = false, defaultValue = "ALL") String editFeedbackFilter,
-                          @RequestParam(required = false, defaultValue = "1") int editFeedbackPage) {
+    public String myWork(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
         User user = principal.user();
         model.addAttribute("user", user);
         model.addAttribute("accessClass", user.resolvedAccessClass());
@@ -244,7 +240,7 @@ public class LandingMvcController {
                         modelsByPlan.get(plan.getId()), statusLabel, statusCssClass(statusLabel), delayDays,
                         actionLabel(statusLabel, delayDays != null, "Cameraperson"), plan.getFolderLink(), null));
             } else {
-                completedWork.add(completedItem(plan, "SHOOT", GateType.SHOOT_REVIEW, SHOOT_ACTIVE_WINDOW,
+                completedWork.add(completedItem(plan, t.getId(), "SHOOT", GateType.SHOOT_REVIEW, SHOOT_ACTIVE_WINDOW,
                         plan.getPlannedShootDate(), modelsByPlan.get(plan.getId()), transitionsByInstance, reviewCyclesByInstance));
             }
         }
@@ -275,7 +271,7 @@ public class LandingMvcController {
                         editorNames, statusLabel, statusCssClass(statusLabel), delayDays,
                         actionLabel(statusLabel, delayDays != null, "Editor"), plan.getFolderLink(), null));
             } else {
-                completedWork.add(completedItem(plan, "EDIT", GateType.EDIT_REVIEW, EDIT_ACTIVE_WINDOW,
+                completedWork.add(completedItem(plan, t.getId(), "EDIT", GateType.EDIT_REVIEW, EDIT_ACTIVE_WINDOW,
                         plan.getPlannedEditDate(), null, transitionsByInstance, reviewCyclesByInstance));
             }
         }
@@ -296,7 +292,7 @@ public class LandingMvcController {
                         targets.resolvedCount() + " / " + targets.totalCount()));
             } else {
                 // No review/decision gate exists for Publishing - Final Result stays blank.
-                completedWork.add(completedItem(plan, "PUBLISH", null, PUBLISH_ACTIVE_WINDOW,
+                completedWork.add(completedItem(plan, t.getId(), "PUBLISH", null, PUBLISH_ACTIVE_WINDOW,
                         plan.getPlannedLiveDate(), null, transitionsByInstance, reviewCyclesByInstance));
             }
         }
@@ -363,186 +359,108 @@ public class LandingMvcController {
 
         model.addAttribute("myMarks", markAttributionRepository.findByRecipient(user));
 
-        // Own review feedback: decided reviews on gates this user submitted work into.
-        List<ReviewCycle> myReviewFeedback = reviewCycleRepository
-                .findBySubmittedByAndDecidedAtIsNotNullOrderByDecidedAtDesc(user);
-        model.addAttribute("myReviewFeedback", myReviewFeedback);
-
-        String businessRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
-        if ("Camera Person".equals(businessRoleName)) {
-            buildShootFeedback(user, feedbackQ, feedbackFilter, feedbackPage, model);
-        } else if ("Video Editor".equals(businessRoleName)) {
-            buildEditFeedback(user, editFeedbackQ, editFeedbackFilter, editFeedbackPage, model);
-        }
-
         return "my-work";
     }
 
     /**
-     * ENG-062: "My Review Feedback" for a Camera Person - SHOOT_REVIEW decisions only, scoped to
-     * plans this Cameraperson was actually a recorded {@link ShootingExecutionParticipant} on (the
-     * existing execution-participant rule, not just "currently actively assigned" - a Cameraperson
-     * reassigned off a plan after submitting for review still keeps their own history), grouped one
-     * card per Content ID with every historical decision preserved (never collapsed/overwritten -
-     * the underlying ReviewCycle rows are untouched, this is display grouping only).
+     * Read-only "Completed Task Details" snapshot for one of this employee's own past Shoot
+     * assignments, keyed by the assignment's OWN id - never the Content Plan id, and never the
+     * shared {@code /app/deliverables/{id}} page. That page has no ownership/stage gate at all:
+     * once a plan moves past Shoot, a Cameraperson landing on it via the old History link would
+     * fall through to the full generic Content Detail view and see next-stage data (Editor,
+     * Publisher, published URLs...) that isn't theirs to see. This endpoint only ever assembles
+     * Shoot-scoped data (reusing the same {@link #completedItem} summary already proven safe for
+     * the History table) and enforces ownership server-side - not merely hidden in the JSP -
+     * before returning anything: neither a wrong assignmentId nor a manually-edited URL can reach
+     * another employee's or another stage's data. Native CEO/MM may also view it (they see every
+     * assignment via the Pipeline/Content Detail pages already; this endpoint isn't their primary
+     * path but shouldn't 403 them either).
      */
-    private void buildShootFeedback(User user, String feedbackQ, String feedbackFilter, int feedbackPage, Model model) {
-        // The ContentPlan association on ShootingExecutionParticipant is LAZY and this controller
-        // isn't @Transactional (open-in-view is disabled) - only .getId() is safe to read off the
-        // participant's own proxy; the actual ContentPlan rows (with their EAGER workflowInstance)
-        // are re-fetched properly via the repository, same pattern as everywhere else in this class.
-        List<ShootingExecutionParticipant> participations = shootingExecutionParticipantRepository.findByCameraperson(user);
-        Set<UUID> participatedPlanIds = participations.stream()
-                .map(p -> p.getContentPlan().getId()).collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, ContentPlan> plansById = participatedPlanIds.isEmpty()
-                ? Map.of()
-                : contentPlanRepository.findAllById(participatedPlanIds).stream()
-                        .collect(Collectors.toMap(ContentPlan::getId, p -> p));
-
-        Set<UUID> feedbackInstanceIds = plansById.values().stream()
-                .map(p -> p.getWorkflowInstance().getId()).collect(Collectors.toSet());
-        Map<UUID, List<ReviewCycle>> shootCyclesByInstance = feedbackInstanceIds.isEmpty()
-                ? Map.of()
-                : reviewCycleRepository.findByWorkflowInstance_IdIn(feedbackInstanceIds).stream()
-                        .filter(c -> c.getGateType() == GateType.SHOOT_REVIEW && c.getDecidedAt() != null)
-                        .collect(Collectors.groupingBy(c -> c.getWorkflowInstance().getId()));
-        Map<UUID, User> leadByPlan = plansById.isEmpty()
-                ? Map.of()
-                : shootingAssignmentRepository.findByContentPlan_IdInAndActiveTrue(plansById.keySet()).stream()
-                        .filter(ShootingAssignment::isLead)
-                        .collect(Collectors.toMap(a -> a.getContentPlan().getId(), ShootingAssignment::getCameraperson));
-        // ReviewCycle.reviewer is LAZY and this controller isn't @Transactional - touch only the
-        // proxy's own .getId() (safe, no DB hit), then batch-fetch the real User rows once.
-        Set<UUID> reviewerIds = shootCyclesByInstance.values().stream().flatMap(List::stream)
-                .map(ReviewCycle::getReviewer).filter(java.util.Objects::nonNull).map(User::getId)
-                .collect(Collectors.toSet());
-        Map<UUID, User> reviewersById = reviewerIds.isEmpty()
-                ? Map.of()
-                : userRepository.findAllById(reviewerIds).stream().collect(Collectors.toMap(User::getId, u -> u));
-
-        List<ShootFeedbackGroup> allGroups = new ArrayList<>();
-        for (ContentPlan plan : plansById.values()) {
-            List<ReviewCycle> decided = shootCyclesByInstance.get(plan.getWorkflowInstance().getId());
-            if (decided == null || decided.isEmpty()) {
-                continue;
-            }
-            List<ReviewCycle> newestFirst = decided.stream()
-                    .sorted(Comparator.comparing(ReviewCycle::getCycleNumber).reversed()).toList();
-            User lead = leadByPlan.get(plan.getId());
-            List<ShootFeedbackEntry> entries = newestFirst.stream()
-                    .map(c -> toFeedbackEntry(c, lead, reviewersById)).toList();
-            allGroups.add(new ShootFeedbackGroup(plan.getId(), plan.getContentId(), entries.get(0), entries.subList(1, entries.size())));
+    @GetMapping("/app/my-work/history/shoot/{assignmentId}")
+    public String shootHistoryDetail(@PathVariable UUID assignmentId,
+                                      @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        User user = principal.user();
+        ShootingAssignment assignment = shootingAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Assignment not found"));
+        if (!assignment.getCameraperson().getId().equals(user.getId()) && !authorizationService.hasNativeAuthority(user)) {
+            throw new org.springframework.security.access.AccessDeniedException("Not your assignment");
         }
-        allGroups.sort(Comparator.comparing((ShootFeedbackGroup g) -> g.getLatest().getDecidedAt(),
-                Comparator.nullsLast(Comparator.reverseOrder())));
+        ContentPlan plan = assignment.getContentPlan();
+        String models = talentEntryRepository.findByContentPlan(plan).stream()
+                .map(ContentPlanTalentEntry::getTalentName).collect(Collectors.joining(", "));
+        model.addAttribute("stage", "SHOOT");
+        model.addAttribute("summary", completedItem(plan, assignment.getId(), "SHOOT", GateType.SHOOT_REVIEW,
+                SHOOT_ACTIVE_WINDOW, plan.getPlannedShootDate(), models, singlePlanTransitions(plan), singlePlanReviewCycles(plan)));
+        model.addAttribute("assigneeName", assignment.getCameraperson().getFullName());
+        model.addAttribute("isLead", assignment.isLead());
+        model.addAttribute("assignedAt", assignment.getAssignedAt());
+        model.addAttribute("plannedDate", plan.getPlannedShootDate());
+        model.addAttribute("stageDescription", plan.getShootDescription());
+        model.addAttribute("folderLink", plan.getFolderLink());
+        return "my-work-history-detail";
+    }
 
-        String qLower = feedbackQ == null ? "" : feedbackQ.trim().toLowerCase();
-        List<ShootFeedbackGroup> filtered = allGroups.stream()
-                .filter(g -> qLower.isEmpty() || g.getContentId().toLowerCase().contains(qLower))
-                .filter(g -> "ALL".equals(feedbackFilter)
-                        || ("REWORK".equals(feedbackFilter) && "Rework Required".equals(g.getLatest().getDecisionLabel()))
-                        || ("APPROVED".equals(feedbackFilter) && "Approved".equals(g.getLatest().getDecisionLabel())))
-                .toList();
-
-        int totalCount = filtered.size();
-        int totalPages = Math.max(1, (int) Math.ceil(totalCount / (double) FEEDBACK_PAGE_SIZE));
-        int currentPage = Math.max(1, Math.min(feedbackPage, totalPages));
-        int fromIndex = Math.min((currentPage - 1) * FEEDBACK_PAGE_SIZE, totalCount);
-        int toIndex = Math.min(fromIndex + FEEDBACK_PAGE_SIZE, totalCount);
-
-        model.addAttribute("shootFeedbackGroups", filtered.subList(fromIndex, toIndex));
-        model.addAttribute("feedbackQuery", feedbackQ == null ? "" : feedbackQ);
-        model.addAttribute("feedbackFilter", feedbackFilter);
-        model.addAttribute("feedbackCurrentPage", currentPage);
-        model.addAttribute("feedbackTotalPages", totalPages);
-        model.addAttribute("feedbackFromIndex", totalCount == 0 ? 0 : fromIndex + 1);
-        model.addAttribute("feedbackToIndex", toIndex);
-        model.addAttribute("feedbackTotalCount", totalCount);
+    /** Exact mirror of {@link #shootHistoryDetail} for a Video Editor's own past Edit assignment. */
+    @GetMapping("/app/my-work/history/edit/{assignmentId}")
+    public String editHistoryDetail(@PathVariable UUID assignmentId,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        User user = principal.user();
+        EditingAssignment assignment = editingAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Assignment not found"));
+        if (!assignment.getEditor().getId().equals(user.getId()) && !authorizationService.hasNativeAuthority(user)) {
+            throw new org.springframework.security.access.AccessDeniedException("Not your assignment");
+        }
+        ContentPlan plan = assignment.getContentPlan();
+        model.addAttribute("stage", "EDIT");
+        model.addAttribute("summary", completedItem(plan, assignment.getId(), "EDIT", GateType.EDIT_REVIEW,
+                EDIT_ACTIVE_WINDOW, plan.getPlannedEditDate(), null, singlePlanTransitions(plan), singlePlanReviewCycles(plan)));
+        model.addAttribute("assigneeName", assignment.getEditor().getFullName());
+        model.addAttribute("isLead", assignment.isLead());
+        model.addAttribute("assignedAt", assignment.getAssignedAt());
+        model.addAttribute("plannedDate", plan.getPlannedEditDate());
+        model.addAttribute("stageDescription", plan.getEditDescription());
+        model.addAttribute("folderLink", plan.getFolderLink());
+        return "my-work-history-detail";
     }
 
     /**
-     * ENG-066: "My Review Feedback" for a Video Editor - exact mirror of {@link #buildShootFeedback}
-     * for EDIT_REVIEW instead of SHOOT_REVIEW, scoped to plans this Editor was actually a recorded
-     * {@link EditingExecutionParticipant} on. Shares {@link ShootFeedbackEntry}/{@link ShootFeedbackGroup}
-     * (both gate-agnostic) and {@link #toFeedbackEntry} rather than duplicating them.
+     * Exact mirror of {@link #shootHistoryDetail} for a Publisher's own past Publishing
+     * assignment - no review gate exists for Publishing, so {@code summary}'s finalResult/remarks
+     * stay null (matching the History table's own existing "no Final Result column" behavior).
      */
-    private void buildEditFeedback(User user, String feedbackQ, String feedbackFilter, int feedbackPage, Model model) {
-        List<EditingExecutionParticipant> participations = editingExecutionParticipantRepository.findByEditor(user);
-        Set<UUID> participatedPlanIds = participations.stream()
-                .map(p -> p.getContentPlan().getId()).collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, ContentPlan> plansById = participatedPlanIds.isEmpty()
-                ? Map.of()
-                : contentPlanRepository.findAllById(participatedPlanIds).stream()
-                        .collect(Collectors.toMap(ContentPlan::getId, p -> p));
-
-        Set<UUID> feedbackInstanceIds = plansById.values().stream()
-                .map(p -> p.getWorkflowInstance().getId()).collect(Collectors.toSet());
-        Map<UUID, List<ReviewCycle>> editCyclesByInstance = feedbackInstanceIds.isEmpty()
-                ? Map.of()
-                : reviewCycleRepository.findByWorkflowInstance_IdIn(feedbackInstanceIds).stream()
-                        .filter(c -> c.getGateType() == GateType.EDIT_REVIEW && c.getDecidedAt() != null)
-                        .collect(Collectors.groupingBy(c -> c.getWorkflowInstance().getId()));
-        Map<UUID, User> leadByPlan = plansById.isEmpty()
-                ? Map.of()
-                : editingAssignmentRepository.findByContentPlan_IdInAndActiveTrue(plansById.keySet()).stream()
-                        .filter(EditingAssignment::isLead)
-                        .collect(Collectors.toMap(a -> a.getContentPlan().getId(), EditingAssignment::getEditor));
-        Set<UUID> reviewerIds = editCyclesByInstance.values().stream().flatMap(List::stream)
-                .map(ReviewCycle::getReviewer).filter(java.util.Objects::nonNull).map(User::getId)
-                .collect(Collectors.toSet());
-        Map<UUID, User> reviewersById = reviewerIds.isEmpty()
-                ? Map.of()
-                : userRepository.findAllById(reviewerIds).stream().collect(Collectors.toMap(User::getId, u -> u));
-
-        List<ShootFeedbackGroup> allGroups = new ArrayList<>();
-        for (ContentPlan plan : plansById.values()) {
-            List<ReviewCycle> decided = editCyclesByInstance.get(plan.getWorkflowInstance().getId());
-            if (decided == null || decided.isEmpty()) {
-                continue;
-            }
-            List<ReviewCycle> newestFirst = decided.stream()
-                    .sorted(Comparator.comparing(ReviewCycle::getCycleNumber).reversed()).toList();
-            User lead = leadByPlan.get(plan.getId());
-            List<ShootFeedbackEntry> entries = newestFirst.stream()
-                    .map(c -> toFeedbackEntry(c, lead, reviewersById)).toList();
-            allGroups.add(new ShootFeedbackGroup(plan.getId(), plan.getContentId(), entries.get(0), entries.subList(1, entries.size())));
+    @GetMapping("/app/my-work/history/publish/{assignmentId}")
+    public String publishHistoryDetail(@PathVariable UUID assignmentId,
+                                        @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        User user = principal.user();
+        PublishingAssignment assignment = publishingAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Assignment not found"));
+        if (!assignment.getPublisher().getId().equals(user.getId()) && !authorizationService.hasNativeAuthority(user)) {
+            throw new org.springframework.security.access.AccessDeniedException("Not your assignment");
         }
-        allGroups.sort(Comparator.comparing((ShootFeedbackGroup g) -> g.getLatest().getDecidedAt(),
-                Comparator.nullsLast(Comparator.reverseOrder())));
-
-        String qLower = feedbackQ == null ? "" : feedbackQ.trim().toLowerCase();
-        List<ShootFeedbackGroup> filtered = allGroups.stream()
-                .filter(g -> qLower.isEmpty() || g.getContentId().toLowerCase().contains(qLower))
-                .filter(g -> "ALL".equals(feedbackFilter)
-                        || ("REWORK".equals(feedbackFilter) && "Rework Required".equals(g.getLatest().getDecisionLabel()))
-                        || ("APPROVED".equals(feedbackFilter) && "Approved".equals(g.getLatest().getDecisionLabel())))
-                .toList();
-
-        int totalCount = filtered.size();
-        int totalPages = Math.max(1, (int) Math.ceil(totalCount / (double) FEEDBACK_PAGE_SIZE));
-        int currentPage = Math.max(1, Math.min(feedbackPage, totalPages));
-        int fromIndex = Math.min((currentPage - 1) * FEEDBACK_PAGE_SIZE, totalCount);
-        int toIndex = Math.min(fromIndex + FEEDBACK_PAGE_SIZE, totalCount);
-
-        model.addAttribute("editFeedbackGroups", filtered.subList(fromIndex, toIndex));
-        model.addAttribute("editFeedbackQuery", feedbackQ == null ? "" : feedbackQ);
-        model.addAttribute("editFeedbackFilter", feedbackFilter);
-        model.addAttribute("editFeedbackCurrentPage", currentPage);
-        model.addAttribute("editFeedbackTotalPages", totalPages);
-        model.addAttribute("editFeedbackFromIndex", totalCount == 0 ? 0 : fromIndex + 1);
-        model.addAttribute("editFeedbackToIndex", toIndex);
-        model.addAttribute("editFeedbackTotalCount", totalCount);
+        ContentPlan plan = assignment.getContentPlan();
+        model.addAttribute("stage", "PUBLISH");
+        model.addAttribute("summary", completedItem(plan, assignment.getId(), "PUBLISH", null,
+                PUBLISH_ACTIVE_WINDOW, plan.getPlannedLiveDate(), null, singlePlanTransitions(plan), singlePlanReviewCycles(plan)));
+        model.addAttribute("assigneeName", assignment.getPublisher().getFullName());
+        model.addAttribute("isLead", false);
+        model.addAttribute("assignedAt", assignment.getAssignedAt());
+        model.addAttribute("plannedDate", plan.getPlannedLiveDate());
+        model.addAttribute("stageDescription", plan.getPublishingDescription());
+        model.addAttribute("folderLink", plan.getFolderLink());
+        return "my-work-history-detail";
     }
 
-    private static ShootFeedbackEntry toFeedbackEntry(ReviewCycle cycle, User lead, Map<UUID, User> reviewersById) {
-        boolean rework = "REQUEST_REWORK".equals(cycle.getDecision());
-        String label = rework ? "Rework Required" : "Approved";
-        String cssClass = rework ? "status-needschanges" : "status-completed";
-        UUID reviewerId = cycle.getReviewer() == null ? null : cycle.getReviewer().getId();
-        User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
-        boolean reviewerIsLead = reviewerId != null && lead != null && reviewerId.equals(lead.getId());
-        return new ShootFeedbackEntry(label, cssClass, cycle.getDecisionReason(),
-                reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, cycle.getDecidedAt());
+    /** Single-plan-scoped variant of the batched map {@link #myWork} builds for its whole list. */
+    private Map<UUID, List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory>> singlePlanTransitions(ContentPlan plan) {
+        return transitionHistoryRepository
+                .findByWorkflowInstance_IdInOrderByTransitionTimestampAsc(Set.of(plan.getWorkflowInstance().getId())).stream()
+                .collect(Collectors.groupingBy(t -> t.getWorkflowInstance().getId()));
+    }
+
+    /** Single-plan-scoped variant of the batched map {@link #myWork} builds for its whole list. */
+    private Map<UUID, List<ReviewCycle>> singlePlanReviewCycles(ContentPlan plan) {
+        return reviewCycleRepository.findByWorkflowInstance_IdIn(Set.of(plan.getWorkflowInstance().getId())).stream()
+                .collect(Collectors.groupingBy(c -> c.getWorkflowInstance().getId()));
     }
 
     private static String contentTitle(ContentPlan plan) {
@@ -619,7 +537,7 @@ public class LandingMvcController {
      * Publishing, which has no review/decision gate at all. Reads only from the batched maps built in
      * {@link #myWork} - no per-row query (ENG-057).
      */
-    private CompletedWorkItem completedItem(ContentPlan plan, String stageWorked, GateType gateType,
+    private CompletedWorkItem completedItem(ContentPlan plan, UUID assignmentId, String stageWorked, GateType gateType,
                                              Set<WorkflowStatus> activeWindow, LocalDate stageDate, String models,
                                              Map<UUID, List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory>> transitionsByInstance,
                                              Map<UUID, List<ReviewCycle>> reviewCyclesByInstance) {
@@ -638,8 +556,8 @@ public class LandingMvcController {
             finalResult = decided.map(c -> "APPROVED".equals(c.getDecision()) ? "Approved" : c.getDecision()).orElse(null);
             remarks = decided.map(ReviewCycle::getDecisionReason).orElse(null);
         }
-        return new CompletedWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), stageWorked, stageDate,
-                models, completedOn, finalResult, remarks);
+        return new CompletedWorkItem(plan.getId(), assignmentId, plan.getContentId(), contentTitle(plan), stageWorked,
+                stageDate, models, completedOn, finalResult, remarks);
     }
 
     /**
@@ -650,6 +568,7 @@ public class LandingMvcController {
     @GetMapping("/app/pipeline")
     public String pipeline(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
                             @RequestParam(required = false) String q,
+                            @RequestParam(required = false, defaultValue = "all") String stage,
                             @RequestParam(required = false) String sku,
                             @RequestParam(required = false) String idea,
                             @RequestParam(required = false) String priority,
@@ -676,7 +595,8 @@ public class LandingMvcController {
                             @RequestParam(required = false) String sortBy,
                             @RequestParam(required = false, defaultValue = "asc") String sortDir,
                             @RequestParam(required = false, defaultValue = "1") int page,
-                            @RequestParam(required = false, defaultValue = "10") int size) {
+                            @RequestParam(required = false, defaultValue = "10") int size,
+                            @RequestHeader(value = "X-Requested-With", required = false) String requestedWith) {
         User user = principal.user();
         if (user.resolvedAccessClass() == AccessClass.EMPLOYEE) {
             return "redirect:/app/home";
@@ -702,6 +622,13 @@ public class LandingMvcController {
                 .filter(r -> PUBLISHING_STATUS_LABELS.contains(r.getStatus())).count());
         model.addAttribute("attentionDelayedCount", allRows.stream()
                 .filter(com.kcpc.mkt.reporting.dto.PipelineRow::isDelayed).count());
+        // ENG-073: Stage filter tabs replaced the KPI cards as the at-a-glance summary - each tab
+        // shows its own count badge, same underlying groupings as before.
+        model.addAttribute("allCount", allRows.size());
+        model.addAttribute("performanceCount", allRows.stream()
+                .filter(r -> PERFORMANCE_STATUS_LABELS.contains(r.getStatus())).count());
+        model.addAttribute("completedCount", allRows.stream()
+                .filter(r -> "Completed".equals(r.getStatus())).count());
 
         // ENG-071: options for the Status/Platform/Channel filter dropdowns - distinct values
         // actually present across the full (unfiltered) row set, so a dropdown never offers a
@@ -719,7 +646,7 @@ public class LandingMvcController {
         model.addAttribute("channelOptions", channelOptions);
 
         com.kcpc.mkt.reporting.dto.PipelineFilterCriteria criteria = new com.kcpc.mkt.reporting.dto.PipelineFilterCriteria(
-                q, sku, idea, priority, cameraperson, modelFilter, videoEditor, platform, channel, status,
+                q, stage, sku, idea, priority, cameraperson, modelFilter, videoEditor, platform, channel, status,
                 performanceState, delayed, plannedShootFrom, plannedShootTo, plannedEditFrom, plannedEditTo,
                 plannedLiveFrom, plannedLiveTo, actualShootFrom, actualShootTo, actualEditFrom, actualEditTo,
                 actualLiveFrom, actualLiveTo, sortBy, sortDir);
@@ -744,6 +671,7 @@ public class LandingMvcController {
         // Echo every current filter/sort value back for form re-population (the per-column popups)
         // and for building sort/pagination links that preserve the rest of the current filter state.
         model.addAttribute("qParam", q);
+        model.addAttribute("stageParam", stage == null ? "all" : stage);
         model.addAttribute("skuParam", sku);
         model.addAttribute("ideaParam", idea);
         model.addAttribute("priorityParam", priority);
@@ -832,7 +760,19 @@ public class LandingMvcController {
                 .map(h -> h.getWorkflowInstance().getId()).collect(Collectors.toSet());
         model.addAttribute("onHoldWorkflowInstanceIds", onHoldWorkflowInstanceIds);
 
-        return "pipeline";
+        // ENG-081: pipeline-dashboard.js's fetch() calls (filter/sort/pagination/stage-tab clicks)
+        // send this same header the rest of the app already uses for AJAX detection (see
+        // DeliverableMvcController#isAjax) - same model, same query/filter/sort/pagination logic,
+        // only the view differs: "pipeline-content" renders just the dynamic region (stage tabs
+        // through the footer note) with no <html>/<head>/nav wrapper, so the client can drop the
+        // response straight into #pipelineDynamicRegion. A plain browser navigation (no header,
+        // including every existing bookmark/shared link) still gets the full "pipeline" page.
+        return isAjax(requestedWith) ? "pipeline-content" : "pipeline";
+    }
+
+    /** See {@code DeliverableMvcController#isAjax} - same convention, kept local to this controller. */
+    private static boolean isAjax(String requestedWith) {
+        return "fetch".equals(requestedWith);
     }
 
     private static boolean notBlank(String value) {

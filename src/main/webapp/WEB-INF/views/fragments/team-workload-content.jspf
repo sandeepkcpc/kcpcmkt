@@ -1,0 +1,141 @@
+<%-- ENG-087: Team Workload dashboard body - shared verbatim by reports-workload.jsp (full page)
+     and reports-workload-content.jsp (the AJAX-partial response ReportingMvcController#workload
+     returns for X-Requested-With: fetch requests), mirroring the exact split ENG-081 already
+     established for the Pipeline dashboard. Caller sets ${result}/${businessRoles}/${employees}/
+     ${selectedBusinessRole}/${selectedEmployeeId}/${selectedStage}/${selectedDateFrom}/
+     ${selectedDateTo}/${selectedDelayedOnly} before including this file. --%>
+<div class="page-header-row">
+    <div>
+        <h1>Team</h1>
+    </div>
+    <div class="team-workload-asof">
+        <span class="asof-icon" aria-hidden="true">&#9432;</span>
+        Data as of <c:out value="${kcpc:ist(result.generatedAt)}"/> IST
+        <button type="button" class="team-workload-refresh" id="teamWorkloadRefresh" aria-label="Refresh" title="Refresh">&#8635;</button>
+    </div>
+</div>
+
+<div class="team-workload-tabs">
+    <a class="team-workload-tab active" href="${pageContext.request.contextPath}/app/reports/workload">Workload</a>
+    <c:if test="${canViewTeamKpi}">
+        <a class="team-workload-tab" href="${pageContext.request.contextPath}/app/reports/team-kpis">Performance</a>
+    </c:if>
+</div>
+
+<form method="get" action="${pageContext.request.contextPath}/app/reports/workload" class="team-workload-filters" id="teamWorkloadFilterForm">
+    <div class="filter-field">
+        <label for="twBusinessRole">Business Role</label>
+        <select name="businessRole" id="twBusinessRole">
+            <option value="ALL" ${empty selectedBusinessRole || selectedBusinessRole == 'ALL' ? 'selected' : ''}>All Business Roles</option>
+            <c:forEach var="r" items="${businessRoles}">
+                <option value="${r.roleName}" ${selectedBusinessRole == r.roleName ? 'selected' : ''}><c:out value="${r.roleName}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="twEmployee">Employee</label>
+        <select name="employeeId" id="twEmployee">
+            <option value="">All Employees</option>
+            <c:forEach var="u" items="${employees}">
+                <option value="${u.id}" ${selectedEmployeeId == u.id ? 'selected' : ''}><c:out value="${u.fullName}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="twStage">Stage</label>
+        <select name="stage" id="twStage">
+            <option value="ALL" ${empty selectedStage || selectedStage == 'ALL' ? 'selected' : ''}>All Stages</option>
+            <option value="Planning" ${selectedStage == 'Planning' ? 'selected' : ''}>Planning</option>
+            <option value="Shoot" ${selectedStage == 'Shoot' ? 'selected' : ''}>Shoot</option>
+            <option value="Edit" ${selectedStage == 'Edit' ? 'selected' : ''}>Edit</option>
+            <option value="Publishing" ${selectedStage == 'Publishing' ? 'selected' : ''}>Publishing</option>
+            <option value="Performance" ${selectedStage == 'Performance' ? 'selected' : ''}>Performance</option>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="twDateFrom">Date Range</label>
+        <div class="filter-date-range">
+            <input type="date" name="dateFrom" id="twDateFrom" value="${selectedDateFrom}">
+            <span class="filter-date-sep">&ndash;</span>
+            <input type="date" name="dateTo" id="twDateTo" value="${selectedDateTo}">
+        </div>
+    </div>
+    <label class="filter-checkbox-field">
+        <input type="checkbox" name="delayedOnly" value="true" ${selectedDelayedOnly ? 'checked' : ''}>
+        Delayed Only
+    </label>
+    <a class="btn-outline team-workload-clear" href="${pageContext.request.contextPath}/app/reports/workload">Clear</a>
+</form>
+
+<div class="team-workload-cards">
+    <div class="panel team-workload-card team-workload-card-stage">
+        <div class="team-workload-card-header">
+            <h2>Active Tasks by Stage</h2>
+            <span class="info-icon" title="One Content ID is counted in exactly one current lifecycle stage.">&#9432;</span>
+        </div>
+        <table class="data-table team-workload-stage-table">
+            <thead><tr><th>Stage</th><th class="num">Active Tasks</th></tr></thead>
+            <tbody>
+            <c:forEach var="e" items="${result.stageCounts}">
+                <tr>
+                    <td><span class="stage-dot stage-dot-${e.key}"></span><c:out value="${e.key}"/></td>
+                    <td class="num">${e.value}</td>
+                </tr>
+            </c:forEach>
+            <tr class="team-workload-total-row">
+                <td>Total</td>
+                <td class="num">${result.totalActiveByStage}</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel team-workload-card team-workload-card-assignee">
+        <div class="team-workload-card-header">
+            <h2>Assignee Load</h2>
+            <span class="info-icon" title="Each employee's own actual active/delayed/on-hold assignments - never the same count as Active Tasks by Stage.">&#9432;</span>
+        </div>
+        <table class="data-table team-workload-assignee-table">
+            <thead>
+            <tr>
+                <th>Assignee</th>
+                <th>Business Role</th>
+                <th class="num">Active Tasks</th>
+                <th class="num">Delayed Tasks</th>
+                <th class="num">On Hold Tasks</th>
+            </tr>
+            </thead>
+            <tbody>
+            <c:forEach var="row" items="${result.assigneeRows}">
+                <tr>
+                    <td>
+                        <span class="team-workload-assignee-cell">
+                            <span class="content-detail-avatar"><c:out value="${fn:toUpperCase(fn:substring(row.assigneeName, 0, 1))}"/></span>
+                            <c:out value="${row.assigneeName}"/>
+                        </span>
+                    </td>
+                    <td class="muted"><c:out value="${row.businessRoleName}"/></td>
+                    <td class="num">${row.activeTasks}</td>
+                    <td class="num">${row.delayedTasks}</td>
+                    <td class="num">${row.onHoldTasks}</td>
+                </tr>
+            </c:forEach>
+            <c:if test="${empty result.assigneeRows}">
+                <tr><td colspan="5" class="muted">No matching employees.</td></tr>
+            </c:if>
+            <tr class="team-workload-total-row">
+                <td><strong>Total</strong></td>
+                <td></td>
+                <td class="num"><strong>${result.totalActiveAssignee}</strong></td>
+                <td class="num"><strong>${result.totalDelayedAssignee}</strong></td>
+                <td class="num"><strong>${result.totalOnHoldAssignee}</strong></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="note-box team-workload-footnote">
+    <span class="info-icon" aria-hidden="true">&#9432;</span>
+    Counts are based on the current workflow status of content. One content item is counted in one stage only.
+</div>

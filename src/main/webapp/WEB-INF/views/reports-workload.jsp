@@ -1,5 +1,7 @@
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page contentType="text/html;charset=UTF-8" pageEncoding="UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
+<%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,31 +11,13 @@
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
-<main class="app-main">
-    <h1>Team Workload (Perm #14)</h1>
-    <div class="panel">
-        <h2>Active Tasks by Stage</h2>
-        <table class="data-table">
-            <thead><tr><th>Stage</th><th>Active Tasks</th></tr></thead>
-            <tbody>
-            <c:forEach var="e" items="${data.activeTasksByStage}">
-                <tr><td>${e.key}</td><td>${e.value}</td></tr>
-            </c:forEach>
-            </tbody>
-        </table>
+<main class="app-main app-main-wide">
+    <%-- ENG-087: everything inside this div is what team-workload-dashboard.js replaces on every
+         AJAX filter interaction - see fragments/team-workload-content.jspf. --%>
+    <div id="teamWorkloadDynamicRegion">
+        <%@ include file="fragments/team-workload-content.jspf" %>
     </div>
-    <div class="panel">
-        <h2>Assignee Load (active counts, no ratings)</h2>
-        <table class="data-table">
-            <thead><tr><th>Assignee</th><th>Active Tasks</th></tr></thead>
-            <tbody>
-            <c:forEach var="e" items="${data.assigneeActiveLoad}">
-                <tr><td>${e.key}</td><td>${e.value}</td></tr>
-            </c:forEach>
-            </tbody>
-        </table>
-    </div>
-    <p class="note-box">Delayed deliverables in scope: ${data.delayedCount}. Counts only — no performance scores, Marks, or rankings.</p>
 </main>
+<script src="${pageContext.request.contextPath}/js/team-workload-dashboard.js" defer></script>
 </body>
 </html>

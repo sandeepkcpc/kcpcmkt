@@ -6,15 +6,19 @@ import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.identity.domain.AccessClass;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.repository.BusinessRoleRepository;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.reporting.dto.KpiValue;
 import com.kcpc.mkt.reporting.service.AdminReportingService;
 import com.kcpc.mkt.reporting.service.KpiService;
 import com.kcpc.mkt.reporting.service.MultiFormatExportService;
+import com.kcpc.mkt.reporting.service.TeamWorkloadService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.Instant;
@@ -23,6 +27,7 @@ import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * UI/UX Design Specification v0.2 Group B (Analytics & Reporting, §7) and Group C (Data Export,
@@ -49,15 +54,26 @@ public class ReportingMvcController {
     private final SystemAuditLogRepository auditLogRepository;
     private final AuthorizationService authorizationService;
     private final MultiFormatExportService multiFormatExportService;
+    private final TeamWorkloadService teamWorkloadService;
+    private final BusinessRoleRepository businessRoleRepository;
+    private final UserRepository userRepository;
 
     public ReportingMvcController(KpiService kpiService, AdminReportingService adminReportingService,
                                    SystemAuditLogRepository auditLogRepository, AuthorizationService authorizationService,
-                                   MultiFormatExportService multiFormatExportService) {
+                                   MultiFormatExportService multiFormatExportService, TeamWorkloadService teamWorkloadService,
+                                   BusinessRoleRepository businessRoleRepository, UserRepository userRepository) {
         this.kpiService = kpiService;
         this.adminReportingService = adminReportingService;
         this.auditLogRepository = auditLogRepository;
         this.authorizationService = authorizationService;
         this.multiFormatExportService = multiFormatExportService;
+        this.teamWorkloadService = teamWorkloadService;
+        this.businessRoleRepository = businessRoleRepository;
+        this.userRepository = userRepository;
+    }
+
+    private static boolean isAjax(String requestedWith) {
+        return "fetch".equals(requestedWith);
     }
 
     private boolean allowed(KcpcUserPrincipal principal, OperationalPermission permission) {
@@ -69,13 +85,40 @@ public class ReportingMvcController {
         }
     }
 
+    /**
+     * ENG-087: redesigned Team Workload management dashboard - filter bar (Business Role/Employee/
+     * Stage/Date Range/Delayed Only) driving two independent cards (Active Tasks by Stage,
+     * Assignee Load) built by {@link TeamWorkloadService#teamWorkloadDashboard}. AJAX-partial-aware
+     * (ENG-081's own {@code X-Requested-With: fetch} convention) so filtering doesn't full-reload.
+     * The legacy {@code KpiService#teamWorkload(User)} aggregation and its REST twin
+     * ({@code GET /api/v1/team/workload}) are untouched - this is a separate, MVC-only view-model.
+     */
     @GetMapping("/reports/workload")
-    public String workload(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+    public String workload(@RequestParam(required = false) String businessRole,
+                            @RequestParam(required = false) UUID employeeId,
+                            @RequestParam(required = false) String stage,
+                            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+                            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate dateTo,
+                            @RequestParam(required = false, defaultValue = "false") boolean delayedOnly,
+                            @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                            @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
         if (!allowed(principal, OperationalPermission.PERM_14_TEAM_WORKLOAD_VIEW)) {
             return "redirect:/app/home";
         }
-        model.addAttribute("data", kpiService.teamWorkload(principal.user()));
-        return "reports-workload";
+        model.addAttribute("result", teamWorkloadService.teamWorkloadDashboard(
+                principal.user(), businessRole, employeeId, stage, dateFrom, dateTo, delayedOnly));
+        model.addAttribute("businessRoles", businessRoleRepository.findByActiveTrue());
+        model.addAttribute("employees", employeeId == null && (businessRole == null || businessRole.isBlank() || "ALL".equalsIgnoreCase(businessRole))
+                ? userRepository.findByActiveTrueOrderByFullNameAsc()
+                : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc(businessRole));
+        model.addAttribute("selectedBusinessRole", businessRole == null ? "" : businessRole);
+        model.addAttribute("selectedEmployeeId", employeeId);
+        model.addAttribute("selectedStage", stage == null ? "" : stage);
+        model.addAttribute("selectedDateFrom", dateFrom);
+        model.addAttribute("selectedDateTo", dateTo);
+        model.addAttribute("selectedDelayedOnly", delayedOnly);
+        model.addAttribute("canViewTeamKpi", allowed(principal, OperationalPermission.PERM_15_TEAM_KPI_VIEW));
+        return isAjax(requestedWith) ? "reports-workload-content" : "reports-workload";
     }
 
     @GetMapping("/reports/team-kpis")

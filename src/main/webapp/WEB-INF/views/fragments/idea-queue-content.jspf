@@ -1,0 +1,154 @@
+<%-- ENG-088: CEO/MM Idea Queue dashboard body - shared verbatim by idea-queue.jsp (full page) and
+     idea-queue-content.jsp (the AJAX-partial response IdeaMvcController#queue/#ideaQueue returns
+     for X-Requested-With: fetch requests), mirroring the exact split ENG-081/ENG-087 already
+     established. Caller sets ${ideaQueueRows}/${ideaQueueSubmitters}/${ideaQueueQuery}/
+     ${ideaQueueStatusFilter}/${ideaQueueSubmittedBy}/${ideaQueueDateFrom}/${ideaQueueDateTo}/
+     ${ideaQueueSort}/${ideaQueuePageSize}/${ideaQueueCurrentPage}/${ideaQueueTotalPages}/
+     ${ideaQueueFromIndex}/${ideaQueueToIndex}/${ideaQueueTotalCount} before including this file. --%>
+<div class="page-header-row">
+    <div>
+        <h1>Idea Queue</h1>
+        <p class="muted">Track and manage all ideas submitted by the team.</p>
+    </div>
+</div>
+
+<form method="get" action="${pageContext.request.contextPath}/app/ideas" class="idea-queue-filters" id="ideaQueueFilterForm">
+    <input type="hidden" name="sort" value="${ideaQueueSort}">
+    <div class="filter-field filter-field-search">
+        <label for="iqSearch">Search</label>
+        <input type="text" name="q" id="iqSearch" placeholder="Search by Idea ID or title..." value="${fn:escapeXml(ideaQueueQuery)}">
+    </div>
+    <div class="filter-field">
+        <label for="iqStatus">Status</label>
+        <select name="status" id="iqStatus">
+            <option value="ALL" ${empty ideaQueueStatusFilter || ideaQueueStatusFilter == 'ALL' ? 'selected' : ''}>All Status</option>
+            <option value="Under Review" ${ideaQueueStatusFilter == 'Under Review' ? 'selected' : ''}>Under Review</option>
+            <option value="Approved" ${ideaQueueStatusFilter == 'Approved' ? 'selected' : ''}>Approved</option>
+            <option value="Retained" ${ideaQueueStatusFilter == 'Retained' ? 'selected' : ''}>Retained</option>
+            <option value="Rejected" ${ideaQueueStatusFilter == 'Rejected' ? 'selected' : ''}>Rejected</option>
+            <option value="Reopened" ${ideaQueueStatusFilter == 'Reopened' ? 'selected' : ''}>Reopened</option>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="iqSubmittedBy">Submitted By</label>
+        <select name="submittedBy" id="iqSubmittedBy">
+            <option value="">All Submitters</option>
+            <c:forEach var="s" items="${ideaQueueSubmitters}">
+                <option value="${s.key}" ${ideaQueueSubmittedBy == s.key ? 'selected' : ''}><c:out value="${s.value}"/></option>
+            </c:forEach>
+        </select>
+    </div>
+    <div class="filter-field">
+        <label for="iqDateFrom">Date Range</label>
+        <div class="filter-date-range">
+            <input type="date" name="dateFrom" id="iqDateFrom" value="${ideaQueueDateFrom}">
+            <span class="filter-date-sep">&ndash;</span>
+            <input type="date" name="dateTo" id="iqDateTo" value="${ideaQueueDateTo}">
+        </div>
+    </div>
+    <a class="btn-outline idea-queue-clear" href="${pageContext.request.contextPath}/app/ideas">
+        <span aria-hidden="true">&#8635;</span> Clear Filters
+    </a>
+</form>
+
+<div class="panel idea-queue-table-panel">
+    <table class="data-table idea-queue-table">
+        <thead>
+        <tr>
+            <th>
+                <a class="idea-queue-sort-link" href="${pageContext.request.contextPath}/app/ideas?q=${fn:escapeXml(ideaQueueQuery)}&amp;status=${ideaQueueStatusFilter}&amp;submittedBy=${ideaQueueSubmittedBy}&amp;dateFrom=${ideaQueueDateFrom}&amp;dateTo=${ideaQueueDateTo}&amp;pageSize=${ideaQueuePageSize}&amp;sort=${ideaQueueSort == 'ID_ASC' ? 'ID_DESC' : 'ID_ASC'}">
+                    Idea ID <span class="sort-icon">&#8693;</span>
+                </a>
+            </th>
+            <th>Idea Title</th>
+            <th>Submitted By</th>
+            <th>Idea Status</th>
+            <th>Action</th>
+        </tr>
+        </thead>
+        <tbody>
+        <c:forEach var="row" items="${ideaQueueRows}">
+            <tr>
+                <td><a class="idea-id-link" href="${pageContext.request.contextPath}/app/ideas/${row.ideaId}"><c:out value="${row.businessIdeaCode}"/></a></td>
+                <td class="idea-queue-title-cell" title="${fn:escapeXml(row.title)}"><c:out value="${row.title}"/></td>
+                <td><span class="idea-queue-submitter"><span class="submitter-icon" aria-hidden="true">&#128100;</span><c:out value="${row.submittedByName}"/></span></td>
+                <td><span class="status-pill ${row.statusCssClass}"><c:out value="${row.statusLabel}"/></span></td>
+                <td>
+                    <a class="btn-outline idea-queue-action-btn" href="${pageContext.request.contextPath}/app/ideas/${row.ideaId}">
+                        <c:choose>
+                            <c:when test="${row.canDecide}">&#128065; Review</c:when>
+                            <c:otherwise>&#128196; View</c:otherwise>
+                        </c:choose>
+                    </a>
+                </td>
+            </tr>
+        </c:forEach>
+        <c:if test="${empty ideaQueueRows}">
+            <tr><td colspan="5" class="muted">No ideas match the current filters.</td></tr>
+        </c:if>
+        </tbody>
+    </table>
+
+    <div class="pagination idea-queue-pagination">
+        <span>Showing ${ideaQueueFromIndex} to ${ideaQueueToIndex} of ${ideaQueueTotalCount} ideas</span>
+        <div class="idea-queue-page-size">
+            <select id="iqPageSize" name="pageSize" form="ideaQueueFilterForm">
+                <option value="10" ${ideaQueuePageSize == 10 ? 'selected' : ''}>10 per page</option>
+                <option value="25" ${ideaQueuePageSize == 25 ? 'selected' : ''}>25 per page</option>
+                <option value="50" ${ideaQueuePageSize == 50 ? 'selected' : ''}>50 per page</option>
+            </select>
+        </div>
+        <div class="pagination-controls">
+            <c:choose>
+                <c:when test="${ideaQueueCurrentPage > 1}">
+                    <c:url var="iqPrevUrl" value="/app/ideas">
+                        <c:param name="q" value="${ideaQueueQuery}"/>
+                        <c:param name="status" value="${ideaQueueStatusFilter}"/>
+                        <c:param name="submittedBy" value="${ideaQueueSubmittedBy}"/>
+                        <c:param name="dateFrom" value="${ideaQueueDateFrom}"/>
+                        <c:param name="dateTo" value="${ideaQueueDateTo}"/>
+                        <c:param name="pageSize" value="${ideaQueuePageSize}"/>
+                        <c:param name="sort" value="${ideaQueueSort}"/>
+                        <c:param name="page" value="${ideaQueueCurrentPage - 1}"/>
+                    </c:url>
+                    <a href="${iqPrevUrl}">&#8249;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
+            </c:choose>
+            <c:forEach begin="1" end="${ideaQueueTotalPages}" var="p">
+                <c:choose>
+                    <c:when test="${p == ideaQueueCurrentPage}"><span class="page-current">${p}</span></c:when>
+                    <c:otherwise>
+                        <c:url var="iqPageUrl" value="/app/ideas">
+                            <c:param name="q" value="${ideaQueueQuery}"/>
+                            <c:param name="status" value="${ideaQueueStatusFilter}"/>
+                            <c:param name="submittedBy" value="${ideaQueueSubmittedBy}"/>
+                            <c:param name="dateFrom" value="${ideaQueueDateFrom}"/>
+                            <c:param name="dateTo" value="${ideaQueueDateTo}"/>
+                            <c:param name="pageSize" value="${ideaQueuePageSize}"/>
+                            <c:param name="sort" value="${ideaQueueSort}"/>
+                            <c:param name="page" value="${p}"/>
+                        </c:url>
+                        <a href="${iqPageUrl}">${p}</a>
+                    </c:otherwise>
+                </c:choose>
+            </c:forEach>
+            <c:choose>
+                <c:when test="${ideaQueueCurrentPage < ideaQueueTotalPages}">
+                    <c:url var="iqNextUrl" value="/app/ideas">
+                        <c:param name="q" value="${ideaQueueQuery}"/>
+                        <c:param name="status" value="${ideaQueueStatusFilter}"/>
+                        <c:param name="submittedBy" value="${ideaQueueSubmittedBy}"/>
+                        <c:param name="dateFrom" value="${ideaQueueDateFrom}"/>
+                        <c:param name="dateTo" value="${ideaQueueDateTo}"/>
+                        <c:param name="pageSize" value="${ideaQueuePageSize}"/>
+                        <c:param name="sort" value="${ideaQueueSort}"/>
+                        <c:param name="page" value="${ideaQueueCurrentPage + 1}"/>
+                    </c:url>
+                    <a href="${iqNextUrl}">&#8250;</a>
+                </c:when>
+                <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
+            </c:choose>
+        </div>
+    </div>
+</div>

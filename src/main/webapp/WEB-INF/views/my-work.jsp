@@ -1,4 +1,4 @@
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page contentType="text/html;charset=UTF-8" pageEncoding="UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 <%@ taglib prefix="kcpc" uri="https://kcpc.internal/tags/functions" %>
@@ -151,124 +151,6 @@
                         </tbody>
                     </table>
                 </div>
-
-                <%-- ENG-063: My Review Feedback lives INSIDE the Active Work tab panel only - it
-                     hides/shows together with Active Shoot Tasks on tab switch, and never appears
-                     under History or Marks. --%>
-                <div class="panel my-work-table-wrapper feedback-panel">
-                    <div class="page-header-row">
-                        <div>
-                            <h2>My Review Feedback</h2>
-                            <p class="muted">Feedback and decisions on your shoot submissions.</p>
-                        </div>
-                    </div>
-
-                    <form method="get" action="${pageContext.request.contextPath}/app/my-work" class="feedback-filters">
-                        <div class="filter-field filter-field-search">
-                            <input type="text" name="feedbackQ" class="feedback-search-input"
-                                   placeholder="Search by Content ID..." value="${fn:escapeXml(feedbackQuery)}">
-                        </div>
-                        <div class="filter-pills">
-                            <c:url var="pillAllUrl" value="/app/my-work"><c:param name="feedbackQ" value="${feedbackQuery}"/><c:param name="feedbackFilter" value="ALL"/></c:url>
-                            <c:url var="pillReworkUrl" value="/app/my-work"><c:param name="feedbackQ" value="${feedbackQuery}"/><c:param name="feedbackFilter" value="REWORK"/></c:url>
-                            <c:url var="pillApprovedUrl" value="/app/my-work"><c:param name="feedbackQ" value="${feedbackQuery}"/><c:param name="feedbackFilter" value="APPROVED"/></c:url>
-                            <a class="filter-pill ${feedbackFilter == 'ALL' ? 'active' : ''}" href="${pillAllUrl}">All</a>
-                            <a class="filter-pill ${feedbackFilter == 'REWORK' ? 'active' : ''}" href="${pillReworkUrl}">Rework Required</a>
-                            <a class="filter-pill ${feedbackFilter == 'APPROVED' ? 'active' : ''}" href="${pillApprovedUrl}">Approved</a>
-                        </div>
-                        <button type="submit" class="btn-outline">Search</button>
-                    </form>
-
-                    <div class="feedback-card-list">
-                        <c:forEach var="group" items="${shootFeedbackGroups}">
-                            <div class="feedback-card">
-                                <div class="feedback-card-main">
-                                    <div class="feedback-content-col">
-                                        <div class="feedback-field-label">Content ID</div>
-                                        <a class="content-id-link" href="${pageContext.request.contextPath}/app/deliverables/${group.contentPlanId}"><c:out value="${group.contentId}"/></a>
-                                        <div class="feedback-field-label feedback-stage-label">Stage</div>
-                                        <div class="feedback-stage-value">SHOOT REVIEW</div>
-                                    </div>
-                                    <div class="feedback-decision-col">
-                                        <span class="status-pill ${group.latest.decisionCssClass}"><c:out value="${fn:toUpperCase(group.latest.decisionLabel)}"/></span>
-                                    </div>
-                                    <div class="feedback-reason-col">
-                                        <div class="feedback-field-label">Reason / Feedback</div>
-                                        <div><c:out value="${empty group.latest.reason ? '—' : group.latest.reason}"/></div>
-                                        <c:if test="${not empty group.latest.reviewerName}">
-                                            <div class="feedback-reviewer">Decided by <c:out value="${group.latest.reviewerName}"/><c:if test="${group.latest.reviewerIsLead}"> (Lead)</c:if></div>
-                                        </c:if>
-                                    </div>
-                                    <div class="feedback-date-col">
-                                        <div>${kcpc:istDate(group.latest.decidedAt)}</div>
-                                        <div class="muted">${kcpc:istTime(group.latest.decidedAt)} IST</div>
-                                    </div>
-                                    <div class="feedback-action-col">
-                                        <a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${group.contentPlanId}">View Task &rarr;</a>
-                                    </div>
-                                </div>
-                                <c:if test="${group.hasHistory}">
-                                    <details class="feedback-history">
-                                        <summary>View Feedback History</summary>
-                                        <ul class="feedback-history-list">
-                                            <c:forEach var="entry" items="${group.priorHistory}">
-                                                <li>
-                                                    <span class="ts">${kcpc:istDate(entry.decidedAt)} &middot; ${kcpc:istTime(entry.decidedAt)}</span>
-                                                    <span class="status-pill ${entry.decisionCssClass}"><c:out value="${fn:toUpperCase(entry.decisionLabel)}"/></span>
-                                                    <c:out value="${empty entry.reason ? '—' : entry.reason}"/>
-                                                </li>
-                                            </c:forEach>
-                                        </ul>
-                                    </details>
-                                </c:if>
-                            </div>
-                        </c:forEach>
-                        <c:if test="${empty shootFeedbackGroups}"><p class="muted">No review feedback yet.</p></c:if>
-                    </div>
-
-                    <c:if test="${feedbackTotalCount > 0}">
-                        <div class="pagination">
-                            <span>Showing ${feedbackFromIndex} to ${feedbackToIndex} of ${feedbackTotalCount} Content IDs</span>
-                            <div class="pagination-controls">
-                                <c:choose>
-                                    <c:when test="${feedbackCurrentPage > 1}">
-                                        <c:url var="feedbackPrevUrl" value="/app/my-work">
-                                            <c:param name="feedbackQ" value="${feedbackQuery}"/>
-                                            <c:param name="feedbackFilter" value="${feedbackFilter}"/>
-                                            <c:param name="feedbackPage" value="${feedbackCurrentPage - 1}"/>
-                                        </c:url>
-                                        <a href="${feedbackPrevUrl}">&#8249;</a>
-                                    </c:when>
-                                    <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
-                                </c:choose>
-                                <c:forEach begin="1" end="${feedbackTotalPages}" var="p">
-                                    <c:choose>
-                                        <c:when test="${p == feedbackCurrentPage}"><span class="page-current">${p}</span></c:when>
-                                        <c:otherwise>
-                                            <c:url var="feedbackPageUrl" value="/app/my-work">
-                                                <c:param name="feedbackQ" value="${feedbackQuery}"/>
-                                                <c:param name="feedbackFilter" value="${feedbackFilter}"/>
-                                                <c:param name="feedbackPage" value="${p}"/>
-                                            </c:url>
-                                            <a href="${feedbackPageUrl}">${p}</a>
-                                        </c:otherwise>
-                                    </c:choose>
-                                </c:forEach>
-                                <c:choose>
-                                    <c:when test="${feedbackCurrentPage < feedbackTotalPages}">
-                                        <c:url var="feedbackNextUrl" value="/app/my-work">
-                                            <c:param name="feedbackQ" value="${feedbackQuery}"/>
-                                            <c:param name="feedbackFilter" value="${feedbackFilter}"/>
-                                            <c:param name="feedbackPage" value="${feedbackCurrentPage + 1}"/>
-                                        </c:url>
-                                        <a href="${feedbackNextUrl}">&#8250;</a>
-                                    </c:when>
-                                    <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
-                                </c:choose>
-                            </div>
-                        </div>
-                    </c:if>
-                </div>
             </div>
 
             <div class="my-work-tab-panel hidden" data-tab-panel="history">
@@ -304,7 +186,7 @@
                                     </c:choose>
                                 </td>
                                 <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${w.contentPlanId}">View Details</a></td>
+                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/shoot/${w.assignmentId}">View Details</a></td>
                             </tr>
                         </c:forEach>
                         <c:if test="${empty shootCompletedWork}">
@@ -440,123 +322,6 @@
                         </tbody>
                     </table>
                 </div>
-
-                <%-- ENG-066: My Review Feedback lives INSIDE the Active Work tab panel only, exactly
-                     like the Cameraperson version (ENG-063) - EDIT_REVIEW decisions only. --%>
-                <div class="panel my-work-table-wrapper feedback-panel">
-                    <div class="page-header-row">
-                        <div>
-                            <h2>My Review Feedback</h2>
-                            <p class="muted">Feedback and decisions on your edit submissions.</p>
-                        </div>
-                    </div>
-
-                    <form method="get" action="${pageContext.request.contextPath}/app/my-work" class="feedback-filters">
-                        <div class="filter-field filter-field-search">
-                            <input type="text" name="editFeedbackQ" class="feedback-search-input"
-                                   placeholder="Search by Content ID..." value="${fn:escapeXml(editFeedbackQuery)}">
-                        </div>
-                        <div class="filter-pills">
-                            <c:url var="editPillAllUrl" value="/app/my-work"><c:param name="editFeedbackQ" value="${editFeedbackQuery}"/><c:param name="editFeedbackFilter" value="ALL"/></c:url>
-                            <c:url var="editPillReworkUrl" value="/app/my-work"><c:param name="editFeedbackQ" value="${editFeedbackQuery}"/><c:param name="editFeedbackFilter" value="REWORK"/></c:url>
-                            <c:url var="editPillApprovedUrl" value="/app/my-work"><c:param name="editFeedbackQ" value="${editFeedbackQuery}"/><c:param name="editFeedbackFilter" value="APPROVED"/></c:url>
-                            <a class="filter-pill ${editFeedbackFilter == 'ALL' ? 'active' : ''}" href="${editPillAllUrl}">All</a>
-                            <a class="filter-pill ${editFeedbackFilter == 'REWORK' ? 'active' : ''}" href="${editPillReworkUrl}">Rework Required</a>
-                            <a class="filter-pill ${editFeedbackFilter == 'APPROVED' ? 'active' : ''}" href="${editPillApprovedUrl}">Approved</a>
-                        </div>
-                        <button type="submit" class="btn-outline">Search</button>
-                    </form>
-
-                    <div class="feedback-card-list">
-                        <c:forEach var="group" items="${editFeedbackGroups}">
-                            <div class="feedback-card">
-                                <div class="feedback-card-main">
-                                    <div class="feedback-content-col">
-                                        <div class="feedback-field-label">Content ID</div>
-                                        <a class="content-id-link" href="${pageContext.request.contextPath}/app/deliverables/${group.contentPlanId}"><c:out value="${group.contentId}"/></a>
-                                        <div class="feedback-field-label feedback-stage-label">Stage</div>
-                                        <div class="feedback-stage-value">EDIT REVIEW</div>
-                                    </div>
-                                    <div class="feedback-decision-col">
-                                        <span class="status-pill ${group.latest.decisionCssClass}"><c:out value="${fn:toUpperCase(group.latest.decisionLabel)}"/></span>
-                                    </div>
-                                    <div class="feedback-reason-col">
-                                        <div class="feedback-field-label">Reason / Feedback</div>
-                                        <div><c:out value="${empty group.latest.reason ? '—' : group.latest.reason}"/></div>
-                                        <c:if test="${not empty group.latest.reviewerName}">
-                                            <div class="feedback-reviewer">Decided by <c:out value="${group.latest.reviewerName}"/><c:if test="${group.latest.reviewerIsLead}"> (Lead)</c:if></div>
-                                        </c:if>
-                                    </div>
-                                    <div class="feedback-date-col">
-                                        <div>${kcpc:istDate(group.latest.decidedAt)}</div>
-                                        <div class="muted">${kcpc:istTime(group.latest.decidedAt)} IST</div>
-                                    </div>
-                                    <div class="feedback-action-col">
-                                        <a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${group.contentPlanId}">View Task &rarr;</a>
-                                    </div>
-                                </div>
-                                <c:if test="${group.hasHistory}">
-                                    <details class="feedback-history">
-                                        <summary>View Feedback History</summary>
-                                        <ul class="feedback-history-list">
-                                            <c:forEach var="entry" items="${group.priorHistory}">
-                                                <li>
-                                                    <span class="ts">${kcpc:istDate(entry.decidedAt)} &middot; ${kcpc:istTime(entry.decidedAt)}</span>
-                                                    <span class="status-pill ${entry.decisionCssClass}"><c:out value="${fn:toUpperCase(entry.decisionLabel)}"/></span>
-                                                    <c:out value="${empty entry.reason ? '—' : entry.reason}"/>
-                                                </li>
-                                            </c:forEach>
-                                        </ul>
-                                    </details>
-                                </c:if>
-                            </div>
-                        </c:forEach>
-                        <c:if test="${empty editFeedbackGroups}"><p class="muted">No review feedback yet.</p></c:if>
-                    </div>
-
-                    <c:if test="${editFeedbackTotalCount > 0}">
-                        <div class="pagination">
-                            <span>Showing ${editFeedbackFromIndex} to ${editFeedbackToIndex} of ${editFeedbackTotalCount} Content IDs</span>
-                            <div class="pagination-controls">
-                                <c:choose>
-                                    <c:when test="${editFeedbackCurrentPage > 1}">
-                                        <c:url var="editFeedbackPrevUrl" value="/app/my-work">
-                                            <c:param name="editFeedbackQ" value="${editFeedbackQuery}"/>
-                                            <c:param name="editFeedbackFilter" value="${editFeedbackFilter}"/>
-                                            <c:param name="editFeedbackPage" value="${editFeedbackCurrentPage - 1}"/>
-                                        </c:url>
-                                        <a href="${editFeedbackPrevUrl}">&#8249;</a>
-                                    </c:when>
-                                    <c:otherwise><span class="page-disabled">&#8249;</span></c:otherwise>
-                                </c:choose>
-                                <c:forEach begin="1" end="${editFeedbackTotalPages}" var="p">
-                                    <c:choose>
-                                        <c:when test="${p == editFeedbackCurrentPage}"><span class="page-current">${p}</span></c:when>
-                                        <c:otherwise>
-                                            <c:url var="editFeedbackPageUrl" value="/app/my-work">
-                                                <c:param name="editFeedbackQ" value="${editFeedbackQuery}"/>
-                                                <c:param name="editFeedbackFilter" value="${editFeedbackFilter}"/>
-                                                <c:param name="editFeedbackPage" value="${p}"/>
-                                            </c:url>
-                                            <a href="${editFeedbackPageUrl}">${p}</a>
-                                        </c:otherwise>
-                                    </c:choose>
-                                </c:forEach>
-                                <c:choose>
-                                    <c:when test="${editFeedbackCurrentPage < editFeedbackTotalPages}">
-                                        <c:url var="editFeedbackNextUrl" value="/app/my-work">
-                                            <c:param name="editFeedbackQ" value="${editFeedbackQuery}"/>
-                                            <c:param name="editFeedbackFilter" value="${editFeedbackFilter}"/>
-                                            <c:param name="editFeedbackPage" value="${editFeedbackCurrentPage + 1}"/>
-                                        </c:url>
-                                        <a href="${editFeedbackNextUrl}">&#8250;</a>
-                                    </c:when>
-                                    <c:otherwise><span class="page-disabled">&#8250;</span></c:otherwise>
-                                </c:choose>
-                            </div>
-                        </div>
-                    </c:if>
-                </div>
             </div>
 
             <div class="my-work-tab-panel hidden" data-tab-panel="history">
@@ -590,7 +355,7 @@
                                     </c:choose>
                                 </td>
                                 <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${w.contentPlanId}">View Details</a></td>
+                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/edit/${w.assignmentId}">View Details</a></td>
                             </tr>
                         </c:forEach>
                         <c:if test="${empty editCompletedWork}">
@@ -730,7 +495,7 @@
                                 <td><c:out value="${w.title}"/></td>
                                 <td>${w.stageDate}</td>
                                 <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
-                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${w.contentPlanId}">View Details</a></td>
+                                <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/publish/${w.assignmentId}">View Details</a></td>
                             </tr>
                         </c:forEach>
                         <c:if test="${empty publishCompletedWork}">
@@ -826,7 +591,19 @@
                                 </c:choose>
                             </td>
                             <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                            <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${w.contentPlanId}">View Details</a></td>
+                            <td>
+                                <c:choose>
+                                    <c:when test="${w.stageWorked == 'SHOOT'}">
+                                        <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/shoot/${w.assignmentId}">View Details</a>
+                                    </c:when>
+                                    <c:when test="${w.stageWorked == 'EDIT'}">
+                                        <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/edit/${w.assignmentId}">View Details</a>
+                                    </c:when>
+                                    <c:otherwise>
+                                        <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/publish/${w.assignmentId}">View Details</a>
+                                    </c:otherwise>
+                                </c:choose>
+                            </td>
                         </tr>
                     </c:forEach>
                     <c:if test="${empty completedWork}">
@@ -852,28 +629,6 @@
                         </tr>
                     </c:forEach>
                     <c:if test="${empty myMarks}"><tr><td colspan="4" class="muted">No marks attributed yet.</td></tr></c:if>
-                    </tbody>
-                </table>
-            </div>
-
-            <%-- ENG-059/062: My Ideas moved to its own /app/ideas page (kept out of My Work). This
-                 generic, all-gate-types feedback table stays exactly as before for every non-Camera
-                 Person Business Role; the Camera Person branch above has its own redesigned,
-                 SHOOT_REVIEW-scoped "My Review Feedback" section instead. --%>
-            <div class="panel">
-                <h2>My Review Feedback</h2>
-                <table class="data-table">
-                    <thead><tr><th>Gate</th><th>Decision</th><th>Reason</th><th>Decided (IST)</th></tr></thead>
-                    <tbody>
-                    <c:forEach var="rc" items="${myReviewFeedback}">
-                        <tr>
-                            <td>${rc.gateType}</td>
-                            <td>${rc.decision}</td>
-                            <td>${rc.decisionReason}</td>
-                            <td>${kcpc:ist(rc.decidedAt)}</td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty myReviewFeedback}"><tr><td colspan="4" class="muted">No review feedback yet.</td></tr></c:if>
                     </tbody>
                 </table>
             </div>

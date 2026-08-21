@@ -140,6 +140,8 @@
         var channelsContainer = chip.parentElement;
         var wasOnlyChipInRow = channelsContainer.querySelectorAll('.channel-chip').length === 1;
         var nextSibling = chip.nextSibling;
+        var channelHandle = chip.getAttribute('data-channel-handle') || chip.textContent.trim();
+        var platformName = row ? (row.querySelector('.target-platform') || {}).textContent : '';
 
         // Optimistic removal: the chip (and its now-empty platform row) disappears immediately;
         // a failed request restores both and surfaces an error, so the UI never silently drifts
@@ -151,7 +153,9 @@
 
         ajaxPost(form).then(function (response) {
             if (!response.ok) {
-                throw new Error('remove-failed');
+                return extractErrorMessage(response, 'Could not remove channel. Please try again.').then(function (message) {
+                    throw new Error(message);
+                });
             }
             if (wasOnlyChipInRow) {
                 row.remove();
@@ -162,7 +166,10 @@
                 muted.textContent = '(none yet)';
                 list.appendChild(muted);
             }
-        }).catch(function () {
+            document.dispatchEvent(new CustomEvent('kcpc:scope-changed', {
+                detail: {type: 'removed', groupId: list.getAttribute('data-group-id'), platform: platformName, channel: channelHandle}
+            }));
+        }).catch(function (err) {
             if (nextSibling) {
                 channelsContainer.insertBefore(chip, nextSibling);
             } else {
@@ -171,7 +178,7 @@
             if (wasOnlyChipInRow) {
                 row.style.display = '';
             }
-            showAjaxError(list, 'Could not remove channel. Please try again.');
+            showAjaxError(list, (err && err.message) || 'Could not remove channel. Please try again.');
         });
     }
 
@@ -196,10 +203,29 @@
         return row;
     }
 
-    function buildChip(removeActionBase, targetId, channelHandle, csrfInput) {
+    var PLATFORM_ICON_FILES = {
+        Instagram: 'instagram.svg', Facebook: 'facebook.svg', YouTube: 'youtube.svg',
+        Threads: 'threads.svg', Moj: 'moj.svg', TikTok: 'tiktok.svg'
+    };
+
+    function platformIconSrc(platformName) {
+        var table = document.getElementById('planned-outputs-table');
+        var iconsBase = table ? table.getAttribute('data-context-path') : '';
+        return (iconsBase || '') + '/icons/platforms/' + (PLATFORM_ICON_FILES[platformName] || 'generic.svg');
+    }
+
+    function buildChip(removeActionBase, targetId, channelHandle, csrfInput, platformName) {
         var chip = document.createElement('span');
         chip.className = 'channel-chip';
         chip.setAttribute('data-target-id', targetId);
+        chip.setAttribute('data-channel-handle', channelHandle);
+        var icon = document.createElement('img');
+        icon.className = 'scope-target-icon';
+        icon.src = platformIconSrc(platformName);
+        icon.alt = '';
+        icon.width = 14;
+        icon.height = 14;
+        chip.appendChild(icon);
         chip.appendChild(document.createTextNode(channelHandle + ' '));
 
         var removeForm = document.createElement('form');
@@ -226,7 +252,13 @@
 
     function handleAddTargetSubmit(form) {
         var groupId = form.getAttribute('data-group-id');
-        var list = document.querySelector('.target-list[data-group-id="' + groupId + '"]');
+        // Scoped to the form's own row rather than a global data-group-id lookup: the same
+        // reelGroupId can legitimately appear twice in the DOM at once (the Planning tab's table
+        // and the Assign Publisher(s) modal's verification table both render every output), and a
+        // global lookup would always resolve to whichever copy comes first regardless of which
+        // form was actually submitted.
+        var row = form.closest('tr');
+        var list = row ? row.querySelector('.target-list[data-group-id="' + groupId + '"]') : null;
         var checked = form.querySelectorAll('.kcpc-channel-checklist input[type="checkbox"]:checked');
         var csrfInput = form.querySelector('input[type="hidden"]');
         if (!list || !csrfInput || checked.length === 0) {
@@ -243,7 +275,9 @@
 
         ajaxPost(form).then(function (response) {
             if (!response.ok) {
-                throw new Error('add-failed');
+                return extractErrorMessage(response, 'Could not add target(s). Please try again.').then(function (message) {
+                    throw new Error(message);
+                });
             }
             var muted = list.querySelector('.muted-summary');
             if (muted) {
@@ -251,18 +285,21 @@
             }
             for (var j = 0; j < selections.length; j++) {
                 var selection = selections[j];
-                var row = findOrCreateTargetRow(list, selection.platform);
-                var channelsSpan = row.querySelector('.target-channels');
+                var targetRow = findOrCreateTargetRow(list, selection.platform);
+                var channelsSpan = targetRow.querySelector('.target-channels');
                 if (channelsSpan.querySelector('.channel-chip[data-target-id="' + selection.targetId + '"]')) {
                     continue; // already mapped - mapPublicationScope() is additive/idempotent too
                 }
-                channelsSpan.appendChild(buildChip(form.getAttribute('action'), selection.targetId, selection.channel, csrfInput));
+                channelsSpan.appendChild(buildChip(form.getAttribute('action'), selection.targetId, selection.channel, csrfInput, selection.platform));
+                document.dispatchEvent(new CustomEvent('kcpc:scope-changed', {
+                    detail: {type: 'added', groupId: groupId, platform: selection.platform, channel: selection.channel}
+                }));
             }
             for (var k = 0; k < checked.length; k++) {
                 checked[k].checked = false;
             }
-        }).catch(function () {
-            showAjaxError(list, 'Could not add target(s). Please try again.');
+        }).catch(function (err) {
+            showAjaxError(list, (err && err.message) || 'Could not add target(s). Please try again.');
         });
     }
 

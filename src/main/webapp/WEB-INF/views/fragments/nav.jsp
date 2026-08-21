@@ -1,4 +1,4 @@
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page contentType="text/html;charset=UTF-8" pageEncoding="UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <c:set var="currentPath" value="${empty requestScope['jakarta.servlet.forward.request_uri'] ? pageContext.request.requestURI : requestScope['jakarta.servlet.forward.request_uri']}" />
 <c:set var="ctx" value="${pageContext.request.contextPath}" />
@@ -39,8 +39,12 @@
             <a class="${currentPath == ctx.concat('/app/my-work') ? 'active' : ''}" href="${ctx}/app/my-work">My Work</a>
             <a class="${currentPath == ctx.concat('/app/ideas') ? 'active' : ''}" href="${ctx}/app/ideas">Idea Queue</a>
             <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
-            <a class="${currentPath == ctx.concat('/app/reports/workload') ? 'active' : ''}" href="${ctx}/app/reports/workload">Team Workload</a>
-            <a class="${currentPath == ctx.concat('/app/reports/team-kpis') ? 'active' : ''}" href="${ctx}/app/reports/team-kpis">Team KPI</a>
+            <%-- ENG-087: "Team Workload"/"Team KPI" consolidated into one "Team" nav entry with
+                 Workload/Performance tabs inside the page itself (reports-workload.jsp/
+                 reports-team-kpis.jsp both render the same tab header) - both pages/routes/
+                 permission gates (PERM_14/PERM_15) are unchanged, this is nav presentation only. --%>
+            <a class="${currentPath == ctx.concat('/app/reports/workload') or currentPath == ctx.concat('/app/reports/team-kpis') ? 'active' : ''}"
+               href="${ctx}/app/reports/workload">Team</a>
             <a class="${currentPath == ctx.concat('/app/reports/kpis') ? 'active' : ''}" href="${ctx}/app/reports/kpis">KPI Console</a>
             <a class="${currentPath == ctx.concat('/app/reports/delayed') ? 'active' : ''}" href="${ctx}/app/reports/delayed">Delayed Deliverables</a>
             <a class="${currentPath == ctx.concat('/app/reports/admin-actions') ? 'active' : ''}" href="${ctx}/app/reports/admin-actions">Admin Actions</a>

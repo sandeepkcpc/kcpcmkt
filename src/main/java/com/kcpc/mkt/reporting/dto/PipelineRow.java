@@ -1,6 +1,7 @@
 package com.kcpc.mkt.reporting.dto;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -41,6 +42,7 @@ public class PipelineRow {
     private final String priority;
     private final boolean delayed;
     private final Integer delayDays;
+    private final List<PipelinePlatformSummary> platformSummaries;
 
     public PipelineRow(UUID contentPlanId, String contentId, String sku, String ideaTitle, String referenceLink,
                         boolean referenceLinkIsUrl, String category, String channels, String actor,
@@ -48,7 +50,7 @@ public class PipelineRow {
                         LocalDate plannedShootDate, LocalDate plannedEditDate, LocalDate plannedLiveDate,
                         String actualShootDate, String actualEditDate, String actualLiveDate, String platforms,
                         String performanceState, boolean performanceLinkEligible, String status, String priority,
-                        boolean delayed, Integer delayDays) {
+                        boolean delayed, Integer delayDays, List<PipelinePlatformSummary> platformSummaries) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.sku = sku;
@@ -75,6 +77,7 @@ public class PipelineRow {
         this.priority = priority;
         this.delayed = delayed;
         this.delayDays = delayDays;
+        this.platformSummaries = platformSummaries;
     }
 
     public UUID getContentPlanId() {
@@ -186,5 +189,17 @@ public class PipelineRow {
 
     public Integer getDelayDays() {
         return delayDays;
+    }
+
+    /**
+     * ENG-075: Platforms column icon+popover data - one entry per distinct planned Platform for
+     * this Content ID, each carrying its own Channels' real publication status. Never derived from
+     * {@link #platforms} (the flat display string) - built straight from the actual
+     * PlannedOutputPublicationTargetMapping/ActualPublicationEvent/PublicationEvidenceCorrection
+     * records, so a channel only ever shows Published when a real event with a usable Evidence URL
+     * exists.
+     */
+    public List<PipelinePlatformSummary> getPlatformSummaries() {
+        return platformSummaries;
     }
 }

@@ -72,6 +72,10 @@ public class EditingAssignment extends BaseEntity {
         return editor;
     }
 
+    public Instant getAssignedAt() {
+        return assignedAt;
+    }
+
     public boolean isActive() {
         return active;
     }

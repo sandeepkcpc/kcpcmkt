@@ -1,0 +1,107 @@
+/**
+ * ENG-087: Team Workload dashboard - AJAX partial-fragment-swap filtering, mirroring
+ * pipeline-dashboard.js's own loadPipeline() pattern verbatim (X-Requested-With: fetch,
+ * #teamWorkloadDynamicRegion innerHTML swap, history.pushState, AbortController for in-flight
+ * requests, real-navigation fallback on genuine fetch failure). No business/aggregation logic
+ * lives here - every count comes from the server-rendered response as-is; this file only decides
+ * WHEN to re-fetch (form submit, a filter field changing, Clear, Refresh) and swaps the HTML in.
+ * Plain <a>/<form method="get"> still works with JS disabled (progressive enhancement).
+ */
+(function () {
+    var region = document.getElementById('teamWorkloadDynamicRegion');
+    if (!region) {
+        return;
+    }
+
+    var currentRequest = null;
+
+    function loadWorkload(url, pushHistory) {
+        if (currentRequest) {
+            currentRequest.abort();
+        }
+        var controller = new AbortController();
+        currentRequest = controller;
+        region.classList.add('team-workload-loading');
+
+        fetch(url, {headers: {'X-Requested-With': 'fetch'}, signal: controller.signal})
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('Team Workload request failed: ' + response.status);
+                }
+                return response.text();
+            })
+            .then(function (html) {
+                if (controller.signal.aborted) {
+                    return;
+                }
+                region.innerHTML = html;
+                region.classList.remove('team-workload-loading');
+                if (pushHistory) {
+                    history.pushState(null, '', url);
+                }
+                currentRequest = null;
+            })
+            .catch(function (err) {
+                if (err && err.name === 'AbortError') {
+                    return;
+                }
+                region.classList.remove('team-workload-loading');
+                currentRequest = null;
+                window.location.href = url;
+            });
+    }
+
+    // Filter form: Business Role/Employee/Stage/Date Range/Delayed Only all submit together.
+    region.addEventListener('submit', function (event) {
+        var form = event.target.closest('#teamWorkloadFilterForm');
+        if (!form) {
+            return;
+        }
+        event.preventDefault();
+        var params = new URLSearchParams(new FormData(form)).toString();
+        loadWorkload(form.action + (params ? '?' + params : ''), true);
+    });
+
+    // Business Role/Employee/Stage selects and the Delayed Only checkbox re-submit immediately on
+    // change (no separate "Apply" click needed) - this is also how the Employee dropdown's options
+    // end up scoped to the newly-chosen Business Role, since the server rebuilds that list itself.
+    region.addEventListener('change', function (event) {
+        var target = event.target;
+        if (target.id === 'twBusinessRole' || target.id === 'twEmployee' || target.id === 'twStage'
+                || target.name === 'delayedOnly' || target.id === 'twDateFrom' || target.id === 'twDateTo') {
+            var form = document.getElementById('teamWorkloadFilterForm');
+            if (form) {
+                // Changing Business Role starts a fresh Employee search - stale selection would
+                // otherwise silently resubmit a now-irrelevant employeeId.
+                if (target.id === 'twBusinessRole') {
+                    var employeeSelect = document.getElementById('twEmployee');
+                    if (employeeSelect) {
+                        employeeSelect.value = '';
+                    }
+                }
+                var params = new URLSearchParams(new FormData(form)).toString();
+                loadWorkload(form.action + (params ? '?' + params : ''), true);
+            }
+        }
+    });
+
+    // Clear link and Refresh button - both just re-fetch (Clear's href already has no query
+    // string; Refresh re-fetches the current URL).
+    region.addEventListener('click', function (event) {
+        var clearLink = event.target.closest('.team-workload-clear');
+        if (clearLink) {
+            event.preventDefault();
+            loadWorkload(clearLink.href, true);
+            return;
+        }
+        var refreshBtn = event.target.closest('#teamWorkloadRefresh');
+        if (refreshBtn) {
+            event.preventDefault();
+            loadWorkload(window.location.href, false);
+        }
+    });
+
+    window.addEventListener('popstate', function () {
+        loadWorkload(window.location.href, false);
+    });
+})();

@@ -40,6 +40,7 @@ import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
 import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
+import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
@@ -107,6 +108,7 @@ public class DeliverableMvcController {
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final EditingExecutionParticipantRepository editingParticipantRepository;
     private final ActualPublicationEventRepository eventRepository;
+    private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final PerformanceObligationRepository obligationRepository;
     private final CreativePerformanceScorecardRepository scorecardRepository;
@@ -139,6 +141,7 @@ public class DeliverableMvcController {
                                      EditingAssignmentRepository editingAssignmentRepository,
                                      EditingExecutionParticipantRepository editingParticipantRepository,
                                      ActualPublicationEventRepository eventRepository,
+                                     PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                                      PublishingAssignmentRepository publishingAssignmentRepository,
                                      PerformanceObligationRepository obligationRepository,
                                      CreativePerformanceScorecardRepository scorecardRepository,
@@ -164,6 +167,7 @@ public class DeliverableMvcController {
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.editingParticipantRepository = editingParticipantRepository;
         this.eventRepository = eventRepository;
+        this.evidenceCorrectionRepository = evidenceCorrectionRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.obligationRepository = obligationRepository;
         this.scorecardRepository = scorecardRepository;
@@ -236,6 +240,24 @@ public class DeliverableMvcController {
                         java.util.stream.Collectors.groupingBy(
                                 m -> m.getPublicationTarget().getPlatform().getPlatformName(),
                                 java.util.LinkedHashMap::new, java.util.stream.Collectors.toList())))));
+        // Publishing Scope Verification (modal) / Publishing Scope (read-only) share this: a mapping
+        // is "published" once a real ActualPublicationEvent (ORIGINAL) exists for its exact
+        // (plannedOutput, publicationTarget) pair - reusing PlanningService.unmapPublicationTarget's
+        // own guard logic's data source, never re-deriving it. Locked mappings get a "Published"
+        // badge instead of Edit/Delete controls in the modal.
+        List<com.kcpc.mkt.publishing.domain.ActualPublicationEvent> originalEventsForScope =
+                eventRepository.findByContentPlan(plan).stream()
+                        .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
+        java.util.Set<UUID> publishedMappingIds = outputTargetMappings.values().stream().flatMap(List::stream)
+                .filter(m -> originalEventsForScope.stream().anyMatch(e ->
+                        e.getPlannedOutput().getId().equals(m.getPlannedOutput().getId())
+                                && e.getPublicationTarget().getId().equals(m.getPublicationTarget().getId())))
+                .map(com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        model.addAttribute("publishedMappingIds", publishedMappingIds);
+        model.addAttribute("outputHasPublishedTarget", outputTargetMappings.entrySet().stream().collect(
+                java.util.stream.Collectors.toMap(Map.Entry::getKey,
+                        e -> e.getValue().stream().anyMatch(m -> publishedMappingIds.contains(m.getId())))));
         model.addAttribute("outputNaRecords", outputs.stream().collect(
                 java.util.stream.Collectors.toMap(PlannedOutput::getId, naRecordRepository::findByPlannedOutput)));
         model.addAttribute("publishingChecklist", buildPublishingChecklist(outputs));
@@ -426,7 +448,200 @@ public class DeliverableMvcController {
             addPublishTaskDetailAttributes(plan, status, model);
             return "publish-task-detail";
         }
+
+        // ENG-082: CEO/MM management shell - Platforms×Channels summary (Publishing tab) and the
+        // combined Planning/Shoot/Edit Review Feedback History, only needed on this fallback path.
+        model.addAttribute("platformSummaries", buildContentDetailPlatformSummaries(plan, outputTargetMappings));
+        List<ShootFeedbackEntry> feedbackHistory = buildReviewFeedbackHistory(plan);
+        model.addAttribute("reviewFeedbackHistory", feedbackHistory);
+        model.addAttribute("availableActions", buildAvailableActions(plan, status, model, user, nativeAuthority, openHold));
+
+        // ENG-082: Overview tab's Actual Shoot/Edit/Live Date - same derivation
+        // PipelineDashboardService already uses (Actual Shoot/Edit Date = the date that gate's
+        // Review was APPROVED, from the Review Feedback History just built above; Actual Live Date
+        // = the earliest ORIGINAL publication event's date, from the already-loaded `events` list) -
+        // never invented, never a new query for the dates themselves.
+        model.addAttribute("actualShootDate", latestApprovedDate(feedbackHistory, "Shoot Review"));
+        model.addAttribute("actualEditDate", latestApprovedDate(feedbackHistory, "Edit Review"));
+        List<ActualPublicationEvent> originalEventsForPlan = eventRepository.findByContentPlan(plan).stream()
+                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
+        model.addAttribute("actualLiveDate", originalEventsForPlan.stream()
+                .map(ActualPublicationEvent::getActualPublicationTimestamp).min(Comparator.naturalOrder())
+                .map(ts -> LocalDate.ofInstant(ts, BUSINESS_ZONE)).orElse(null));
         return "deliverable-detail";
+    }
+
+    /**
+     * ENG-082: Content Detail's Publishing tab Platform×Channel chips - reuses
+     * {@link com.kcpc.mkt.reporting.service.PipelineDashboardService#buildPlatformSummaries}
+     * verbatim (same "published only when a real ORIGINAL event exists with a non-blank, current/
+     * correction-resolved effective Evidence URL" rule the Pipeline dashboard already uses for the
+     * exact same data), just scoped to this one plan instead of the dashboard's multi-plan batch.
+     * {@code outputTargetMappings} is already computed above for the Planning tab's per-output
+     * target chips - flattened here rather than re-queried.
+     */
+    private List<com.kcpc.mkt.reporting.dto.PipelinePlatformSummary> buildContentDetailPlatformSummaries(
+            ContentPlan plan, Map<UUID, List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping>> outputTargetMappings) {
+        List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping> allMappings =
+                outputTargetMappings.values().stream().flatMap(List::stream).toList();
+        if (allMappings.isEmpty()) {
+            return List.of();
+        }
+        List<ActualPublicationEvent> originalEvents = eventRepository.findByContentPlan(plan).stream()
+                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
+        Map<UUID, ActualPublicationEvent> latestEventByTarget = new java.util.HashMap<>();
+        for (ActualPublicationEvent e : originalEvents) {
+            latestEventByTarget.merge(e.getPublicationTarget().getId(), e,
+                    (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
+        }
+        java.util.Set<UUID> representativeEventIds = latestEventByTarget.values().stream()
+                .map(ActualPublicationEvent::getId).collect(java.util.stream.Collectors.toSet());
+        Map<UUID, com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection> latestCorrectionByEventId = new java.util.HashMap<>();
+        if (!representativeEventIds.isEmpty()) {
+            for (var corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
+                latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
+                        (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
+            }
+        }
+        return com.kcpc.mkt.reporting.service.PipelineDashboardService.buildPlatformSummaries(
+                allMappings, latestEventByTarget, latestCorrectionByEventId);
+    }
+
+    /**
+     * ENG-082: combined Review Feedback History for the CEO/MM management shell - every DECIDED
+     * cycle across Planning, Shoot, and Edit (never Publishing - no review gate exists for it),
+     * newest first. Reuses {@link ShootFeedbackEntry} (already gate-agnostic in shape) with its
+     * ENG-082 {@code reviewStage}/{@code cycleNumber} fields identifying which gate/cycle each row
+     * is - the same reviewer-batch-fetch and lead-detection pattern already used by
+     * {@link #addShootTaskDetailAttributes}/{@link #addEditTaskDetailAttributes}, just merging all
+     * three gates instead of one.
+     */
+    private List<ShootFeedbackEntry> buildReviewFeedbackHistory(ContentPlan plan) {
+        List<ReviewCycle> planningDecided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.PLANNING_REVIEW)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+        List<ReviewCycle> shootDecided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.SHOOT_REVIEW)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+        List<ReviewCycle> editDecided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.EDIT_REVIEW)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+
+        java.util.Set<UUID> reviewerIds = java.util.stream.Stream.of(planningDecided, shootDecided, editDecided)
+                .flatMap(List::stream).map(ReviewCycle::getReviewer).filter(java.util.Objects::nonNull)
+                .map(User::getId).collect(java.util.stream.Collectors.toSet());
+        Map<UUID, User> reviewersById = reviewerIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(reviewerIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+
+        var shootLead = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .filter(com.kcpc.mkt.production.domain.ShootingAssignment::isLead).findFirst().orElse(null);
+        UUID shootLeadId = shootLead == null ? null : shootLead.getCameraperson().getId();
+        var editLead = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .filter(com.kcpc.mkt.production.domain.EditingAssignment::isLead).findFirst().orElse(null);
+        UUID editLeadId = editLead == null ? null : editLead.getEditor().getId();
+
+        List<ShootFeedbackEntry> combined = new ArrayList<>();
+        combined.addAll(toFeedbackEntries(planningDecided, "Planning Review", null, reviewersById));
+        combined.addAll(toFeedbackEntries(shootDecided, "Shoot Review", shootLeadId, reviewersById));
+        combined.addAll(toFeedbackEntries(editDecided, "Edit Review", editLeadId, reviewersById));
+        return combined.stream()
+                .sorted(Comparator.comparing(ShootFeedbackEntry::getDecidedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    private static List<ShootFeedbackEntry> toFeedbackEntries(List<ReviewCycle> decided, String reviewStage,
+                                                                UUID leadId, Map<UUID, User> reviewersById) {
+        return decided.stream().map(c -> {
+            boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
+            User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
+            boolean reviewerIsLead = reviewerId != null && leadId != null && reviewerId.equals(leadId);
+            return new ShootFeedbackEntry(reviewStage, c.getCycleNumber(), rework ? "Rework Required" : "Approved",
+                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+                    reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
+        }).toList();
+    }
+
+    /**
+     * ENG-082: "Actual Shoot/Edit Date" for the Overview tab - the date that gate's Review was
+     * APPROVED (never a rework decision), matching {@code PipelineDashboardService}'s own
+     * derivation exactly, just read from the {@code reviewFeedbackHistory} already built above
+     * instead of a second query. Latest wins if more than one Approved entry ever exists for the
+     * same gate (defensive only - a decided ReviewCycle is immutable, ERD-CON-039).
+     */
+    private static LocalDate latestApprovedDate(List<ShootFeedbackEntry> feedbackHistory, String reviewStage) {
+        return feedbackHistory.stream()
+                .filter(f -> reviewStage.equals(f.getReviewStage()) && "Approved".equals(f.getDecisionLabel()))
+                .map(ShootFeedbackEntry::getDecidedAt).filter(java.util.Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .map(ts -> LocalDate.ofInstant(ts, BUSINESS_ZONE)).orElse(null);
+    }
+
+    /**
+     * ENG-082: the CEO/MM Action Center's dynamic action list - assembled from the SAME permission
+     * flags this method already pushed into {@code model} above (re-read back out of the {@link Model}
+     * here rather than re-computed, so there is exactly one source of truth per flag) plus the SAME
+     * per-status conditions the old admin-actions bar encoded as JSTL {@code c:if}s (Hold/Resume only
+     * at SIP/ED, Reopen only at COMP). Every action's own actual authorization is re-validated
+     * server-side by its POST handler regardless of what appears here - this list is UI-visibility
+     * only, exactly like every other {@code canX} flag on this page.
+     */
+    private List<com.kcpc.mkt.web.mvc.dto.AvailableAction> buildAvailableActions(
+            ContentPlan plan, WorkflowStatus status, Model model, User user, boolean nativeAuthority,
+            Optional<com.kcpc.mkt.workflow.domain.WorkHoldRecord> openHold) {
+        List<com.kcpc.mkt.web.mvc.dto.AvailableAction> actions = new ArrayList<>();
+        Map<String, Object> attrs = model.asMap();
+
+        // Primary: whichever review gate is currently pending decision for this user.
+        if (Boolean.TRUE.equals(attrs.get("canDecidePlanningReview")) && status == WorkflowStatus.PLRV) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_PLANNING_REVIEW", "Approve Planning", "primary", "primary", false));
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_PLANNING_REVIEW", "Request Rework", "danger", "primary", true));
+        }
+        if (Boolean.TRUE.equals(attrs.get("canDecideShootReview")) && status == WorkflowStatus.SRV) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_SHOOT_REVIEW", "Approve Shoot", "primary", "primary", false));
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_SHOOT_REVIEW", "Request Rework", "danger", "primary", true));
+        }
+        if (Boolean.TRUE.equals(attrs.get("canDecideEditReview")) && status == WorkflowStatus.ERV) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_EDIT_REVIEW", "Approve Edit", "primary", "primary", false));
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_EDIT_REVIEW", "Request Rework", "danger", "primary", true));
+        }
+
+        // Other actions - same permission flags the old admin-actions bar used, PLUS the exact same
+        // "not closed" status gate AdminActionService#requireNotClosed already enforces server-side
+        // for Reschedule/Reassign/Cancel (rejects at CAN/COMP/RJ) - the old bar never checked this,
+        // showing e.g. a "Cancel" button on an already-Cancelled plan; reusing the real backend rule
+        // here (not a new one) is what spec section 15 explicitly asks for ("Cancel only if actual
+        // workflow supports cancellation from that state").
+        boolean notClosed = status != WorkflowStatus.CAN && status != WorkflowStatus.COMP && status != WorkflowStatus.RJ;
+        if (notClosed && Boolean.TRUE.equals(attrs.get("canReschedule"))) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESCHEDULE", "Reschedule", "secondary", "other", true));
+        }
+        if (notClosed && Boolean.TRUE.equals(attrs.get("canReassign"))) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REASSIGN", "Reassign", "secondary", "other", true));
+        }
+        if (nativeAuthority && (status == WorkflowStatus.SIP || status == WorkflowStatus.ED)) {
+            if (openHold.isEmpty()) {
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("HOLD", "Hold", "secondary", "other", true));
+            } else {
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESUME", "Resume", "secondary", "other", false));
+            }
+        }
+        // AdminActionService#cancel is stricter still - blocked once the plan has EVER reached
+        // Completed (ERD-CON-006), not just "not currently Completed" (a Reopened-from-Completed
+        // plan stays uncancellable even mid-Publishing again).
+        if (notClosed && !plan.getWorkflowInstance().everCompleted() && Boolean.TRUE.equals(attrs.get("canCancel"))) {
+            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("CANCEL", "Cancel", "danger", "other", true));
+        }
+        if (status == WorkflowStatus.COMP) {
+            if (Boolean.TRUE.equals(attrs.get("canPublishingExecute"))) {
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REOPEN_PUBLISHING", "Reopen for Publishing", "secondary", "other", true));
+            }
+            if (Boolean.TRUE.equals(attrs.get("canPerformanceUpdate"))) {
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REOPEN_PERFORMANCE", "Reopen for Performance", "secondary", "other", true));
+            }
+        }
+        return actions;
     }
 
     /**
@@ -434,8 +649,8 @@ public class DeliverableMvcController {
      * {@link #view} already builds for the shared shell (plan/status/user/talentEntries/
      * shootingAssignments/shootComments/canCommentOnShoot/isShootActiveAssignee/openHold/timeline
      * are all reused as-is) - the friendly status label, the display-only progress tracker, and
-     * the Shoot Review feedback history (reusing {@link ShootFeedbackEntry}, the same DTO the My
-     * Work "My Review Feedback" section already uses - ENG-062).
+     * the Shoot Review feedback history (reusing {@link ShootFeedbackEntry}, the same gate-agnostic
+     * DTO the Content Detail page's own Review Feedback History card uses - ENG-082).
      */
     private void addShootTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, User user, Model model) {
         boolean reworkActive = status == WorkflowStatus.SIP
@@ -488,7 +703,7 @@ public class DeliverableMvcController {
             java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
             User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
             boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
-            return new ShootFeedbackEntry(rework ? "Rework Required" : "Approved",
+            return new ShootFeedbackEntry("Shoot Review", c.getCycleNumber(), rework ? "Rework Required" : "Approved",
                     rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
                     reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
         }).toList();
@@ -576,7 +791,7 @@ public class DeliverableMvcController {
             java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
             User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
             boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
-            return new ShootFeedbackEntry(rework ? "Rework Required" : "Approved",
+            return new ShootFeedbackEntry("Edit Review", c.getCycleNumber(), rework ? "Rework Required" : "Approved",
                     rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
                     reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
         }).toList();

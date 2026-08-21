@@ -69,8 +69,8 @@ class PipelineFilterSortTest {
         String perPageOnchangeBlock = allThree.substring(perPageOnchangeStart, perPageOnchangeEnd);
         assertThat(countOccurrences(perPageOnchangeBlock, "size=")).isEqualTo(1);
 
-        int sortLinkStart = allThree.indexOf("data-popup-target=\"popup-sku\"");
-        int contentIdSortStart = allThree.lastIndexOf("pipeline-sort-link", sortLinkStart);
+        int sortHrefIdx = allThree.indexOf("sortBy=contentId");
+        int contentIdSortStart = allThree.lastIndexOf("<a class=\"pipeline-sort-link\"", sortHrefIdx);
         int contentIdSortEnd = allThree.indexOf("</a>", contentIdSortStart);
         String contentIdSortHref = allThree.substring(contentIdSortStart, contentIdSortEnd);
         assertThat(countOccurrences(contentIdSortHref, "size=")).isEqualTo(1);
@@ -135,13 +135,25 @@ class PipelineFilterSortTest {
                 + "&plannedShootTo=" + shootDate.plusDays(10) + "&size=50").body();
         assertThat(rangeExcluding).doesNotContain(delayedPlan.getContentId());
 
-        // ENG-071: per-column filter/sort popup markup is present (filter trigger + its popup) on
-        // representative text/date/select columns, not the old big Filters drawer.
-        assertThat(allThree).doesNotContain("pipeline-filters-drawer");
-        assertThat(allThree).contains("data-popup-target=\"popup-sku\"").contains("id=\"popup-sku\"");
-        assertThat(allThree).contains("data-popup-target=\"popup-plannedShoot\"").contains("id=\"popup-plannedShoot\"");
-        assertThat(allThree).contains("data-popup-target=\"popup-status\"").contains("id=\"popup-status\"");
-        assertThat(allThree).contains("Reset Filters");
+        // ENG-073: Stage tabs isolate by coarse status group - "shoot" gets only the delayed plan
+        // (Shoot Assigned), "planning" gets only the other 3 (still Planning), never both.
+        String shootStage = ceo.get("/app/pipeline?q=" + skuTag + "&stage=shoot&size=50").body();
+        assertThat(shootStage).contains(delayedPlan.getContentId());
+        assertThat(shootStage).doesNotContain(highPlan.getContentId())
+                .doesNotContain(medPlan.getContentId()).doesNotContain(lowPlan.getContentId());
+
+        String planningStage = ceo.get("/app/pipeline?q=" + skuTag + "&stage=planning&size=50").body();
+        assertThat(planningStage).contains(highPlan.getContentId()).contains(medPlan.getContentId()).contains(lowPlan.getContentId());
+        assertThat(planningStage).doesNotContain(delayedPlan.getContentId());
+
+        // ENG-074: per-column filter popups are gone (replaced by the compact top filter bar +
+        // stage tabs); "Clear" replaces the old drawer's "Clear Filters"/"Reset Filters" wording.
+        // ENG-077: the Columns dropdown and Export toolbar buttons were removed entirely.
+        assertThat(allThree).doesNotContain("pipeline-filters-drawer").doesNotContain("pipeline-filter-popup");
+        assertThat(allThree).doesNotContain("id=\"pipelineColumnsToggle\"").doesNotContain("id=\"pipelineColumnsMenu\"");
+        assertThat(allThree).doesNotContain("id=\"pipelineExportBtn\"");
+        assertThat(allThree).contains("pipeline-stage-tabs").contains("Needs Attention").contains("Completed");
+        assertThat(allThree).contains(">Clear<");
 
         // Filters/search never bypass the Employee redirect - same authorization as the unfiltered view.
         String hrEmail = "pfs-hr-" + unique + "@kcpcbandhani.local";

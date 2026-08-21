@@ -17,6 +17,9 @@ public interface ShootingAssignmentRepository extends JpaRepository<ShootingAssi
 
     List<ShootingAssignment> findByCamerapersonAndActiveTrue(User cameraperson);
 
+    /** ENG-087: Team Workload's Assignee Load - every currently active Shoot assignment, batch-loaded once. */
+    List<ShootingAssignment> findByActiveTrue();
+
     List<ShootingAssignment> findByContentPlan_IdInAndActiveTrue(Collection<UUID> contentPlanIds);
 
     Optional<ShootingAssignment> findByContentPlanAndCamerapersonAndActiveTrue(ContentPlan contentPlan, User cameraperson);

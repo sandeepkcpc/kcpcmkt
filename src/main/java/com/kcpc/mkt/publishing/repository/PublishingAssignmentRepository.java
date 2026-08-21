@@ -15,4 +15,7 @@ public interface PublishingAssignmentRepository extends JpaRepository<Publishing
     Optional<PublishingAssignment> findByContentPlanAndPublisherAndActiveTrue(ContentPlan contentPlan, User publisher);
 
     List<PublishingAssignment> findByPublisherAndActiveTrue(User publisher);
+
+    /** ENG-087: Team Workload's Assignee Load - every currently active Publishing assignment, batch-loaded once. */
+    List<PublishingAssignment> findByActiveTrue();
 }

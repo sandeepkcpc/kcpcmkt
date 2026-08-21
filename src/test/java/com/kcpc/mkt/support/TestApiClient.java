@@ -63,6 +63,20 @@ public class TestApiClient {
     }
 
     /**
+     * Same as {@link #get(String)} but with the {@code X-Requested-With: fetch} header the
+     * pipeline dashboard's own {@code fetch()} calls send - lets a test drive the AJAX partial-
+     * fragment response path (e.g. {@code /app/pipeline}) the same way pipeline-dashboard.js does.
+     */
+    public HttpResponse<String> getAjax(String path) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("X-Requested-With", "fetch")
+                .GET().build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        debug("GET(ajax)", path, response);
+        return response;
+    }
+
+    /**
      * Bypasses this client's own cookie jar to send an explicit, caller-supplied raw cookie
      * value - used to prove server-side revocation independent of a well-behaved client having
      * already discarded a cookie the server told it to delete (a real browser deletes the

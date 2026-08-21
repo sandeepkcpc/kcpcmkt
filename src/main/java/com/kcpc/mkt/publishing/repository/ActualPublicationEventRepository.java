@@ -16,4 +16,7 @@ public interface ActualPublicationEventRepository extends InsertOnlyRepository<A
     List<ActualPublicationEvent> findByPlannedOutputAndEventType(PlannedOutput plannedOutput, PublicationEventType eventType);
 
     List<ActualPublicationEvent> findByContentPlan_IdIn(Collection<UUID> contentPlanIds);
+
+    boolean existsByPlannedOutputAndPublicationTarget_IdAndEventType(
+            PlannedOutput plannedOutput, UUID publicationTargetId, PublicationEventType eventType);
 }

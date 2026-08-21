@@ -191,8 +191,14 @@ button[type="submit"] {
 .status-pill.status-inreview { background: #ffedd5; color: #c2410c; }
 .status-pill.status-needschanges { background: #fee2e2; color: #b91c1c; }
 /* ENG-059: My Ideas - "Under Review" gets its own purple (distinct from the blue "Assigned"/
-   "In Review" pills above, which mean something different on My Work). */
+   "In Review" pills above, which mean something different on My Work). ENG-088's Idea Queue asks
+   for "Under Review -> blue" specifically, which would contradict that deliberate distinction if
+   changed globally - .idea-queue-table below scopes the blue override to just that table instead
+   of touching My Ideas' own established purple. */
 .status-pill.status-underreview { background: #ede9fe; color: #6d28d9; }
+/* ENG-088: Idea Queue - "Reopened" gets its own purple (the same shade "Under Review" used to be
+   the sole owner of), now distinguishing it from Under Review's blue in that table. */
+.status-pill.status-reopened { background: #ede9fe; color: #6d28d9; }
 .status-pill.status-rejected { background: #fee2e2; color: #991b1b; }
 /* ENG-061: My Ideas - "Retained" gets its own soft amber, distinct from Rejected's red. */
 .status-pill.status-retained { background: #fef3c7; color: #92400e; }
@@ -474,19 +480,29 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 }
 .alert-error { margin-bottom: 1rem; }
 
+/* ENG-082 (visual polish pass): a full CEO/CEO_OWNER nav can carry 12 links (Content Pipeline
+   through Publishing Catalogue) - flex-wrap used to drop the tail end (e.g. "Publishing Catalogue")
+   onto a visually broken second row once the window narrowed even slightly. Kept as one compact,
+   horizontally-scrollable row instead: every role-authorized link stays reachable (none hidden),
+   tighter gap/padding buys back some room before scrolling is ever needed, and the scrollbar itself
+   is unobtrusive (thin, only appears on the dark nav strip) rather than removed outright. */
 .app-nav {
     display: flex;
-    gap: 0.25rem;
-    flex-wrap: wrap;
-    padding: 0.6rem 1.5rem;
+    gap: 0.15rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding: 0.55rem 1.5rem;
     background: #232342;
 }
 .app-nav a {
     color: #cbd5e1;
     text-decoration: none;
     font-size: 0.85rem;
-    padding: 0.35rem 0.7rem;
+    padding: 0.35rem 0.6rem;
     border-radius: 6px;
+    white-space: nowrap;
+    flex: none;
 }
 .app-nav a:hover, .app-nav a.active { background: rgba(255,255,255,0.12); color: #fff; }
 
@@ -514,6 +530,7 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 /* Deliverable Detail: use the full available width instead of a narrow fixed column, while
    keeping individual fields a readable size rather than stretching a single input full-screen. */
 .app-main-wide .panel { max-width: none; }
+.app-main-wide .kpi-grid { max-width: none; }
 .app-main-wide .panel .field-row { max-width: 900px; }
 .app-main-wide .panel > form > label:not(.form-grid label) > input:not([type="checkbox"]),
 .app-main-wide .panel > form > label:not(.form-grid label) > select,
@@ -668,11 +685,43 @@ button[type="submit"].success { background: #1a7f4b; }
 .kpi-tile .kpi-na { color: #9ca3af; font-style: italic; }
 
 /* CEO Content Pipeline 18-column dashboard */
+/* ENG-079: no max-height/vertical overflow here on purpose - a capped height + overflow:auto
+   would create an INTERNAL vertical scrollbar for the table once 10 rows exceed that height,
+   which is exactly what this table must never do. Only overflow-x is scrollable (for the wide
+   lifecycle columns); the table's own height is left to flow naturally in the page, so 10 compact
+   rows fit on one normal viewport without a nested scrollbar - if content ever does exceed the
+   viewport, the PAGE scrolls, not this box. */
 .pipeline-scroll {
-    overflow: auto;
-    max-height: 75vh;
+    position: relative;
+    overflow-x: auto;
+    overflow-y: visible;
     border: 1px solid var(--kcpc-border);
     border-radius: 8px;
+}
+/* ENG-081: AJAX loading state - keeps the current table visible (just dimmed) instead of ever
+   flashing blank while pipeline-dashboard.js's fetch() is in flight, plus a small spinner in the
+   table's own corner. pointer-events:none also blocks a second click on the (still-visible, about
+   to be replaced) old content while a request is already in progress. */
+.pipeline-scroll.pipeline-loading .pipeline-table {
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+.pipeline-scroll.pipeline-loading::after {
+    content: '';
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--kcpc-border);
+    border-top-color: var(--kcpc-accent);
+    border-radius: 50%;
+    animation: pipeline-spin 0.6s linear infinite;
+    z-index: 5;
+}
+@keyframes pipeline-spin {
+    to { transform: rotate(360deg); }
 }
 .pipeline-table {
     width: max-content;
@@ -688,9 +737,11 @@ button[type="submit"].success { background: #1a7f4b; }
 }
 .pipeline-table th, .pipeline-table td {
     text-align: left;
-    padding: 0.55rem 0.7rem;
+    padding: 0.35rem 0.65rem;
     border-bottom: 1px solid var(--kcpc-border);
     font-size: 0.85rem;
+    line-height: 1.3;
+    vertical-align: middle;
     white-space: nowrap;
     max-width: 220px;
     overflow: hidden;
@@ -701,7 +752,18 @@ button[type="submit"].success { background: #1a7f4b; }
     position: sticky;
     top: 0;
     z-index: 2;
+    font-weight: 700;
+    font-size: 0.76rem;
+    line-height: 1.3;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
+/* ENG-074: single flat header row (no grouped pastel header row above it), so Content ID only
+   ever needs to stick on ONE axis at a time relative to any OTHER rule (top from the generic
+   th rule above, left from this one) - a simpler, more reliable combination than the two-tier
+   grouped-header layout ENG-069/071 had, where the header cell needed both axes from competing
+   selectors at once. */
 .pipeline-table td.pipeline-col-id, .pipeline-table th.pipeline-col-id {
     position: sticky;
     left: 0;
@@ -709,8 +771,42 @@ button[type="submit"].success { background: #1a7f4b; }
     z-index: 1;
     font-weight: 600;
 }
-.pipeline-table th.pipeline-col-id { background: #f9fafb; z-index: 3; }
+.pipeline-table th.pipeline-col-id { background: #f9fafb; z-index: 3; font-weight: 700; }
+
+/* SKU: pinned immediately after Content ID (same sticky-left region). Content ID's column width
+   is intentionally left auto/content-driven (unchanged from before), so `left` here is not a
+   hardcoded guess - it's set from --pipeline-sku-left, a custom property pipeline-dashboard.js
+   computes from Content ID's actual rendered width on load (and on resize), which is what keeps
+   SKU flush against Content ID without overlapping it. The `120px` fallback only applies with JS
+   disabled. Same z-index tiering as Content ID (1 for data cells, 3 for the header cell so it
+   wins over the generic sticky-top th at z-index 2). Background matches ordinary cells exactly
+   (same var(--kcpc-surface)/#f9fafb as ordinary td/th) - sticky needs an opaque background so
+   scrolled-under columns don't show through, not a distinct color. */
+.pipeline-table td.pipeline-col-sku, .pipeline-table th.pipeline-col-sku {
+    position: sticky;
+    left: var(--pipeline-sku-left, 120px);
+    background: var(--kcpc-surface);
+    z-index: 1;
+}
+.pipeline-table th.pipeline-col-sku { background: #f9fafb; z-index: 3; }
+
+/* Status: pinned to the far right (mirrors Content ID/SKU's pinned-left treatment). `right: 0` is
+   exact regardless of any other column's width, so no computed offset is needed here. */
+.pipeline-table td.pipeline-col-status, .pipeline-table th.pipeline-col-status {
+    position: sticky;
+    right: 0;
+    background: var(--kcpc-surface);
+    z-index: 1;
+}
+.pipeline-table th.pipeline-col-status { background: #f9fafb; z-index: 3; }
+
 .pipeline-table td.pipeline-col-wrap { white-space: normal; }
+.pipeline-table tbody tr:hover td { background: #fafbfc; }
+.pipeline-table tbody tr:hover td.pipeline-col-id,
+.pipeline-table tbody tr:hover td.pipeline-col-sku,
+.pipeline-table tbody tr:hover td.pipeline-col-status {
+    background: #f5f6f8;
+}
 
 .pipeline-link-icon {
     display: inline-flex;
@@ -731,193 +827,194 @@ button[type="submit"].success { background: #1a7f4b; }
     cursor: pointer;
 }
 
-/* ENG-069: Content Pipeline redesign - workflow-focused dashboard shell (filter bar, KPI cards,
-   grouped table headers, compact team/publication chips, color-coded status badges, delay
-   indicator, sticky Content ID/Status/Action columns, client-side search/filter/pagination). Pure
-   presentation - the underlying data source (PipelineDashboardService/PipelineRow) and route are
-   unchanged. */
-.pipeline-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
+/* ENG-074: Content Pipeline - premium admin-dashboard redesign (stage tabs, compact filter bar,
+   Columns/Export toolbar, flat sortable 20-column table, soft pill status badges). Pure
+   presentation - the underlying data source (PipelineDashboardService/PipelineRow), route, and
+   every workflow/permission/business rule are unchanged. */
+/* ENG-079: page heading ("Content Pipeline" / "... view — complete end-to-end visibility...")
+   removed entirely (not just hidden) so the stage tabs sit right under the nav with no leftover
+   margin from the old heading block. */
+
+/* Stage filter tabs - the at-a-glance summary (replacing the standalone KPI cards), a coarse
+   status-group quick filter per tab with its own count badge. */
+.pipeline-stage-tabs {
+    display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem;
 }
-.pipeline-filters-bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.pipeline-filters-bar select, .pipeline-filters-bar input[type="date"], .pipeline-filters-bar input[type="text"] {
-    padding: 0.5rem 0.75rem;
+.pipeline-stage-tab {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.3rem 0.75rem; border-radius: 8px; border: 1px solid var(--kcpc-border);
+    background: var(--kcpc-surface); color: #475569; font-size: 0.85rem; font-weight: 600;
+    text-decoration: none; white-space: nowrap; line-height: 1.3;
+}
+.pipeline-stage-tab:hover { border-color: #cbd5e1; background: #f8fafc; }
+.pipeline-stage-tab.active {
+    background: var(--kcpc-accent); border-color: var(--kcpc-accent); color: #fff;
+    box-shadow: 0 2px 8px rgba(233, 69, 96, 0.25);
+}
+.pipeline-stage-tab.active .pipeline-stage-count { background: rgba(255,255,255,0.25); color: #fff; }
+.pipeline-stage-tab.attention:not(.active) { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+.pipeline-stage-icon { font-size: 0.85rem; }
+.pipeline-stage-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.4rem; height: 1.4rem; padding: 0 0.35rem; border-radius: 999px;
+    background: #eef2f7; color: #475569; font-size: 0.72rem; font-weight: 700;
+}
+
+/* ENG-080: Compact filter bar - Search + Priority + Platform + Date Range + Delayed only +
+   Apply/Clear, all on one shared visual baseline. The bar itself is `align-items: flex-end`, and
+   every group's actual CONTROL (input/select/date-row/checkbox-row/button) shares one fixed
+   height (--pipeline-filter-control-h) - so regardless of whether a group has a label above it
+   (Priority/Platform/Date Range) or not (Search/Delayed only/buttons), each group's own box bottom
+   lines up on the exact same pixel: flex-end aligns bottoms, and equal control height means equal
+   total group height too, which is what also keeps the three labeled groups' LABELS starting at
+   the same top position. This replaces the previous `align-items: center`, which centered each
+   group on the row's cross-axis independently by its own (differing) total height - the actual
+   cause of Search/Delayed-only/the buttons appearing to float at inconsistent vertical positions. */
+.pipeline-filter-bar {
+    --pipeline-filter-control-h: 42px;
+    display: flex; align-items: flex-end; gap: 0.9rem; flex-wrap: wrap;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    padding: 0.5rem 0.85rem; margin-bottom: 0.55rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.pipeline-filter-bar select, .pipeline-filter-bar input[type="date"], .pipeline-filter-bar input[type="text"] {
+    height: var(--pipeline-filter-control-h);
+    padding: 0 0.65rem;
     border: 1px solid var(--kcpc-border);
-    border-radius: 6px;
+    border-radius: 7px;
     font-size: 0.85rem;
+    line-height: normal;
     background: var(--kcpc-surface);
+    color: var(--kcpc-ink);
 }
-.pipeline-filters-bar .pipeline-search-field { position: relative; }
-.pipeline-filters-bar .pipeline-search-field input[type="text"] { padding-right: 2rem; min-width: 220px; }
-.pipeline-filters-bar .pipeline-search-icon {
+.pipeline-search-field { position: relative; }
+.pipeline-search-field input[type="text"] { padding-right: 2rem; min-width: 260px; }
+.pipeline-search-icon {
     position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
     color: #9ca3af; pointer-events: none; font-size: 0.85rem;
 }
-.pipeline-date-range { display: flex; align-items: center; gap: 0.35rem; }
-.pipeline-date-range span { color: #9ca3af; }
-
-.pipeline-kpi-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-@media (max-width: 1100px) { .pipeline-kpi-cards { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 700px) { .pipeline-kpi-cards { grid-template-columns: repeat(2, 1fr); } }
-.pipeline-kpi-card {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    background: var(--kcpc-surface);
-    border: 1px solid var(--kcpc-border);
-    border-radius: 8px;
-    padding: 0.85rem 1rem;
+.pipeline-filter-inline {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    font-size: 0.72rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em;
+    line-height: 1;
 }
-.pipeline-kpi-icon {
-    flex-shrink: 0; width: 2.3rem; height: 2.3rem; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
+.pipeline-date-range-inputs { display: flex; align-items: center; gap: 0.35rem; }
+.pipeline-date-range-inputs input[type="date"] { width: 8.75rem; }
+.pipeline-date-range-inputs span { color: #9ca3af; font-weight: 400; }
+/* Delayed only: no label row above it (like Search and the buttons), so it needs the same fixed
+   control height to land on the shared bottom baseline instead of the row's old center-line;
+   internal align-items:center keeps the checkbox + its text vertically centered as one group
+   within that height, and white-space:nowrap keeps "Delayed only" on one line whenever the bar
+   has room (it wraps naturally with the rest of the bar on narrow viewports instead). */
+.pipeline-filter-checkbox {
+    display: flex; align-items: center; gap: 0.4rem;
+    height: var(--pipeline-filter-control-h);
+    font-size: 0.82rem; font-weight: 600; color: var(--kcpc-ink); white-space: nowrap;
 }
-.pipeline-kpi-card.kpi-planning .pipeline-kpi-icon { background: #dbeafe; color: #1d4ed8; }
-.pipeline-kpi-card.kpi-shoot .pipeline-kpi-icon { background: #dcfce7; color: #166534; }
-.pipeline-kpi-card.kpi-edit .pipeline-kpi-icon { background: #ede9fe; color: #6d28d9; }
-.pipeline-kpi-card.kpi-publishing .pipeline-kpi-icon { background: #ffedd5; color: #c2410c; }
-.pipeline-kpi-card.kpi-attention .pipeline-kpi-icon { background: #fee2e2; color: #b91c1c; }
-.pipeline-kpi-title { font-size: 0.82rem; font-weight: 700; }
-.pipeline-kpi-card.kpi-planning .pipeline-kpi-title { color: #1d4ed8; }
-.pipeline-kpi-card.kpi-shoot .pipeline-kpi-title { color: #166534; }
-.pipeline-kpi-card.kpi-edit .pipeline-kpi-title { color: #6d28d9; }
-.pipeline-kpi-card.kpi-publishing .pipeline-kpi-title { color: #c2410c; }
-.pipeline-kpi-card.kpi-attention .pipeline-kpi-title { color: #b91c1c; }
-.pipeline-kpi-count { font-size: 1.35rem; font-weight: 800; line-height: 1.1; }
-.pipeline-kpi-subtitle { font-size: 0.74rem; color: #6b7280; }
-
-/* Grouped column headers: a thin pastel-background row spanning each logical column group,
-   sitting above the individual column-label header row - both rows stay sticky together. */
-.pipeline-table thead tr.pipeline-group-row th {
-    position: sticky; top: 0; z-index: 3;
-    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
-    text-align: center; border-bottom: 1px solid var(--kcpc-border);
-    padding: 0.35rem 0.7rem;
+.btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+    height: var(--pipeline-filter-control-h);
+    padding: 0 1rem; border-radius: 7px; border: 1px solid var(--kcpc-accent);
+    background: var(--kcpc-accent); color: #fff; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
 }
-.pipeline-table thead tr.pipeline-col-row th { position: sticky; top: 1.85rem; z-index: 2; }
-/* The Content ID header must stick on BOTH axes at once (top, as part of the header row, AND
-   left, as the pinned column) - splitting top/left across two separate selectors left this to the
-   cascade's mercy and didn't render reliably; one explicit high-specificity rule setting both
-   together removes any ambiguity. */
-.pipeline-table thead tr.pipeline-col-row th.pipeline-col-id {
-    position: sticky;
-    top: 1.85rem;
-    left: 0;
-    z-index: 4;
-    background: #f9fafb;
+/* Clear reuses the shared .btn-outline look - scoped here (not on the shared rule) so its height
+   only changes inside this filter bar, not on every other page that uses .btn-outline. */
+.pipeline-filter-bar .btn-outline {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: var(--pipeline-filter-control-h);
 }
-.pipeline-group-content { background: #eff6ff; color: #1d4ed8; }
-.pipeline-group-people { background: #f0fdf4; color: #166534; }
-.pipeline-group-planned { background: #eef2ff; color: #3730a3; }
-.pipeline-group-actual { background: #fefce8; color: #854d0e; }
-.pipeline-group-publication { background: #faf5ff; color: #6d28d9; }
-.pipeline-group-current { background: #f9fafb; color: #374151; }
+.btn-primary:hover { background: #d63852; border-color: #d63852; }
 
-.pipeline-table td.pipeline-col-status, .pipeline-table th.pipeline-col-status,
-.pipeline-table td.pipeline-col-action, .pipeline-table th.pipeline-col-action {
-    position: sticky; right: 0; background: var(--kcpc-surface); z-index: 1;
-}
-.pipeline-table td.pipeline-col-action, .pipeline-table th.pipeline-col-action { right: 0; }
-.pipeline-table td.pipeline-col-status, .pipeline-table th.pipeline-col-status { right: 6.5rem; }
-.pipeline-table th.pipeline-col-status, .pipeline-table th.pipeline-col-action { background: #f9fafb; z-index: 3; }
-
-.pipeline-team-chip { display: inline-flex; align-items: baseline; gap: 0.3rem; }
-.pipeline-team-more { font-size: 0.74rem; color: #6b7280; font-weight: 600; }
-.pipeline-team-empty { color: #c1c5cc; }
-
-.pipeline-status-cell { display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-start; }
+.pipeline-status-cell { display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
 .pipeline-status-badge {
-    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
-    font-size: 0.74rem; font-weight: 600; white-space: nowrap;
+    display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 700; line-height: 1.4; white-space: nowrap;
 }
 .pipeline-status-badge.stage-planning { background: #dbeafe; color: #1d4ed8; }
 .pipeline-status-badge.stage-shoot { background: #dcfce7; color: #166534; }
 .pipeline-status-badge.stage-edit { background: #ede9fe; color: #6d28d9; }
 .pipeline-status-badge.stage-publishing { background: #ffedd5; color: #c2410c; }
-.pipeline-status-badge.stage-performance { background: #cffafe; color: #0e7490; }
+.pipeline-status-badge.stage-performance { background: #fef9c3; color: #854d0e; }
 .pipeline-status-badge.stage-completed { background: #dcfce7; color: #166534; }
 .pipeline-status-badge.stage-cancelled { background: #f3f4f6; color: #6b7280; }
-.pipeline-delay-note { font-size: 0.7rem; color: #b91c1c; font-weight: 600; white-space: nowrap; }
-
-.pipeline-view-details {
-    display: inline-flex; align-items: center; gap: 0.25rem;
-    padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600;
-    color: #1d4ed8; border: 1px solid #bfdbfe; background: #eff6ff; text-decoration: none; white-space: nowrap;
-}
-.pipeline-view-details:hover { background: #dbeafe; }
-
-.pipeline-filters-bar .btn-outline { height: 2.4rem; display: inline-flex; align-items: center; }
-
-/* ENG-071: per-column filter popup - a small dropdown anchored to its own <th> (which needs
-   position:relative; the sticky group/col-row <th>s already establish a positioning context for
-   this, same as position:relative would) instead of one big drawer. Every field submits the ONE
-   shared #pipelineFilterForm wrapping the whole table. */
-.pipeline-th-flex { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
-.pipeline-th-label { font-weight: inherit; }
-.pipeline-filter-trigger {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 1.2rem; height: 1.2rem; padding: 0; border: none; background: none; cursor: pointer;
-    color: #9ca3af; font-size: 0.65rem; border-radius: 4px; flex-shrink: 0;
-}
-.pipeline-filter-trigger:hover { background: #e5e7eb; color: #374151; }
-.pipeline-filter-trigger.active { color: #1d4ed8; background: #dbeafe; }
-.pipeline-table th { position: relative; }
-.pipeline-filter-popup {
-    position: absolute; top: 100%; left: 0; margin-top: 0.25rem; z-index: 20;
-    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.12); padding: 0.75rem; min-width: 190px;
-    text-align: left; text-transform: none; letter-spacing: normal; font-size: 0.82rem; font-weight: 400;
-}
-.pipeline-filter-popup label {
-    display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.76rem; font-weight: 600;
-    color: #6b7280; margin-bottom: 0.5rem;
-}
-.pipeline-filter-popup select, .pipeline-filter-popup input[type="text"], .pipeline-filter-popup input[type="date"] {
-    padding: 0.4rem 0.55rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.82rem;
-    background: var(--kcpc-surface); font-weight: 400; color: var(--kcpc-ink);
-}
-.pipeline-filter-radio {
-    flex-direction: row !important; align-items: center; gap: 0.4rem !important;
-    font-weight: 400 !important; color: var(--kcpc-ink) !important; margin-bottom: 0.35rem !important;
-}
-.pipeline-filter-checkbox {
-    flex-direction: row !important; align-items: center; gap: 0.4rem !important;
-    font-weight: 400 !important; color: var(--kcpc-ink) !important;
-}
-.pipeline-filter-popup-actions { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; }
-.pipeline-filter-popup-actions .btn-outline { padding: 0.3rem 0.65rem; font-size: 0.78rem; height: auto; }
+.pipeline-status-badge.stage-delayed { background: #fee2e2; color: #b91c1c; }
 
 .pipeline-sort-link {
-    display: inline-flex; align-items: center; gap: 0.25rem;
+    display: inline-flex; align-items: center; gap: 0.3rem;
     color: inherit; text-decoration: none; font-weight: inherit;
 }
-.pipeline-sort-link:hover { text-decoration: underline; }
-.pipeline-sort-indicator { font-size: 0.65rem; }
+.pipeline-sort-link:hover { color: var(--kcpc-accent); }
+.pipeline-sort-indicator { font-size: 0.6rem; color: #b6bcc7; }
+.pipeline-sort-indicator.active { color: var(--kcpc-accent); }
 
+/* ENG-075: Platforms column - one icon+count chip per planned Platform, active/clickable only once
+   at least one Channel on it has a real publication event with a usable Evidence URL; muted/
+   non-clickable (planned only) otherwise. Clicking an active chip opens a small popover listing
+   every Channel's own status instead of navigating away. */
+.pipeline-platform-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.pipeline-platform-chip-wrap { position: relative; }
+.pipeline-platform-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.16rem 0.5rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
+    line-height: 1.3; white-space: nowrap; border: 1px solid transparent;
+}
+button.pipeline-platform-chip.active {
+    background: #dcfce7; color: #166534; border-color: #bbf7d0; cursor: pointer;
+}
+button.pipeline-platform-chip.active:hover { background: #bbf7d0; }
+button.pipeline-platform-chip.active:focus-visible { outline: 2px solid var(--kcpc-accent); outline-offset: 1px; }
+span.pipeline-platform-chip.muted { background: #f1f5f9; color: #94a3b8; cursor: default; }
+/* ENG-076: icons are local, full-color brand-badge SVGs (static/icons/platforms/ - own artwork
+   using each platform's real brand colors, not emoji, not a CDN icon font, and not the exact
+   copyrighted official logo files), rendered via <img>. Muted/planned-only state only reduces
+   opacity - it must NOT desaturate/grey the icon, so brand identity stays visible even when the
+   chip itself is non-clickable. */
+.pipeline-platform-icon { width: 18px; height: 18px; display: block; flex: none; border-radius: 5px; }
+.pipeline-platform-chip.muted .pipeline-platform-icon { opacity: 0.5; }
+.pipeline-platform-count { font-size: 0.76rem; font-weight: 700; }
+
+/* ENG-076: the popover is a <body>-level fixed-position overlay (moved there once by
+   pipeline-dashboard.js on first open, positioned via getBoundingClientRect() of the clicked
+   chip) instead of being positioned relative to its own table cell - a wide table's own
+   .pipeline-scroll overflow:auto container (and any stacking context sticky cells create) would
+   otherwise clip it or bury it behind later rows/cells. z-index is deliberately way above
+   anything else on this page (sticky headers/cells top out at z-index 4). */
+.pipeline-platform-popover {
+    position: fixed; top: -9999px; left: -9999px; z-index: 1000;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22); padding: 0.7rem; min-width: 240px; max-width: 300px;
+    white-space: normal;
+}
+.pipeline-platform-popover-header {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding-bottom: 0.5rem; margin-bottom: 0.4rem; border-bottom: 1px solid var(--kcpc-border);
+}
+.pipeline-platform-popover-title { font-weight: 700; font-size: 0.85rem; color: var(--kcpc-ink); }
+.pipeline-platform-progress { margin-left: auto; font-size: 0.72rem; font-weight: 700; color: #166534; }
+.pipeline-platform-popover-channels { display: flex; flex-direction: column; gap: 0.4rem; }
+.pipeline-channel-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+    font-size: 0.8rem;
+}
+.pipeline-channel-handle { color: var(--kcpc-ink); font-weight: 600; white-space: nowrap; }
+.pipeline-channel-row.pending .pipeline-channel-handle { color: #94a3b8; font-weight: 500; }
+.pipeline-channel-status { font-size: 0.74rem; font-weight: 600; color: #166534; white-space: nowrap; }
+.pipeline-channel-status.muted { color: #94a3b8; font-weight: 500; }
+.pipeline-channel-open {
+    font-size: 0.74rem; font-weight: 700; color: var(--kcpc-accent); text-decoration: none; white-space: nowrap;
+}
+.pipeline-channel-open:hover { text-decoration: underline; }
+
+/* ENG-079: pagination/footer area tightened - scoped to .pipeline-pagination (an extra class
+   alongside the shared .pagination) so my-ideas.jsp/my-work.jsp's own pagination footers, which
+   reuse the same base .pagination class, are left exactly as they were. */
+.pipeline-pagination { margin-top: 0.5rem; }
 .pipeline-footer-note {
-    margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 8px;
-    background: #eff6ff; color: #1e3a8a; font-size: 0.82rem; display: flex; gap: 0.5rem; align-items: flex-start;
+    margin-top: 0.5rem; padding: 0.4rem 0.85rem; border-radius: 8px;
+    background: #f8fafc; color: #64748b; font-size: 0.78rem; display: flex; gap: 0.5rem; align-items: flex-start;
 }
-.pipeline-row-hidden { display: none !important; }
-
-/* Client-side pagination controls reuse the existing .pagination/.pagination-controls shape
-   (My Ideas/My Work feedback pagination) - buttons instead of links, since there's no page reload. */
-.pagination-controls button {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 2rem; height: 2rem; padding: 0 0.4rem; border-radius: 6px;
-    border: 1px solid var(--kcpc-border); background: var(--kcpc-surface); color: var(--kcpc-ink);
-    font-size: 0.85rem; cursor: pointer;
-}
-.pagination-controls button:hover:not(:disabled) { background: #f4f5f7; }
-.pagination-controls button.page-current { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 700; }
-.pagination-controls button:disabled { color: #d1d5db; cursor: not-allowed; }
 .pipeline-per-page { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #6b7280; }
-.pipeline-per-page select { padding: 0.3rem 0.5rem; border: 1px solid var(--kcpc-border); border-radius: 6px; }
+.pipeline-per-page select { padding: 0.25rem 0.5rem; border: 1px solid var(--kcpc-border); border-radius: 6px; }
 
 /* Publication Targets: one row per Platform, channels as chips on the same line - "Platform :
    Channel Channel" - instead of a flat comma list or a count-labelled block per platform. */
@@ -976,6 +1073,61 @@ button[type="submit"].success { background: #1a7f4b; }
     font-weight: 600;
     white-space: nowrap;
 }
+
+/* Publisher Assignment + Publishing Scope Verification (modal + read-only Publishing Scope table) */
+.scope-target-icon { border-radius: 3px; flex: none; }
+.badge-type {
+    display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; font-weight: 700;
+    white-space: nowrap; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.badge-type-REEL { background: #ede9fe; color: #6d28d9; }
+.badge-type-VIDEO { background: #dbeafe; color: #1d4ed8; }
+.badge-type-PHOTOGRAPHY { background: #dcfce7; color: #166534; }
+.scope-target-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem; padding: 4px 8px; margin: 0 4px 4px 0;
+    border-radius: 12px; font-size: 0.75rem; white-space: nowrap;
+}
+.scope-target-chip.planned { background: #f1f3ff; color: #3730a3; }
+.scope-target-chip.published { background: #dcfce7; color: #166534; }
+.scope-locked {
+    display: inline-flex; align-items: center; gap: 0.2rem; color: #6b7280; font-size: 0.7rem;
+    font-weight: 600; white-space: nowrap; margin-left: 0.3rem;
+}
+.content-detail-scope-table { margin-top: 0.75rem; }
+.scope-add-target-details summary { cursor: pointer; font-size: 0.82rem; color: var(--kcpc-accent); }
+.scope-add-target-details[open] summary { margin-bottom: 0.5rem; }
+
+.kcpc-modal-overlay {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 1000;
+    display: flex; align-items: flex-start; justify-content: center; padding: 3.5rem 1.5rem;
+    overflow-y: auto;
+}
+.kcpc-modal {
+    background: var(--kcpc-surface); border-radius: 12px; width: 100%; max-width: 900px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; max-height: 100%;
+}
+.kcpc-modal-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.4rem;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+.kcpc-modal-header h3 { margin: 0; font-size: 1.05rem; }
+.kcpc-modal-close {
+    background: none; border: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: #6b7280;
+    padding: 0.2rem 0.5rem;
+}
+.kcpc-modal-close:hover { color: var(--kcpc-ink); }
+.kcpc-modal-body { padding: 1.2rem 1.4rem; overflow-y: auto; }
+.kcpc-modal-footer {
+    display: flex; justify-content: flex-end; gap: 0.6rem; padding: 1rem 1.4rem;
+    border-top: 1px solid var(--kcpc-border);
+}
+
+.scope-change-log {
+    list-style: none; margin: 0 0 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px;
+    background: #fffbeb; border: 1px solid #fde68a; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.25rem;
+}
+.scope-change-item.scope-change-added { color: #166534; }
+.scope-change-item.scope-change-removed { color: #b91c1c; }
 
 .action-stack { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; min-width: 140px; }
 .action-stack .action-form { margin: 0; }
@@ -1389,28 +1541,9 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 /* My Work: Description column shouldn't stretch the whole table for a couple of long instructions. */
 .my-work-description { max-width: 280px; white-space: pre-wrap; }
 
-/* ENG-062: My Work - Content ID as a clear, clickable link (Active Shoot Tasks + My Review Feedback). */
+/* ENG-062: My Work - Content ID as a clear, clickable link. */
 .content-id-link { color: #1d4ed8; font-weight: 700; text-decoration: none; }
 .content-id-link:hover { text-decoration: underline; }
-
-/* ENG-062: Camera Person "My Review Feedback" - search + filter pills, mirrors .my-ideas-filters. */
-.feedback-filters {
-    display: flex;
-    align-items: end;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin-bottom: 1.25rem;
-}
-.feedback-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; flex: 0 0 auto; }
-.feedback-filters .filter-field.filter-field-search { flex: 1 1 220px; }
-.feedback-search-input {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--kcpc-border);
-    border-radius: 6px;
-    font-size: 0.9rem;
-}
-.feedback-filters .btn-outline { height: 2.35rem; display: inline-flex; align-items: center; }
 
 .filter-pills { display: flex; gap: 0.4rem; }
 .filter-pill {
@@ -1429,7 +1562,6 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .filter-pill.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
 
 /* ENG-062: feedback cards - clean horizontal rows, not an audit-log table. */
-.feedback-card-list { display: flex; flex-direction: column; gap: 0.75rem; }
 .feedback-card {
     border: 1px solid var(--kcpc-border);
     border-radius: 8px;
@@ -1442,13 +1574,10 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
     align-items: start;
 }
 .feedback-field-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: #9ca3af; margin-bottom: 0.15rem; }
-.feedback-stage-label { margin-top: 0.6rem; }
 .feedback-stage-value { font-size: 0.8rem; font-weight: 600; color: #4b5563; }
 .feedback-reviewer { margin-top: 0.35rem; font-size: 0.78rem; color: #6b7280; }
 .feedback-reviewer::before { content: "\1F464\00A0"; }
-.feedback-decision-col { margin-top: 1.2rem; }
 .feedback-date-col { font-size: 0.85rem; white-space: nowrap; margin-top: 1.2rem; }
-.feedback-action-col { display: flex; align-items: flex-start; justify-content: flex-end; }
 
 .feedback-history { margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--kcpc-border); }
 .feedback-history summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: #1d4ed8; }
@@ -1458,7 +1587,6 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 
 @media (max-width: 900px) {
     .feedback-card-main { grid-template-columns: 1fr; gap: 0.6rem; }
-    .feedback-action-col { justify-content: flex-start; }
 }
 
 /* ENG-064: Camera Person Shoot Task Detail page. */
@@ -1645,3 +1773,412 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 /* ENG-061: My Ideas - Submitted On shows date/time on two lines. */
 .submitted-on-cell { white-space: nowrap; }
 .submitted-on-time { font-size: 0.78rem; }
+
+/* ENG-082: CEO/MM Content Detail redesign - top bar, lifecycle stepper, summary bar, two-column
+   tabs+sidebar layout. Reuses existing tokens/classes (.panel, .status-badge, .status-pill,
+   .priority-pill, .flag-chip, .data-table, .kcpc-model-picker*, .stage-comment*, .my-work-tabs*,
+   .pipeline-platform-*) wherever content is unchanged - only genuinely new layout gets new classes. */
+.content-detail-topbar { margin-bottom: 0.75rem; }
+.content-detail-topbar-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; flex-wrap: wrap; }
+.content-detail-topbar-text { flex: 1; min-width: 260px; }
+.content-detail-back-link { display: inline-block; margin-bottom: 0.4rem; color: var(--kcpc-accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
+.content-detail-back-link:hover { text-decoration: underline; }
+.content-detail-topbar h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+.content-detail-title-row { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.95rem; }
+.content-detail-id { font-weight: 700; }
+.content-detail-sep { color: #9ca3af; }
+.content-detail-idea-title { color: #475569; }
+
+/* ENG-082 (visual polish pass): stepper sits beside the title block (not stacked below it), sized
+   and spaced to match the reference layout - bigger dots (2.5rem) with small decorative SVG icons
+   (stroke="currentColor", so they inherit the done/current/pending color automatically) instead of
+   plain numbers. The connecting line is a single ::before spanning the row edge-to-edge BEHIND the
+   dots (z-index), not per-node <span> connectors - this guarantees every gap between nodes is
+   exactly equal (flex justify-content:space-between distributes the 6 nodes evenly across the
+   stepper's own width) regardless of label text length, and the line reads as one continuous,
+   longer connector rather than 5 short segments. The stepper gets a fixed flex-basis so it always
+   gets the same generous width next to the title block instead of shrinking to fit whatever's left. */
+.content-detail-stepper { position: relative; display: flex; justify-content: space-between; flex: 0 1 460px; min-width: 380px; }
+.content-detail-stepper::before {
+    content: ''; position: absolute; top: 1.25rem; left: 2.75rem; right: 2.75rem; height: 2px;
+    background: #e5e7eb; z-index: 0;
+}
+.content-detail-step { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+.content-detail-step-dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.5rem; height: 2.5rem; border-radius: 50%;
+    background: var(--kcpc-surface); color: #9ca3af; border: 2px solid #e5e7eb;
+}
+.content-detail-step-dot svg { width: 18px; height: 18px; }
+.content-detail-step-current .content-detail-step-dot { background: var(--kcpc-accent); border-color: var(--kcpc-accent); color: #fff; }
+.content-detail-step-done .content-detail-step-dot { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+.content-detail-step-label { font-size: 0.76rem; color: #6b7280; font-weight: 600; text-align: center; white-space: nowrap; }
+.content-detail-step-current .content-detail-step-label { color: var(--kcpc-ink); }
+@media (max-width: 1100px) { .content-detail-stepper { flex-basis: 100%; min-width: 0; } }
+
+.content-detail-summary-bar {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1rem; align-items: start;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    padding: 0.7rem 1.1rem; margin: 1rem 0 1.25rem;
+}
+.content-detail-summary-cell { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; min-width: 0; }
+.content-detail-summary-label { font-size: 0.7rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+/* Every cell's value sits in its own fixed-height flex row (regardless of whether it's a plain
+   text date, a link, a pill badge, or a badge + flag-chips) so all 6 cells' values start at the
+   same visual baseline instead of drifting depending on each value type's own natural line-height. */
+.content-detail-summary-value { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; min-height: 1.6rem; line-height: 1.4; }
+
+/* Main:sidebar ratio ~73%/27% (close to the reference's wider sidebar column while staying within
+   the 74-76%/24-26% range), sidebar top-aligned with main's tab row via align-items:flex-start so
+   Action Center's card top lines up with the Overview tabs, not the summary strip above them. */
+.content-detail-body { display: flex; gap: 1.5rem; align-items: flex-start; }
+.content-detail-main { flex: 1 1 73%; min-width: 0; }
+.content-detail-sidebar { flex: 0 1 27%; min-width: 320px; display: flex; flex-direction: column; gap: 1.25rem; }
+@media (max-width: 1100px) {
+    .content-detail-body { flex-direction: column; }
+    .content-detail-sidebar { min-width: 0; flex-basis: auto; width: 100%; }
+}
+
+.content-detail-tabs { margin-bottom: 1rem; }
+
+/* Overview card - definition-list-style field rows (fixed-width label + value) so values line up
+   vertically down each column, matching the reference's aligned two-column summary look. Padding/
+   row spacing tightened (visual polish pass) so the card's height tracks its actual content
+   instead of leaving a visibly empty band under the shorter column. */
+.content-detail-overview-card { padding: 1.1rem 1.4rem; }
+.content-detail-card-title { margin: 0 0 0.75rem; font-size: 1rem; font-weight: 700; }
+.content-detail-overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2.5rem; align-items: start; }
+@media (max-width: 800px) { .content-detail-overview-grid { grid-template-columns: 1fr; } }
+.content-detail-section-heading { margin: 0.85rem 0 0.35rem; font-size: 0.7rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+.content-detail-overview-grid > div > .content-detail-section-heading:first-child { margin-top: 0; }
+.content-detail-field-row { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.3rem 0; font-size: 0.85rem; }
+.content-detail-field-row-divider { border-bottom: 1px solid var(--kcpc-border); margin-bottom: 0.4rem; padding-bottom: 0.5rem; }
+.content-detail-field-label { width: 148px; flex: none; color: #6b7280; }
+.content-detail-field-value { color: var(--kcpc-ink); font-weight: 600; }
+.content-detail-platform-chips { margin: 0.4rem 0 1rem; }
+/* Summary strip's Platform/Channel cell reuses the same chip fragment inline, just without the
+   block-level top/bottom margin the Publishing tab's own copy has. */
+.content-detail-platform-chips-inline { margin: 0; }
+
+/* Timeline/Activity preview (Overview tab) - compact rows: icon, title+badge+description, then
+   timestamp/actor on the right. Same real `timeline` data as the Timeline tab, just the first few
+   rows - "View full timeline" below switches tabs via content-detail.js (my-work-tabs.js's own
+   click-driven show/hide, not a duplicated tab mechanism). */
+.content-detail-timeline-preview { margin-top: 1rem; padding: 1.1rem 1.4rem; }
+.content-detail-stage-comments-block { margin-top: 1rem; padding: 1.1rem 1.4rem; }
+.content-detail-timeline-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.content-detail-timeline-item {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    padding: 0.7rem 0; border-bottom: 1px solid var(--kcpc-border);
+}
+.content-detail-timeline-item:last-child { border-bottom: none; padding-bottom: 0.2rem; }
+.content-detail-timeline-item:first-child { padding-top: 0.2rem; }
+.content-detail-timeline-icon {
+    flex: none; width: 2rem; height: 2rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #ede9fe; color: #6d28d9;
+}
+.content-detail-timeline-icon svg { width: 16px; height: 16px; }
+.content-detail-timeline-body { flex: 1; min-width: 0; }
+.content-detail-timeline-title-row { display: flex; align-items: center; gap: 0.5rem; }
+.content-detail-timeline-title { font-weight: 700; font-size: 0.88rem; color: var(--kcpc-ink); }
+.content-detail-timeline-badge {
+    font-size: 0.68rem; font-weight: 700; color: #6d28d9; background: #ede9fe;
+    padding: 0.1rem 0.5rem; border-radius: 999px;
+}
+.content-detail-timeline-desc { margin: 0.2rem 0 0; font-size: 0.82rem; color: #6b7280; }
+.content-detail-timeline-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; font-size: 0.78rem; color: #6b7280; text-align: right; }
+.content-detail-timeline-time { white-space: nowrap; }
+.content-detail-timeline-actor { font-weight: 600; color: var(--kcpc-ink); }
+.content-detail-view-full-timeline {
+    display: block; margin: 0.85rem auto 0; background: none; border: none; cursor: pointer;
+    color: var(--kcpc-accent); font-weight: 600; font-size: 0.85rem;
+}
+.content-detail-view-full-timeline:hover { text-decoration: underline; }
+
+.content-detail-current-stage { font-size: 0.85rem; color: #6b7280; margin: 0.2rem 0 0.65rem; }
+.content-detail-action-center h4 { font-size: 0.74rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.75rem 0 0.45rem; }
+.content-detail-action-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Both Primary Actions and Other Actions are clean 2-column grids in the reference (Approve/Reject
+   side by side, then Hold/Resume, Reschedule/Reassign, Cancel/Reopen) - every button in either
+   group shares the same fixed height/width convention via .content-detail-action-btn below. */
+.content-detail-action-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.content-detail-action-btn {
+    height: 2.3rem; padding: 0 0.85rem; border-radius: 7px; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--kcpc-border); background: var(--kcpc-surface); color: var(--kcpc-ink);
+    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.content-detail-action-row-grid .content-detail-action-btn { width: 100%; }
+.content-detail-action-primary { background: #fff; border-color: #bbf7d0; color: #166534; }
+.content-detail-action-primary:hover { background: #f0fdf4; }
+.content-detail-action-danger { background: #fff; border-color: #fecaca; color: #b91c1c; }
+.content-detail-action-danger:hover { background: #fee2e2; }
+.content-detail-action-secondary:hover { background: #f4f5f7; }
+.content-detail-action-form { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--kcpc-border); display: flex; flex-direction: column; gap: 0.5rem; }
+.content-detail-action-form label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; font-weight: 600; }
+
+.content-detail-contributor-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.85rem; }
+.content-detail-contributor-list li { font-size: 0.85rem; line-height: 1.5; }
+.content-detail-contributor-row { display: flex; align-items: center; gap: 0.65rem; }
+.content-detail-avatar {
+    flex: none; width: 2rem; height: 2rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--kcpc-accent); color: #fff; font-size: 0.8rem; font-weight: 700;
+}
+.content-detail-contributor-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.content-detail-contributor-name { font-weight: 700; color: var(--kcpc-ink); font-size: 0.85rem; }
+.content-detail-contributor-role { font-size: 0.76rem; color: #6b7280; }
+.content-detail-contributor-badge {
+    flex: none; font-size: 0.7rem; font-weight: 700; color: #1d4ed8; background: #dbeafe;
+    padding: 0.2rem 0.55rem; border-radius: 999px; white-space: nowrap;
+}
+
+.content-detail-feedback-entry { padding: 0.85rem 0; border-bottom: 1px solid var(--kcpc-border); }
+.content-detail-feedback-entry:first-child { padding-top: 0.1rem; }
+.content-detail-feedback-entry:last-child { border-bottom: none; padding-bottom: 0.1rem; }
+.content-detail-feedback-entry p { margin: 0.35rem 0 0; font-size: 0.85rem; line-height: 1.5; }
+
+/* ENG-087: Team Workload management dashboard. */
+.team-workload-asof {
+    display: flex; align-items: center; gap: 0.5rem; background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border); border-radius: 8px; padding: 0.6rem 1rem;
+    font-size: 0.85rem; color: #4b5563; white-space: nowrap; height: fit-content;
+}
+.asof-icon, .info-icon { color: #9ca3af; }
+.team-workload-refresh {
+    background: none; border: none; cursor: pointer; color: #6b7280; font-size: 1rem;
+    padding: 0 0.1rem; line-height: 1; margin-left: 0.3rem;
+}
+.team-workload-refresh:hover { color: var(--kcpc-accent); }
+
+.team-workload-tabs { display: flex; gap: 1.5rem; border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1.25rem; }
+.team-workload-tab {
+    padding: 0.6rem 0.1rem; font-weight: 600; font-size: 0.92rem; color: #6b7280;
+    text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.team-workload-tab.active { color: var(--kcpc-accent); border-bottom-color: var(--kcpc-accent); }
+.team-workload-tab:hover:not(.active) { color: var(--kcpc-ink); }
+
+.team-workload-filters {
+    display: flex; align-items: flex-end; gap: 1.25rem; flex-wrap: wrap;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+}
+.team-workload-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.team-workload-filters .filter-field label { font-size: 0.78rem; font-weight: 600; color: #4b5563; }
+.team-workload-filters select, .team-workload-filters input[type="date"] {
+    padding: 0.45rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.85rem;
+    background: var(--kcpc-surface); color: var(--kcpc-ink); height: 2.3rem;
+}
+.filter-date-range { display: flex; align-items: center; gap: 0.4rem; }
+.filter-date-sep { color: #9ca3af; }
+.filter-checkbox-field {
+    display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--kcpc-ink);
+    height: 2.3rem; white-space: nowrap;
+}
+.team-workload-clear { height: 2.3rem; display: inline-flex; align-items: center; }
+
+.team-workload-cards { display: grid; grid-template-columns: 2fr 3fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 1100px) { .team-workload-cards { grid-template-columns: 1fr; } }
+.team-workload-card { margin-bottom: 0; }
+.team-workload-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.team-workload-card-header h2 { margin: 0; }
+.team-workload-stage-table td, .team-workload-assignee-table td { vertical-align: middle; }
+.team-workload-stage-table .num, .team-workload-assignee-table .num { text-align: right; }
+.team-workload-total-row { background: #f9fafb; font-weight: 700; }
+.team-workload-total-row td { border-top: 2px solid var(--kcpc-border); }
+
+.stage-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.55rem;
+}
+.stage-dot-Planning { background: #7c3aed; }
+.stage-dot-Shoot { background: #16a34a; }
+.stage-dot-Edit { background: #2563eb; }
+.stage-dot-Publishing { background: #ea580c; }
+.stage-dot-Performance { background: #a855f7; }
+
+.team-workload-assignee-cell { display: flex; align-items: center; gap: 0.6rem; font-weight: 600; }
+
+.team-workload-footnote { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 1.25rem; }
+
+.team-workload-loading { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease; }
+
+/* ENG-088: CEO/MM Idea Queue dashboard. */
+.idea-queue-filters {
+    display: flex; align-items: flex-end; gap: 1.25rem; flex-wrap: wrap;
+    background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
+    padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+}
+.idea-queue-filters .filter-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.idea-queue-filters .filter-field label { font-size: 0.78rem; font-weight: 600; color: #4b5563; }
+.idea-queue-filters .filter-field-search { flex: 1 1 240px; min-width: 200px; }
+.idea-queue-filters select, .idea-queue-filters input[type="date"], .idea-queue-filters input[type="text"] {
+    padding: 0.45rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.85rem;
+    background: var(--kcpc-surface); color: var(--kcpc-ink); height: 2.3rem;
+}
+.idea-queue-filters input[type="text"] { width: 100%; }
+.idea-queue-clear { height: 2.3rem; display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.idea-queue-table-panel { max-width: none; padding: 0; overflow: hidden; }
+.idea-queue-table { margin-bottom: 0; }
+.idea-queue-table th, .idea-queue-table td { padding: 0.65rem 1rem; }
+.idea-id-link { color: #1d4ed8; font-weight: 700; text-decoration: none; }
+.idea-id-link:hover { text-decoration: underline; }
+.idea-queue-title-cell {
+    max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.idea-queue-submitter { display: inline-flex; align-items: center; gap: 0.4rem; }
+.submitter-icon { color: #9ca3af; font-size: 0.85rem; }
+.idea-queue-action-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.idea-queue-sort-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
+.idea-queue-sort-link:hover { color: var(--kcpc-accent); }
+.sort-icon { font-size: 0.75rem; color: #9ca3af; }
+/* Scoped override, not global - see the .status-underreview/.status-reopened comments above. */
+.idea-queue-table .status-pill.status-underreview { background: #dbeafe; color: #1d4ed8; }
+
+.idea-queue-pagination { padding: 0.85rem 1.25rem; border-top: 1px solid var(--kcpc-border); flex-wrap: wrap; gap: 1rem; }
+.idea-queue-page-size select {
+    padding: 0.35rem 0.6rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.82rem;
+    background: var(--kcpc-surface); color: var(--kcpc-ink);
+}
+
+.idea-queue-loading { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease; }
+
+/* ============================================================================
+   Idea Detail / Review redesign - reuses .content-detail-body/-main/-sidebar's
+   existing 73/27 two-column split and card conventions (see the ENG-082 block
+   above); everything below is presentation-only for idea-detail.jsp.
+   ============================================================================ */
+.idea-detail-topbar { margin-bottom: 0.9rem; }
+.idea-detail-back-link { display: inline-block; margin-bottom: 0.5rem; color: var(--kcpc-accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
+.idea-detail-back-link:hover { text-decoration: underline; }
+.idea-detail-title-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.idea-detail-title-row h1 { margin: 0; font-size: 1.4rem; }
+.idea-detail-sep { color: #9ca3af; font-weight: 400; }
+
+.idea-detail-body { margin-top: 1rem; }
+
+.idea-detail-card { padding: 1.1rem 1.4rem; }
+.idea-detail-card-title {
+    display: flex; align-items: center; gap: 0.6rem;
+    margin: 0 0 1rem; font-size: 1rem; font-weight: 700; color: var(--kcpc-ink);
+}
+.idea-detail-card-title-plain { padding-left: 0; }
+.idea-detail-icon-circle {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    background: #ede9fe; color: #6d28d9;
+    display: flex; align-items: center; justify-content: center;
+}
+.idea-detail-icon-circle svg { width: 16px; height: 16px; }
+
+.idea-detail-fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2.5rem; }
+.idea-detail-col { display: flex; flex-direction: column; }
+.idea-detail-row {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    padding: 0.65rem 0; border-bottom: 1px solid var(--kcpc-border); font-size: 0.85rem;
+}
+.idea-detail-row-last { border-bottom: none; }
+.idea-detail-field-label {
+    display: flex; align-items: center; gap: 0.45rem;
+    color: #6b7280; font-weight: 600; font-size: 0.8rem;
+}
+.idea-detail-field-label svg { width: 14px; height: 14px; flex: none; }
+.idea-detail-field-value { color: var(--kcpc-ink); font-weight: 500; padding-left: 1.4rem; word-break: break-word; }
+.idea-detail-ref-link { display: inline-flex; align-items: center; gap: 0.3rem; color: #1d4ed8; text-decoration: none; word-break: break-all; }
+.idea-detail-ref-link:hover { text-decoration: underline; }
+.idea-detail-ref-link svg { width: 13px; height: 13px; flex: none; }
+
+.idea-history-table-wrap { overflow-x: auto; }
+.idea-history-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.idea-history-table th {
+    text-align: left; padding: 0.55rem 0.75rem; background: #f9fafb;
+    border-bottom: 1px solid var(--kcpc-border); font-size: 0.72rem; font-weight: 700;
+    color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+}
+.idea-history-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--kcpc-border); vertical-align: top; }
+.idea-history-table tr:last-child td { border-bottom: none; }
+.idea-history-time { white-space: nowrap; color: #6b7280; }
+.idea-history-remarks { max-width: 320px; }
+
+.idea-action-badge {
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.idea-action-badge-submitted { background: #dbeafe; color: #1d4ed8; }
+.idea-action-badge-approved { background: #dcfce7; color: #166534; }
+.idea-action-badge-rejected { background: #fee2e2; color: #991b1b; }
+.idea-action-badge-retained { background: #fef3c7; color: #92400e; }
+.idea-action-badge-reopened { background: #ede9fe; color: #6d28d9; }
+
+.idea-detail-status-card { padding: 1rem 1.15rem; }
+.idea-detail-status-card-head { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
+.idea-detail-status-card-icon {
+    flex: none; width: 34px; height: 34px; border-radius: 8px;
+    background: #ede9fe; color: #6d28d9;
+    display: flex; align-items: center; justify-content: center;
+}
+.idea-detail-status-card-icon svg { width: 17px; height: 17px; }
+.idea-detail-status-card-title { font-weight: 700; font-size: 0.9rem; flex: 1; min-width: 120px; }
+.idea-detail-status-card-badge { margin-left: auto; }
+.idea-detail-status-card-updated { margin: 0.6rem 0 0; font-size: 0.78rem; color: #6b7280; }
+
+.idea-detail-timeline-card { padding: 1.1rem 1.15rem; }
+.idea-timeline { list-style: none; margin: 0 0 1rem; padding: 0; }
+.idea-timeline-item { position: relative; display: flex; gap: 0.75rem; padding-bottom: 1.35rem; }
+.idea-timeline-item:last-child { padding-bottom: 0; }
+.idea-timeline-item:not(:last-child)::before {
+    content: ''; position: absolute; left: 14px; top: 30px; bottom: 0; width: 2px; background: var(--kcpc-border);
+}
+.idea-timeline-dot {
+    position: relative; z-index: 1; flex: none; width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; color: #fff;
+}
+.idea-timeline-dot svg { width: 14px; height: 14px; }
+.idea-timeline-dot-submitted { background: #6d28d9; }
+.idea-timeline-dot-approved { background: #16a34a; }
+.idea-timeline-dot-rejected { background: #dc2626; }
+.idea-timeline-dot-retained { background: #d97706; }
+.idea-timeline-dot-reopened { background: #6d28d9; }
+.idea-timeline-dot-current { background: #e5e7eb; color: #6b7280; }
+.idea-timeline-body { flex: 1; min-width: 0; padding-top: 0.1rem; }
+.idea-timeline-label { font-weight: 700; font-size: 0.86rem; color: var(--kcpc-ink); }
+.idea-timeline-meta { font-size: 0.78rem; color: #6b7280; }
+.idea-timeline-current-label { color: var(--kcpc-accent); font-weight: 600; }
+
+.idea-detail-timeline-note {
+    display: flex; gap: 0.55rem; align-items: flex-start;
+    background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+    border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.82rem;
+}
+.idea-detail-timeline-note svg { flex: none; width: 16px; height: 16px; margin-top: 0.1rem; }
+.idea-detail-timeline-note p { margin: 0; line-height: 1.45; }
+
+.idea-detail-review-card { padding: 1.2rem 1.4rem; }
+.idea-detail-review-grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 2rem; align-items: start; }
+.idea-detail-review-grid > form { min-width: 0; }
+.idea-detail-marks-row { margin-top: 0.5rem; }
+#idea-review-reason-label { display: block; margin-top: 0.75rem; font-weight: 600; font-size: 0.85rem; }
+#idea-review-reason { width: 100%; padding: 0.6rem; margin-top: 0.35rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font: inherit; resize: vertical; }
+.idea-detail-reason-counter-row { display: flex; justify-content: flex-end; margin-top: 0.3rem; }
+
+.idea-detail-guidelines {
+    background: #f5f3ff; border: 1px solid #e0d7fb; border-radius: 8px; padding: 1rem 1.1rem;
+}
+.idea-detail-guidelines h3 { margin: 0 0 0.85rem; font-size: 0.88rem; font-weight: 700; color: #5b21b6; }
+.idea-guideline { display: flex; gap: 0.55rem; margin-bottom: 0.9rem; }
+.idea-guideline:last-child { margin-bottom: 0; }
+.idea-guideline-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 0.4rem; }
+.idea-guideline strong { display: block; font-size: 0.84rem; margin-bottom: 0.15rem; }
+.idea-guideline p { margin: 0; font-size: 0.78rem; color: #4b5563; line-height: 1.4; }
+.idea-guideline-approve .idea-guideline-dot { background: #16a34a; }
+.idea-guideline-approve strong { color: #166534; }
+.idea-guideline-reject .idea-guideline-dot { background: #dc2626; }
+.idea-guideline-reject strong { color: #991b1b; }
+.idea-guideline-retain .idea-guideline-dot { background: #d97706; }
+.idea-guideline-retain strong { color: #92400e; }
+
+@media (max-width: 900px) {
+    .idea-detail-fields-grid { grid-template-columns: 1fr; }
+    .idea-detail-review-grid { grid-template-columns: 1fr; }
+}

@@ -17,6 +17,9 @@ public interface EditingAssignmentRepository extends JpaRepository<EditingAssign
 
     List<EditingAssignment> findByEditorAndActiveTrue(User editor);
 
+    /** ENG-087: Team Workload's Assignee Load - every currently active Edit assignment, batch-loaded once. */
+    List<EditingAssignment> findByActiveTrue();
+
     List<EditingAssignment> findByContentPlan_IdInAndActiveTrue(Collection<UUID> contentPlanIds);
 
     Optional<EditingAssignment> findByContentPlanAndEditorAndActiveTrue(ContentPlan contentPlan, User editor);

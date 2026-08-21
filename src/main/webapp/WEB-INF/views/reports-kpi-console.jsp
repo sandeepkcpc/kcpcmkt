@@ -1,4 +1,4 @@
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page contentType="text/html;charset=UTF-8" pageEncoding="UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!doctype html>
 <html lang="en">
@@ -9,7 +9,7 @@
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
-<main class="app-main">
+<main class="app-main app-main-wide">
     <h1>KPI Console — KPI-001 &hellip; KPI-030</h1>
     <p class="muted">Computed on demand from operational tables. No persistent KPI tables.</p>
 

@@ -1,14 +1,21 @@
-<%-- ENG-070: one sortable column header - included (statically, sharing the including page's
-     PageContext/variables) once per sortable column instead of repeating this block by hand for
-     each of the 9 sortable columns. Caller sets ${sortField} (the sortBy query value) and
-     ${sortLabel} (the visible header text) via <c:set> immediately before including this file.
-     Toggles asc/desc on repeat clicks of the same column; a fresh column always starts ascending.
-     Reuses ${filterQueryString} (built once in LandingMvcController#pipeline) so every other
-     active filter is preserved across the click. --%>
+<%-- ENG-070/073/077: one sortable column header - included (statically, sharing the including
+     page's PageContext/variables) once per sortable column instead of repeating this block by
+     hand for each column. Caller sets ${sortField} (the sortBy query value) and ${sortLabel} (the
+     visible header text) via <c:set> immediately before including this file. Toggles asc/desc on
+     repeat clicks of the same column; a fresh column always starts ascending. Sortable column shows
+     a small indicator - a neutral up/down glyph when not the active sort, the real direction arrow
+     when it is. ENG-077 restricted sorting to only Content ID and the date columns - every other
+     column in pipeline.jsp is a plain <th> (no include, no sort link/indicator) instead of using
+     this fragment.
+     Reuses ${filterQueryString}/${stageParam} (built once in LandingMvcController#pipeline) so
+     every other active filter/tab is preserved across the click. --%>
 <c:set var="pipelineSortNextDir" value="${sortByParam == sortField and sortDirParam != 'desc' ? 'desc' : 'asc'}"/>
-<a class="pipeline-sort-link" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&sortBy=${sortField}&sortDir=${pipelineSortNextDir}&page=1&size=${pipelineSize}">
+<a class="pipeline-sort-link" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=${stageParam}&sortBy=${sortField}&sortDir=${pipelineSortNextDir}&page=1&size=${pipelineSize}">
     <c:out value="${sortLabel}"/>
-    <c:if test="${sortByParam == sortField}">
-        <span class="pipeline-sort-indicator">${sortDirParam == 'desc' ? '&#9660;' : '&#9650;'}</span>
-    </c:if>
+    <c:choose>
+        <c:when test="${sortByParam == sortField}">
+            <span class="pipeline-sort-indicator active">${sortDirParam == 'desc' ? '&#9660;' : '&#9650;'}</span>
+        </c:when>
+        <c:otherwise><span class="pipeline-sort-indicator">&#8597;</span></c:otherwise>
+    </c:choose>
 </a>

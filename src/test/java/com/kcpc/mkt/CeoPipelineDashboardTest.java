@@ -173,22 +173,23 @@ class CeoPipelineDashboardTest {
         assertThat(pipeline.statusCode()).isEqualTo(200);
         String body = pipeline.body();
 
-        // ENG-069: Content Pipeline redesign - grouped Content/People/Planned Dates/Actual
-        // Dates/Publication/Current column headers, in that order (Reference Link/Category/Head
-        // are no longer separate visible columns on this condensed management dashboard - still
-        // fully available via View Details - and Channels/Platforms moved into the Publication
-        // group after the date groups, both intentional per the redesign).
-        assertThat(body).containsSubsequence("Content ID", "SKU", "Idea", "Priority",
-                "Cameraperson(s)", "Model(s)", "Video Editor(s)",
+        // ENG-074: Content Pipeline redesigned again into a flat single-header-row 20-column
+        // table (back to the original column order/set - Reference Link/Category/Head/Channels
+        // are visible columns again, and Priority/Action are no longer separate columns: Priority
+        // moved to the filter bar only, and Content ID's own link IS the "action").
+        assertThat(body).containsSubsequence("Content ID", "SKU", "Idea", "Reference Link / Note", "Category",
+                "Channels", "Head", "Camera Person", "Models", "Video Editor", "Drive Link",
                 "Planned Shoot Date", "Planned Edit Date", "Planned Live Date",
-                "Actual Shoot Date", "Actual Edit Date", "Actual Live Date",
-                "Channels / Platforms", "Performance", "Status", "Action");
+                "Actual Shoot Date", "Actual Edit Date", "Actual Live Date", "Platforms", "Performance", "Status");
         assertThat(countOccurrences(body, plan.getContentId())).isEqualTo(1);
 
         assertThat(body).contains("<a href=\"/app/deliverables/" + planId + "\">" + plan.getContentId() + "</a>");
         assertThat(body).contains("SKU-" + unique);
         assertThat(body).contains(ideaTitle);
+        assertThat(body).contains("href=\"https://example.com/ref-" + unique + "\"");
+        assertThat(body).contains("Reels");
         assertThat(body).contains("kcpcbandhani").contains("pipeline-test-" + unique);
+        assertThat(body).contains("KCPC CEO"); // Actor = preparedBy, the CEO saved the parameters above.
         assertThat(body).contains("Pipeline Cam One").contains("Pipeline Cam Two");
         assertThat(body).contains("Aisha").contains("Neha").contains("Riya");
         assertThat(body).contains("Pipeline Ed One").contains("Pipeline Ed Two");

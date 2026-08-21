@@ -1,0 +1,68 @@
+<%-- ENG-076: one Platform chip + its popover for the Content Pipeline dashboard's Platforms column.
+     Caller sets ${summary} (a PipelinePlatformSummary) and ${popoverId} (a page-unique id) via
+     <c:set> immediately before including this file. Muted/non-clickable when NOTHING on this
+     platform has actually been published yet (a planned-only mapping is never treated as
+     published); active/clickable - opening a popover listing every channel's real status - once
+     at least one channel has a real publication event with a usable Evidence URL. Icon + count
+     only in the chip itself (no platform-name text) - the name is still exposed via title/
+     aria-label for accessibility, and shown in full in the popover header. The popover itself is
+     moved to a <body>-level fixed-position overlay by pipeline-dashboard.js on open (never
+     rendered/clipped inline in the scrollable table), so its markup here is just the template.
+
+     Icons are local SVG files under /icons/platforms/ (no CDN, no emoji) - see
+     src/main/resources/static/icons/platforms/. Any platform not in this list falls back to
+     generic.svg; the fallback is cosmetic only, so a new/unseeded platform from the catalogue
+     still renders (with a generic icon) rather than being excluded. --%>
+<c:choose>
+    <c:when test="${summary.platformName == 'Instagram'}"><c:set var="platformIconFile" value="instagram.svg"/></c:when>
+    <c:when test="${summary.platformName == 'Facebook'}"><c:set var="platformIconFile" value="facebook.svg"/></c:when>
+    <c:when test="${summary.platformName == 'YouTube'}"><c:set var="platformIconFile" value="youtube.svg"/></c:when>
+    <c:when test="${summary.platformName == 'Threads'}"><c:set var="platformIconFile" value="threads.svg"/></c:when>
+    <c:when test="${summary.platformName == 'Moj'}"><c:set var="platformIconFile" value="moj.svg"/></c:when>
+    <c:when test="${summary.platformName == 'TikTok'}"><c:set var="platformIconFile" value="tiktok.svg"/></c:when>
+    <c:otherwise><c:set var="platformIconFile" value="generic.svg"/></c:otherwise>
+</c:choose>
+<c:set var="platformIconSrc" value="${pageContext.request.contextPath}/icons/platforms/${platformIconFile}"/>
+<div class="pipeline-platform-chip-wrap">
+    <c:choose>
+        <c:when test="${summary.anyPublished}">
+            <button type="button" class="pipeline-platform-chip active" data-popup-target="${popoverId}"
+                    aria-haspopup="true" aria-expanded="false"
+                    aria-label="${summary.platformName}: ${summary.publishedChannels} of ${summary.totalChannels} published"
+                    title="${summary.platformName} &middot; ${summary.publishedChannels} / ${summary.totalChannels} published">
+                <img class="pipeline-platform-icon" src="${platformIconSrc}" alt="" width="18" height="18"/>
+                <span class="pipeline-platform-count">&times;${summary.totalChannels}</span>
+            </button>
+            <div class="pipeline-platform-popover hidden" id="${popoverId}" role="dialog" aria-label="${summary.platformName} publication status">
+                <div class="pipeline-platform-popover-header">
+                    <img class="pipeline-platform-icon" src="${platformIconSrc}" alt="" width="18" height="18"/>
+                    <span class="pipeline-platform-popover-title"><c:out value="${summary.platformName}"/> (${summary.totalChannels})</span>
+                    <c:if test="${summary.totalChannels > 1}">
+                        <span class="pipeline-platform-progress">${summary.publishedChannels}/${summary.totalChannels} published</span>
+                    </c:if>
+                </div>
+                <div class="pipeline-platform-popover-channels">
+                    <c:forEach var="ch" items="${summary.channels}">
+                        <div class="pipeline-channel-row ${ch.published ? 'published' : 'pending'}">
+                            <span class="pipeline-channel-handle">@<c:out value="${ch.channelHandle}"/></span>
+                            <c:choose>
+                                <c:when test="${ch.published}">
+                                    <span class="pipeline-channel-status">Published</span>
+                                    <a class="pipeline-channel-open" href="${ch.evidenceUrl}" target="_blank" rel="noopener noreferrer">Open &#8599;</a>
+                                </c:when>
+                                <c:otherwise><span class="pipeline-channel-status muted">Planned &middot; Not published yet</span></c:otherwise>
+                            </c:choose>
+                        </div>
+                    </c:forEach>
+                </div>
+            </div>
+        </c:when>
+        <c:otherwise>
+            <span class="pipeline-platform-chip muted" aria-label="${summary.platformName}: planned, not published yet"
+                  title="${summary.platformName} &middot; Planned &bull; Not published yet">
+                <img class="pipeline-platform-icon" src="${platformIconSrc}" alt="" width="18" height="18"/>
+                <span class="pipeline-platform-count">&times;${summary.totalChannels}</span>
+            </span>
+        </c:otherwise>
+    </c:choose>
+</div>
