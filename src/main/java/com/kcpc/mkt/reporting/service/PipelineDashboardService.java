@@ -63,6 +63,7 @@ public class PipelineDashboardService {
     private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
     private final PublicationTargetNaRecordRepository naRecordRepository;
     private final ReviewCycleRepository reviewCycleRepository;
+    private final com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository workHoldRecordRepository;
 
     public PipelineDashboardService(ShootingAssignmentRepository shootingAssignmentRepository,
                                      EditingAssignmentRepository editingAssignmentRepository,
@@ -72,7 +73,8 @@ public class PipelineDashboardService {
                                      ActualPublicationEventRepository actualPublicationEventRepository,
                                      PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                                      PublicationTargetNaRecordRepository naRecordRepository,
-                                     ReviewCycleRepository reviewCycleRepository) {
+                                     ReviewCycleRepository reviewCycleRepository,
+                                     com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository workHoldRecordRepository) {
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.talentEntryRepository = talentEntryRepository;
@@ -82,6 +84,7 @@ public class PipelineDashboardService {
         this.evidenceCorrectionRepository = evidenceCorrectionRepository;
         this.naRecordRepository = naRecordRepository;
         this.reviewCycleRepository = reviewCycleRepository;
+        this.workHoldRecordRepository = workHoldRecordRepository;
     }
 
     @Transactional(readOnly = true)
@@ -90,6 +93,12 @@ public class PipelineDashboardService {
             return List.of();
         }
         List<UUID> planIds = plans.stream().map(ContentPlan::getId).toList();
+
+        // BR-063 Hold/Resume: purely a supplementary flag alongside the real stage (ERD-CON-061 -
+        // never a 23rd workflow status), same "currently open hold" query TeamWorkloadService
+        // already uses for its own On Hold Tasks column.
+        Set<UUID> onHoldWorkflowInstanceIds = workHoldRecordRepository.findByResumedAtIsNull().stream()
+                .map(h -> h.getWorkflowInstance().getId()).collect(Collectors.toSet());
 
         Map<UUID, List<User>> camerapersonsByPlan = shootingAssignmentRepository
                 .findByContentPlan_IdInAndActiveTrue(planIds).stream()
@@ -150,13 +159,13 @@ public class PipelineDashboardService {
         }
         Set<UUID> representativeEventIds = latestEventByOutputAndTarget.values().stream()
                 .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId).collect(Collectors.toSet());
-        Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId = new HashMap<>();
-        if (!representativeEventIds.isEmpty()) {
-            for (PublicationEvidenceCorrection corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
-                latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
-                        (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
-            }
-        }
+        // Same shared "which correction is currently effective" rule Content Detail's Actual
+        // Publication Events table uses (PublishingService#resolveEffectiveEvidenceUrls) - kept as
+        // one static picker on the domain class itself (rather than duplicating this merge here) so
+        // the two views can never diverge on which correction wins.
+        Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId = representativeEventIds.isEmpty()
+                ? Map.of()
+                : PublicationEvidenceCorrection.latestByEventId(evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds));
 
         // Same N/A exclusion rule buildPublishingChecklist already applies (a target DESIGNATED
         // N/A for a given output is left off entirely - "not applicable", not merely unpublished).
@@ -209,6 +218,7 @@ public class PipelineDashboardService {
                     actualEditDateByWorkflowInstance.get(workflowInstanceId),
                     actualLiveDateByPlan.get(planId),
                     outputsById,
+                    onHoldWorkflowInstanceIds.contains(workflowInstanceId),
                     latestEventByOutputAndTarget,
                     latestCorrectionByEventId,
                     naTargetIdsByOutput));
@@ -219,7 +229,7 @@ public class PipelineDashboardService {
     private PipelineRow buildRow(ContentPlan plan, List<User> camerapersons, List<User> editors,
                                   List<String> talent, List<PlannedOutputPublicationTargetMapping> mappings,
                                   LocalDate actualShootDate, LocalDate actualEditDate, LocalDate actualLiveDate,
-                                  Map<UUID, PlannedOutput> outputsById,
+                                  Map<UUID, PlannedOutput> outputsById, boolean onHold,
                                   Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget,
                                   Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId,
                                   Map<UUID, Set<UUID>> naTargetIdsByOutput) {
@@ -264,7 +274,7 @@ public class PipelineDashboardService {
                 plan.getPlannedEditDate(), plan.getPlannedLiveDate(), dateToDash(actualShootDate),
                 dateToDash(actualEditDate), dateToDash(actualLiveDate), blankToDash(platforms),
                 performanceState, performanceLinkEligible, status.getStatusName(), priority,
-                delayDays != null, delayDays, platformSummaries);
+                delayDays != null, delayDays, platformSummaries, onHold);
     }
 
     /**

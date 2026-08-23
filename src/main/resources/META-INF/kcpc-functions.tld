@@ -27,4 +27,12 @@
         <function-class>com.kcpc.mkt.common.util.DisplayTime</function-class>
         <function-signature>java.lang.String istTime(java.time.Instant)</function-signature>
     </function>
+
+    <function>
+        <description>Missing-value display rule: "-" for null/blank, and also for a shared row DTO field
+            that already bakes in an em-dash placeholder at the service layer.</description>
+        <name>dash</name>
+        <function-class>com.kcpc.mkt.common.util.DisplayText</function-class>
+        <function-signature>java.lang.String dash(java.lang.String)</function-signature>
+    </function>
 </taglib>

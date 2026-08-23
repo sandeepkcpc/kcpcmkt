@@ -30,12 +30,18 @@
          backend authorization/table-resolution is completely unchanged. --%>
     <form method="get" action="${pageContext.request.contextPath}/api/v1/exports" id="exportForm">
         <div class="panel export-format-panel">
-            <label class="export-format-label" for="exportFormat">Export Format</label>
-            <select name="format" id="exportFormat" class="export-format-select">
-                <option value="JSON">JSON</option>
-                <option value="CSV">CSV</option>
-                <option value="XLSX">XLSX</option>
-            </select>
+            <div class="export-format-field">
+                <label class="export-format-label" for="exportFormat">Export Format</label>
+                <select name="format" id="exportFormat" class="export-format-select">
+                    <option value="JSON">JSON</option>
+                    <option value="CSV">CSV</option>
+                    <option value="XLSX">XLSX</option>
+                </select>
+            </div>
+            <button type="submit" class="btn-primary export-generate-btn" id="exportSubmitBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Generate Export
+            </button>
         </div>
 
         <div class="panel export-scope-panel">
@@ -71,10 +77,6 @@
 
         <div class="export-actions">
             <span class="export-summary" id="exportSummary">Select a format and at least one scope to export.</span>
-            <button type="submit" class="btn-primary" id="exportSubmitBtn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Generate Export
-            </button>
         </div>
     </form>
 </main>

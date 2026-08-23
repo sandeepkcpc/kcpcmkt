@@ -11,6 +11,7 @@ import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.performance.domain.CreativePerformanceScorecard;
 import com.kcpc.mkt.performance.domain.PerformanceMetricCorrection;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
+import com.kcpc.mkt.performance.dto.EffectiveScorecardMetrics;
 import com.kcpc.mkt.performance.repository.CreativePerformanceScorecardRepository;
 import com.kcpc.mkt.performance.repository.PerformanceMetricCorrectionRepository;
 import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
@@ -220,6 +221,52 @@ public class PerformanceService {
         auditService.record(actor, actingGrant, "PERFORMANCE", "PERFORMANCE_METRIC_CORRECTED",
                 "performance_metric_corrections", correction.getId(), correctionReason);
         return correction;
+    }
+
+    /** Per-scorecard Correction History (newest first) - never the global Reports -&gt; Logs audit trail. */
+    public List<PerformanceMetricCorrection> correctionsFor(CreativePerformanceScorecard scorecard) {
+        return metricCorrectionRepository.findByScorecardOrderByCorrectedAtDesc(scorecard);
+    }
+
+    /**
+     * Read-side projection reused by both the Correct-a-Metric UI ("Current Value" per metric)
+     * and the Performance summary (Hook/Hold/CTR must reflect the latest correction, ERD-CON-060 +
+     * SC-REQ-001) - the exact same per-metric "latest correction wins" helpers {@link #correctMetrics}
+     * uses to compute a new correction's "prior" value, so the two can never disagree.
+     */
+    public EffectiveScorecardMetrics resolveEffectiveMetrics(CreativePerformanceScorecard scorecard) {
+        List<PerformanceMetricCorrection> priorCorrections =
+                metricCorrectionRepository.findByScorecardOrderByCorrectedAtDesc(scorecard);
+
+        Integer views3sec = effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewViews3sec, scorecard.getViews3sec());
+        boolean views3secIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewViews3secIsNa,
+                scorecard.isViews3secIsNa());
+        Integer plays = effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewPlays, scorecard.getPlays());
+        BigDecimal watchTime = effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewWatchTime,
+                scorecard.getAverageWatchTimeSeconds());
+        boolean watchTimeIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewWatchTimeIsNa,
+                scorecard.isWatchTimeIsNa());
+        BigDecimal videoLength = effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewVideoLength,
+                scorecard.getVideoLengthSeconds());
+        boolean videoLengthIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewVideoLengthIsNa,
+                scorecard.isVideoLengthIsNa());
+        Integer linkClicks = effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewClicks, scorecard.getLinkClicks());
+        boolean clicksIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewClicksIsNa,
+                scorecard.isClicksIsNa());
+        Integer impressions = effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewImpressions,
+                scorecard.getImpressions());
+
+        BigDecimal hookRate = CreativePerformanceScorecard.computeRatePercent(
+                views3secIsNa ? null : CreativePerformanceScorecard.toDecimal(views3sec),
+                CreativePerformanceScorecard.toDecimal(plays));
+        BigDecimal holdRate = CreativePerformanceScorecard.computeRatePercent(
+                watchTimeIsNa ? null : watchTime, videoLengthIsNa ? null : videoLength);
+        BigDecimal ctr = CreativePerformanceScorecard.computeRatePercent(
+                clicksIsNa ? null : CreativePerformanceScorecard.toDecimal(linkClicks),
+                CreativePerformanceScorecard.toDecimal(impressions));
+
+        return new EffectiveScorecardMetrics(views3sec, views3secIsNa, plays, watchTime, watchTimeIsNa,
+                videoLength, videoLengthIsNa, linkClicks, clicksIsNa, impressions, hookRate, holdRate, ctr);
     }
 
     private static Integer effectiveInt(List<PerformanceMetricCorrection> priorCorrectionsDesc,

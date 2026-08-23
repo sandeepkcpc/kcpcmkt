@@ -14,13 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * BR-063 / SRS-REQ-091 / SAD-DES-027: Hold and Resume are administrative actions restricted to
- * native CEO/MM authority, permitted only while the deliverable is Shoot In Progress or Editing.
- * The primary workflow status is never touched (ERD-CON-061) - this is a parallel record.
+ * native CEO/MM authority, permitted only while the deliverable is Shoot In Progress, Editing, or
+ * Publishing. The primary workflow status is never touched (ERD-CON-061) - this is a parallel record.
  */
 @Service
 public class HoldService {
@@ -37,12 +38,13 @@ public class HoldService {
     }
 
     @Transactional
-    public WorkHoldRecord placeHold(User actor, WorkflowInstance workflowInstance, String reason) {
+    public WorkHoldRecord placeHold(User actor, WorkflowInstance workflowInstance, String reason,
+                                     LocalDate expectedResumeDate) {
         authorizationService.requireNativeAuthority(actor, "Hold");
         WorkflowStatus status = workflowInstance.getCurrentStatusCode();
-        if (status != WorkflowStatus.SIP && status != WorkflowStatus.ED) {
+        if (status != WorkflowStatus.SIP && status != WorkflowStatus.ED && status != WorkflowStatus.PUBG) {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Hold is only permitted while Shoot In Progress or Editing (ERD-CON-061)");
+                    "Hold is only permitted while Shoot In Progress, Editing, or Publishing (ERD-CON-061)");
         }
         if (holdRepository.findByWorkflowInstanceAndResumedAtIsNull(workflowInstance).isPresent()) {
             throw DomainException.conflict(ErrorCode.CONFLICT_STALE_UPDATE,
@@ -51,7 +53,8 @@ public class HoldService {
         if (reason == null || reason.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A hold reason is mandatory");
         }
-        WorkHoldRecord record = holdRepository.save(new WorkHoldRecord(workflowInstance, status, actor, reason));
+        WorkHoldRecord record = holdRepository.save(
+                new WorkHoldRecord(workflowInstance, status, actor, reason, expectedResumeDate));
         auditService.record(actor, Optional.empty(), "ADMIN_ACTION", "WORK_HELD", "work_hold_records",
                 record.getId(), reason);
         return record;

@@ -45,10 +45,17 @@
             <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
         </c:when>
         <c:otherwise>
+            <%-- CEO_OWNER and MARKETING_MANAGER share this branch (the only two remaining
+                 AccessClass values here). Idea Queue is gone for both: Idea review now lives
+                 entirely inside Reviews -> Ideas, and "My Ideas" below is each user's own-
+                 submissions history, never the review queue - see IdeaMvcController#queue, which
+                 now branches every AccessClass other than none... EMPLOYEE, MARKETING_MANAGER AND
+                 CEO_OWNER all reuse the exact same #myIdeas() method/query rather than a parallel
+                 implementation. Order is deliberately fixed here (not alphabetical/incidental):
+                 Content Pipeline, Reviews, Team, Reports, My Ideas, Submit Idea, Administration
+                 last. --%>
             <a class="${currentPath == ctx.concat('/app/pipeline') ? 'active' : ''}" href="${ctx}/app/pipeline">Content Pipeline</a>
             <a class="${currentPath == ctx.concat('/app/reviews') ? 'active' : ''}" href="${ctx}/app/reviews">Reviews</a>
-            <a class="${currentPath == ctx.concat('/app/ideas') ? 'active' : ''}" href="${ctx}/app/ideas">Idea Queue</a>
-            <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
             <%-- ENG-087: "Team Workload"/"Team KPI" consolidated into one "Team" nav entry with
                  Workload/Performance tabs inside the page itself (reports-workload.jsp/
                  reports-team-kpis.jsp both render the same tab header) - both pages/routes/
@@ -63,6 +70,8 @@
                         or currentPath == ctx.concat('/app/reports/admin-actions') or currentPath == ctx.concat('/app/audit')
                         or currentPath == ctx.concat('/app/export') ? 'active' : ''}"
                href="${ctx}/app/reports/kpis">Reports</a>
+            <a class="${currentPath == ctx.concat('/app/ideas') ? 'active' : ''}" href="${ctx}/app/ideas">My Ideas</a>
+            <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
             <%-- Administration shell: Users/Business Roles/Permissions/Publishing Catalogue
                  consolidated into one nav entry (same ENG-087 pattern as "Team"/"Reports" above) -
                  the secondary tab bar inside admin-tabs.jspf handles switching between the 4

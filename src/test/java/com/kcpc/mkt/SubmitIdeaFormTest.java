@@ -54,10 +54,9 @@ class SubmitIdeaFormTest {
         assertThat(idea.getReferenceLink()).isEqualTo("https://drive.example.com/ref-" + unique);
 
         // Following the redirect (a real browser would) lands on My Ideas with the flash success
-        // message surfaced and the new idea visible - CEO is EMPLOYEE-access-class-agnostic here
-        // (CEO sees the full Idea Queue instead), so re-fetch as the submitter would see it by
-        // checking the flash-carrying response body directly is not possible across a redirect
-        // hop in this client; instead confirm the idea is queryable and correctly attributed.
+        // message surfaced and the new idea visible - checking the flash-carrying response body
+        // directly is not possible across a redirect hop in this client; instead confirm the idea
+        // is queryable and correctly attributed.
         assertThat(idea.getSubmittedBy().getEmail()).isEqualTo("ceo@kcpcbandhani.local");
     }
 

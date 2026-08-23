@@ -485,16 +485,32 @@
         }
     }
 
-    var descriptionBlocks = document.querySelectorAll('.stage-description');
-    for (var i = 0; i < descriptionBlocks.length; i++) {
-        wireDescriptionBlock(descriptionBlocks[i]);
+    /**
+     * Reviews -> Shoot/Edit (Manager review parity fix): the same Shoot/Edit Comments thread
+     * markup this file already wires on Content Detail's plain full-page load is now also reused
+     * inside Reviews' AJAX-swapped #reviewsDynamicRegion (reviews-workspace.js's loadReviews()
+     * calls this again, scoped to `region`, right after every innerHTML swap) - every wire*
+     * function above only ever touches elements within the subtree it's given, so re-scanning a
+     * freshly-swapped-in region and re-wiring its comment forms/menus is safe and never
+     * double-wires anything already wired elsewhere on the page. Exposed globally rather than
+     * kept module-private specifically so reviews-workspace.js (a separate file/IIFE) can call it.
+     */
+    function wireStageDiscussion(root) {
+        var scope = root || document;
+        var descriptionBlocks = scope.querySelectorAll('.stage-description');
+        for (var i = 0; i < descriptionBlocks.length; i++) {
+            wireDescriptionBlock(descriptionBlocks[i]);
+        }
+        var commentForms = scope.querySelectorAll('.stage-comment-form');
+        for (var j = 0; j < commentForms.length; j++) {
+            wireCommentForm(commentForms[j]);
+        }
+        var existingComments = scope.querySelectorAll('.stage-comment[data-comment-id]');
+        for (var k = 0; k < existingComments.length; k++) {
+            wireCommentMenu(existingComments[k]);
+        }
     }
-    var commentForms = document.querySelectorAll('.stage-comment-form');
-    for (var j = 0; j < commentForms.length; j++) {
-        wireCommentForm(commentForms[j]);
-    }
-    var existingComments = document.querySelectorAll('.stage-comment[data-comment-id]');
-    for (var k = 0; k < existingComments.length; k++) {
-        wireCommentMenu(existingComments[k]);
-    }
+    window.wireStageDiscussion = wireStageDiscussion;
+
+    wireStageDiscussion(document);
 })();

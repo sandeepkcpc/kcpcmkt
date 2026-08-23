@@ -12,6 +12,6 @@
     <a class="reports-tab ${activeReportTab == 'kpis' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/kpis">KPI Dashboard</a>
     <a class="reports-tab ${activeReportTab == 'delayed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/delayed">Delayed Deliverables</a>
     <a class="reports-tab ${activeReportTab == 'admin-actions' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/admin-actions">Administrative Actions</a>
-    <a class="reports-tab ${activeReportTab == 'audit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/audit">Audit History</a>
+    <a class="reports-tab ${activeReportTab == 'audit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/audit">Logs</a>
     <a class="reports-tab ${activeReportTab == 'export' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/export">Export</a>
 </div>

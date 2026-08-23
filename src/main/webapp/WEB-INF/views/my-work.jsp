@@ -132,6 +132,11 @@
                                         <c:when test="${item.delayed}"><span class="status-pill status-delayed">Delayed &middot; ${item.delayDays} day<c:if test="${item.delayDays != 1}">s</c:if></span></c:when>
                                         <c:otherwise><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span></c:otherwise>
                                     </c:choose>
+                                    <%-- BR-063 Hold/Resume: task stays visible here (never moved to
+                                         History); the action link above is already suppressed
+                                         (actionLabel is null while held) since an Employee never
+                                         holds the native authority Resume requires. --%>
+                                    <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
                                 </td>
                                 <td>
                                     <c:if test="${not empty item.driveLink}">
@@ -303,6 +308,11 @@
                                         <c:when test="${item.delayed}"><span class="status-pill status-delayed">Delayed &middot; ${item.delayDays} day<c:if test="${item.delayDays != 1}">s</c:if></span></c:when>
                                         <c:otherwise><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span></c:otherwise>
                                     </c:choose>
+                                    <%-- BR-063 Hold/Resume: task stays visible here (never moved to
+                                         History); the action link above is already suppressed
+                                         (actionLabel is null while held) since an Employee never
+                                         holds the native authority Resume requires. --%>
+                                    <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
                                 </td>
                                 <td>
                                     <c:if test="${not empty item.driveLink}">
@@ -454,7 +464,9 @@
                                 <td>${item.plannedDate}</td>
                                 <td><c:out value="${empty item.models ? '—' : item.models}"/></td>
                                 <td><c:out value="${empty item.targetsSummary ? '—' : item.targetsSummary}"/></td>
-                                <td><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span></td>
+                                <td><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span>
+                                    <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
+                                </td>
                                 <td>
                                     <c:if test="${not empty item.driveLink}">
                                         <a class="drive-link" href="${item.driveLink}" target="_blank" rel="noopener noreferrer" title="Open Drive">&#128193;</a>
@@ -544,7 +556,9 @@
                                     <c:otherwise>&mdash;</c:otherwise>
                                 </c:choose>
                             </td>
-                            <td><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span></td>
+                            <td><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span>
+                                <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
+                            </td>
                             <td>
                                 <c:choose>
                                     <c:when test="${not empty item.driveLink}">

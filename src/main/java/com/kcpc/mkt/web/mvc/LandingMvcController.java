@@ -170,6 +170,12 @@ public class LandingMvcController {
         List<EditingAssignment> rawEditTasks = editingAssignmentRepository.findByEditorAndActiveTrue(user);
         List<PublishingAssignment> rawPublishTasks = publishingAssignmentRepository.findByPublisherAndActiveTrue(user);
 
+        // BR-063 Hold/Resume: same "currently open hold" query TeamWorkloadService/
+        // PipelineDashboardService already use - a purely supplementary badge, the row stays in
+        // Active Work (never moved to History) and keeps its real stage/assignee either way.
+        Set<UUID> onHoldWorkflowInstanceIds = workHoldRecordRepository.findByResumedAtIsNull().stream()
+                .map(h -> h.getWorkflowInstance().getId()).collect(Collectors.toSet());
+
         // ENG-057: every workflow instance this page will need history/review data for, fetched in
         // two queries total up front instead of two-per-row (the previous shape) - avoids N+1
         // whether the row ends up in Active Work (rework-detection) or Completed Work.
@@ -233,12 +239,14 @@ public class LandingMvcController {
                 Integer delayDays = (plan.getPlannedShootDate() != null && plan.getPlannedShootDate().isBefore(today))
                         ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedShootDate(), today)
                         : null;
+                boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Cameraperson",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedShootDate(), lead == null ? null : lead.getCameraperson().getFullName(), isLead,
                         modelsByPlan.get(plan.getId()), statusLabel, statusCssClass(statusLabel), delayDays,
-                        actionLabel(statusLabel, delayDays != null, "Cameraperson"), plan.getFolderLink(), null));
+                        onHold ? null : actionLabel(statusLabel, delayDays != null, "Cameraperson"),
+                        plan.getFolderLink(), null, onHold));
             } else {
                 completedWork.add(completedItem(plan, t.getId(), "SHOOT", GateType.SHOOT_REVIEW, SHOOT_ACTIVE_WINDOW,
                         plan.getPlannedShootDate(), modelsByPlan.get(plan.getId()), transitionsByInstance, reviewCyclesByInstance));
@@ -264,12 +272,14 @@ public class LandingMvcController {
                 Integer delayDays = (plan.getPlannedEditDate() != null && plan.getPlannedEditDate().isBefore(today))
                         ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedEditDate(), today)
                         : null;
+                boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Editor",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedEditDate(), lead == null ? null : lead.getEditor().getFullName(), isLead,
                         editorNames, statusLabel, statusCssClass(statusLabel), delayDays,
-                        actionLabel(statusLabel, delayDays != null, "Editor"), plan.getFolderLink(), null));
+                        onHold ? null : actionLabel(statusLabel, delayDays != null, "Editor"),
+                        plan.getFolderLink(), null, onHold));
             } else {
                 completedWork.add(completedItem(plan, t.getId(), "EDIT", GateType.EDIT_REVIEW, EDIT_ACTIVE_WINDOW,
                         plan.getPlannedEditDate(), null, transitionsByInstance, reviewCyclesByInstance));
@@ -284,12 +294,13 @@ public class LandingMvcController {
                 PublishingService.TargetResolutionSummary targets = publishingService.summarizeTargets(plan);
                 pendingTargetsTotal += targets.totalCount() - targets.resolvedCount();
                 String statusLabel = activeStatusLabel(s, null, plan.getWorkflowInstance().getId(), reviewCyclesByInstance);
+                boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Publisher",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedLiveDate(), null, false, publisherNames, statusLabel, statusCssClass(statusLabel), null,
-                        actionLabel(statusLabel, false, "Publisher"), plan.getFolderLink(),
-                        targets.resolvedCount() + " / " + targets.totalCount()));
+                        onHold ? null : actionLabel(statusLabel, false, "Publisher"), plan.getFolderLink(),
+                        targets.resolvedCount() + " / " + targets.totalCount(), onHold));
             } else {
                 // No review/decision gate exists for Publishing - Final Result stays blank.
                 completedWork.add(completedItem(plan, t.getId(), "PUBLISH", null, PUBLISH_ACTIVE_WINDOW,
@@ -755,10 +766,9 @@ public class LandingMvcController {
         // for a repeated param, so the selector's own chosen value was silently ignored.
         model.addAttribute("filterQueryString", filterQs.build().encode().getQuery());
 
-        List<WorkHoldRecord> openHolds = workHoldRecordRepository.findByResumedAtIsNull();
-        Set<java.util.UUID> onHoldWorkflowInstanceIds = openHolds.stream()
-                .map(h -> h.getWorkflowInstance().getId()).collect(Collectors.toSet());
-        model.addAttribute("onHoldWorkflowInstanceIds", onHoldWorkflowInstanceIds);
+        // BR-063 Hold/Resume: PipelineRow#isOnHold (PipelineDashboardService) is the actual source
+        // of the On Hold badge rendered per row - this used to duplicate that lookup here without
+        // ever being read by the JSP; removed rather than left as dead code.
 
         // ENG-081: pipeline-dashboard.js's fetch() calls (filter/sort/pagination/stage-tab clicks)
         // send this same header the rest of the app already uses for AJAX detection (see

@@ -36,7 +36,7 @@
                     </c:url>
                     <tr class="reviews-row ${item.plan.id == selectedId ? 'reviews-row-active' : ''}" data-row-url="${rvRowUrl}">
                         <td><a class="idea-id-link reviews-row-link" href="${rvRowUrl}"><c:out value="${item.row.contentId}"/></a></td>
-                        <td>${empty item.row.videoEditors ? '&mdash;' : item.row.videoEditors}</td>
+                        <td>${kcpc:dash(item.row.videoEditors)}</td>
                         <td>${item.row.plannedEditDate}</td>
                         <td>${item.row.plannedLiveDate}</td>
                         <td>
@@ -119,39 +119,50 @@
                         <h3 class="reviews-detail-subhead">Content Summary</h3>
                         <div class="reviews-field-row"><span class="reviews-field-label">Content ID</span><span class="reviews-field-value"><c:out value="${row.contentId}"/></span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Idea / Content Title</span><span class="reviews-field-value"><c:out value="${row.ideaTitle}"/></span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">SKU</span><span class="reviews-field-value">${empty row.sku ? '&mdash;' : row.sku}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '&mdash;' : row.priority}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">SKU</span><span class="reviews-field-value">${kcpc:dash(row.sku)}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '-' : row.priority}</span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Edit Team</h3>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Editor(s)</span><span class="reviews-field-value">${empty row.videoEditors ? '&mdash;' : row.videoEditors}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Editor(s)</span><span class="reviews-field-value">${kcpc:dash(row.videoEditors)}</span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Edit Lead</span><span class="reviews-field-value">
                             <c:set var="editLead" value=""/>
                             <c:forEach var="a" items="${editingAssignments}"><c:if test="${a.lead}"><c:set var="editLead" value="${a.editor.fullName}"/></c:if></c:forEach>
-                            <c:out value="${empty editLead ? '&mdash;' : editLead}"/>
+                            <c:out value="${empty editLead ? '-' : editLead}"/>
                         </span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Edit Details</h3>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Edit Date</span><span class="reviews-field-value">${empty row.plannedEditDate ? '&mdash;' : row.plannedEditDate}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Actual Edit Date</span><span class="reviews-field-value">${empty row.actualEditDate ? '&mdash;' : row.actualEditDate}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Live Date</span><span class="reviews-field-value">${empty row.plannedLiveDate ? '&mdash;' : row.plannedLiveDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Edit Date</span><span class="reviews-field-value">${empty row.plannedEditDate ? '-' : row.plannedEditDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Actual Edit Date</span><span class="reviews-field-value">${kcpc:dash(row.actualEditDate)}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Live Date</span><span class="reviews-field-value">${empty row.plannedLiveDate ? '-' : row.plannedLiveDate}</span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Drive Link</span><span class="reviews-field-value">
                             <c:choose>
                                 <c:when test="${not empty row.driveLink}"><a href="${fn:escapeXml(row.driveLink)}" target="_blank" rel="noopener noreferrer">Open Drive Link &#8599;</a></c:when>
-                                <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                <c:otherwise><span class="muted">-</span></c:otherwise>
                             </c:choose>
                         </span></div>
                         <c:if test="${canSeeEditDescription}">
-                            <div class="reviews-field-row"><span class="reviews-field-label">Edit Instructions</span><span class="reviews-field-value">${empty plan.editDescription ? '&mdash;' : plan.editDescription}</span></div>
+                            <div class="reviews-field-row"><span class="reviews-field-label">Edit Instructions</span><span class="reviews-field-value">${empty plan.editDescription ? '-' : plan.editDescription}</span></div>
                         </c:if>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Submission</h3>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Submitted On</span><span class="reviews-field-value">${empty pendingSubmittedAt ? '&mdash;' : kcpc:ist(pendingSubmittedAt)}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Submitted On</span><span class="reviews-field-value">${empty pendingSubmittedAt ? '-' : kcpc:ist(pendingSubmittedAt)}</span></div>
+                    </div>
+
+                    <%-- Same Edit Comments thread (same markup/AJAX contract, same StageCommentService
+                         data) as Content Detail -> Edit - review-consistency fix so an Editor's task
+                         comment is visible here too, not only by opening Content Detail. --%>
+                    <div class="reviews-detail-section">
+                        <h3 class="reviews-detail-subhead">Edit Comments</h3>
+                        <c:set var="stageCommentsPath" value="editing"/>
+                        <c:set var="stageCommentsList" value="${editComments}"/>
+                        <c:set var="stageCommentsCanPost" value="${canCommentOnEdit}"/>
+                        <%@ include file="stage-comments-block.jspf" %>
                     </div>
 
                     <%@ include file="reviews-history-block.jspf" %>

@@ -350,6 +350,42 @@
                 <button type="button" class="content-detail-view-full-timeline" id="contentDetailViewFullTimeline">View full timeline &rsaquo;</button>
             </c:if>
         </div>
+
+        <%-- BR-063 Hold/Resume: kept as its own list, never merged into the real transition
+             Timeline above (Hold is deliberately not a status transition, ERD-CON-061) - every
+             cycle stays individually visible and immutable (ERD-CON-062), so a later Hold never
+             overwrites an earlier one's reason. --%>
+        <c:if test="${not empty holdHistory}">
+            <div class="panel">
+                <h3 class="content-detail-card-title">Hold History</h3>
+                <ul class="content-detail-timeline-list">
+                    <c:forEach var="h" items="${holdHistory}">
+                        <li class="content-detail-timeline-item">
+                            <div class="content-detail-timeline-body">
+                                <div class="content-detail-timeline-title-row">
+                                    <span class="content-detail-timeline-title">Task put on Hold</span>
+                                    <c:if test="${empty h.resumedAt}"><span class="flag-chip flag-hold">Open</span></c:if>
+                                </div>
+                                <p class="content-detail-timeline-desc">
+                                    Held by <c:out value="${h.heldBy.fullName}"/> &middot; Reason: <c:out value="${h.holdReason}"/>
+                                </p>
+                                <c:if test="${not empty h.resumedAt}">
+                                    <p class="content-detail-timeline-desc">
+                                        Task Resumed by <c:out value="${h.resumedBy.fullName}"/>
+                                    </p>
+                                </c:if>
+                            </div>
+                            <div class="content-detail-timeline-meta">
+                                <span class="content-detail-timeline-time">${kcpc:ist(h.heldAt)}</span>
+                                <c:if test="${not empty h.resumedAt}">
+                                    <span class="content-detail-timeline-time">Resumed ${kcpc:ist(h.resumedAt)}</span>
+                                </c:if>
+                            </div>
+                        </li>
+                    </c:forEach>
+                </ul>
+            </div>
+        </c:if>
     </div>
 
     <%-- ============================ PLANNING ============================ --%>
@@ -856,63 +892,10 @@
         <c:if test="${cdStageIndex >= 1}">
         <div class="panel content-detail-stage-comments-block">
             <h3 class="content-detail-card-title">Shoot Comments</h3>
-            <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
-                <div class="stage-comments-list">
-                    <c:forEach var="cm" items="${shootComments}">
-                        <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
-                            <c:choose>
-                                <c:when test="${cm.deleted}">
-                                    <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
-                                    <div class="stage-comment-text muted">This comment was deleted.</div>
-                                </c:when>
-                                <c:otherwise>
-                                    <div class="stage-comment-meta">
-                                        <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
-                                        <c:if test="${cm.commenter.id == user.id}">
-                                            <div class="stage-comment-menu">
-                                                <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
-                                                <div class="stage-comment-menu-dropdown hidden">
-                                                    <button type="button" class="stage-comment-edit-trigger">Edit</button>
-                                                    <button type="button" class="stage-comment-delete-trigger">Delete</button>
-                                                </div>
-                                            </div>
-                                        </c:if>
-                                    </div>
-                                    <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
-                                    <c:if test="${cm.commenter.id == user.id}">
-                                        <form class="action-form stage-comment-edit-form hidden" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/edit">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
-                                            <div class="review-actions">
-                                                <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
-                                                <button type="submit">Save</button>
-                                            </div>
-                                        </form>
-                                        <form class="action-form stage-comment-delete-form hidden" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments/${cm.id}/delete">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
-                                            <div class="review-actions">
-                                                <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
-                                                <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
-                                            </div>
-                                        </form>
-                                    </c:if>
-                                </c:otherwise>
-                            </c:choose>
-                        </div>
-                    </c:forEach>
-                </div>
-                <c:if test="${canCommentOnShoot}">
-                    <form class="action-form stage-comment-form" method="post"
-                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/comments">
-                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
-                        <button type="submit">Comment</button>
-                    </form>
-                </c:if>
-            </div>
+            <c:set var="stageCommentsPath" value="shooting"/>
+            <c:set var="stageCommentsList" value="${shootComments}"/>
+            <c:set var="stageCommentsCanPost" value="${canCommentOnShoot}"/>
+            <%@ include file="fragments/stage-comments-block.jspf" %>
         </div>
         </c:if>
     </div>
@@ -1095,63 +1078,10 @@
         <c:if test="${cdStageIndex >= 2}">
         <div class="panel content-detail-stage-comments-block">
             <h3 class="content-detail-card-title">Edit Comments</h3>
-            <div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments">
-                <div class="stage-comments-list">
-                    <c:forEach var="cm" items="${editComments}">
-                        <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
-                            <c:choose>
-                                <c:when test="${cm.deleted}">
-                                    <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
-                                    <div class="stage-comment-text muted">This comment was deleted.</div>
-                                </c:when>
-                                <c:otherwise>
-                                    <div class="stage-comment-meta">
-                                        <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
-                                        <c:if test="${cm.commenter.id == user.id}">
-                                            <div class="stage-comment-menu">
-                                                <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
-                                                <div class="stage-comment-menu-dropdown hidden">
-                                                    <button type="button" class="stage-comment-edit-trigger">Edit</button>
-                                                    <button type="button" class="stage-comment-delete-trigger">Delete</button>
-                                                </div>
-                                            </div>
-                                        </c:if>
-                                    </div>
-                                    <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
-                                    <c:if test="${cm.commenter.id == user.id}">
-                                        <form class="action-form stage-comment-edit-form hidden" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments/${cm.id}/edit">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
-                                            <div class="review-actions">
-                                                <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
-                                                <button type="submit">Save</button>
-                                            </div>
-                                        </form>
-                                        <form class="action-form stage-comment-delete-form hidden" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments/${cm.id}/delete">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
-                                            <div class="review-actions">
-                                                <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
-                                                <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
-                                            </div>
-                                        </form>
-                                    </c:if>
-                                </c:otherwise>
-                            </c:choose>
-                        </div>
-                    </c:forEach>
-                </div>
-                <c:if test="${canCommentOnEdit}">
-                    <form class="action-form stage-comment-form" method="post"
-                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/comments">
-                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                        <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
-                        <button type="submit">Comment</button>
-                    </form>
-                </c:if>
-            </div>
+            <c:set var="stageCommentsPath" value="editing"/>
+            <c:set var="stageCommentsList" value="${editComments}"/>
+            <c:set var="stageCommentsCanPost" value="${canCommentOnEdit}"/>
+            <%@ include file="fragments/stage-comments-block.jspf" %>
         </div>
         </c:if>
     </div>
@@ -1498,14 +1428,39 @@
 
                     <h3>Actual Publication Events</h3>
                     <table class="data-table">
-                        <thead><tr><th>Type</th><th>Target</th><th>Timestamp (IST)</th><th>Evidence</th><th></th></tr></thead>
+                        <thead><tr><th>Event Type</th><th>Content Type</th><th>Target</th><th>Timestamp (IST)</th><th>Evidence</th><th></th></tr></thead>
                         <tbody>
+                        <%-- Each event carries its OWN plannedOutput (EAGER-fetched, ERD-TBL-021) - Content
+                             Type is read directly from that event's actual output/reel-type relationship,
+                             never inferred from platform/channel/order/timestamp, so multiple events for the
+                             same Platform x Channel (e.g. REEL VERY_SHORT/SHORT/LONG all posted to the same
+                             Instagram handle) each show their own correct, distinct variation. --%>
                         <c:forEach var="e" items="${events}">
+                            <c:set var="cdEvtOutputType" value="${e.plannedOutput.outputType}"/>
+                            <c:set var="cdEvtReelType" value="${e.plannedOutput.reelType}"/>
                             <tr>
                                 <td>${e.eventType}</td>
+                                <td>
+                                    <c:choose>
+                                        <c:when test="${empty cdEvtOutputType}">-</c:when>
+                                        <c:when test="${cdEvtOutputType == 'REEL' and not empty cdEvtReelType}">REEL &middot; ${cdEvtReelType}</c:when>
+                                        <c:otherwise>${cdEvtOutputType}</c:otherwise>
+                                    </c:choose>
+                                </td>
                                 <td>${e.publicationTarget.platform.platformName} / ${e.publicationTarget.channel.channelHandle}</td>
                                 <td>${kcpc:ist(e.actualPublicationTimestamp)}</td>
-                                <td>${e.evidenceUrl}</td>
+                                <td>
+                                    <%-- Current EFFECTIVE URL (latest correction if one exists, else the
+                                         original event.evidenceUrl) - never the raw immutable original field
+                                         directly, so a saved correction is actually reflected here. --%>
+                                    <c:set var="cdEvtEffectiveUrl" value="${effectiveEvidenceUrlByEventId[e.id]}"/>
+                                    <c:choose>
+                                        <c:when test="${not empty cdEvtEffectiveUrl}">
+                                            <a class="drive-link" href="${fn:escapeXml(cdEvtEffectiveUrl)}" target="_blank" rel="noopener noreferrer">Open &#8599;</a>
+                                        </c:when>
+                                        <c:otherwise>-</c:otherwise>
+                                    </c:choose>
+                                </td>
                                 <td>
                                     <c:if test="${canPublishingExecute}">
                                         <details>
@@ -1522,7 +1477,7 @@
                                 </td>
                             </tr>
                         </c:forEach>
-                        <c:if test="${empty events}"><tr><td colspan="5" class="muted">No publication events yet.</td></tr></c:if>
+                        <c:if test="${empty events}"><tr><td colspan="6" class="muted">No publication events yet.</td></tr></c:if>
                         </tbody>
                     </table>
 
@@ -1623,64 +1578,190 @@
 
     <%-- ============================ PERFORMANCE ============================ --%>
     <div class="my-work-tab-panel hidden" data-tab-panel="performance">
-        <div class="panel">
-            <h2 id="performance">Performance</h2>
-            <c:choose>
-                <c:when test="${cdStageIndex < 4}">
-                    <p class="muted">Performance Pending &mdash; not reached yet.</p>
-                </c:when>
-                <c:otherwise>
-                    <c:forEach var="ob" items="${obligations}">
-                        <h3>Obligation — Due ${ob.performanceDueDate} (non-reschedulable) ${ob.completed ? '— COMPLETED' : ''}</h3>
+        <h2 id="performance">Performance</h2>
+        <c:choose>
+            <c:when test="${cdStageIndex < 4}">
+                <div class="panel"><p class="muted">Performance Pending &mdash; not reached yet.</p></div>
+            </c:when>
+            <c:otherwise>
+                <%-- Each PerformanceObligation is 1:1 with exactly one ActualPublicationEvent
+                     (ERD-TBL-023) - which is itself already linked to a real PlannedOutput
+                     (Output Type/Reel Type) and PublicationTarget (Platform/Channel), both
+                     EAGER-fetched. Nothing new to persist: this identity block is read straight
+                     from those existing relationships, so a Reel with 3 variations published to
+                     multiple channels always renders as separate, individually-identified cards -
+                     never a generic "Obligation - Due X" heading a manager could mismatch. Every
+                     ActualPublicationEvent (ORIGINAL or REPOST alike) gets its own obligation, so
+                     the Event Type badge is shown too - two obligations can otherwise share the
+                     exact same Reel Type/Platform/Channel after a Repost. --%>
+                <c:forEach var="ob" items="${obligations}">
+                    <c:set var="obOutputType" value="${ob.event.plannedOutput.outputType}"/>
+                    <c:set var="obReelType" value="${ob.event.plannedOutput.reelType}"/>
+                    <c:set var="obEffectiveUrl" value="${effectiveEvidenceUrlByEventId[ob.event.id]}"/>
+                    <div class="panel performance-obligation-card" data-obligation-id="${ob.id}">
+                        <div class="performance-obligation-identity">
+                            <div class="performance-obligation-identity-row">
+                                <span class="performance-obligation-content-type">
+                                    <c:choose>
+                                        <c:when test="${empty obOutputType}">-</c:when>
+                                        <c:when test="${obOutputType == 'REEL' and not empty obReelType}">REEL &middot; ${obReelType}</c:when>
+                                        <c:otherwise>${obOutputType}</c:otherwise>
+                                    </c:choose>
+                                </span>
+                                <span class="performance-obligation-event-type-badge"><c:out value="${ob.event.eventType}"/></span>
+                            </div>
+                            <div class="performance-obligation-target">
+                                <c:choose>
+                                    <c:when test="${empty ob.event.publicationTarget}">-</c:when>
+                                    <c:otherwise>${ob.event.publicationTarget.platform.platformName} &middot; <c:out value="${ob.event.publicationTarget.channel.channelHandle}"/></c:otherwise>
+                                </c:choose>
+                            </div>
+                            <div class="performance-obligation-meta">
+                                <span>Published ${kcpc:ist(ob.event.actualPublicationTimestamp)}</span>
+                                <c:choose>
+                                    <c:when test="${not empty obEffectiveUrl}">
+                                        <a class="drive-link" href="${fn:escapeXml(obEffectiveUrl)}" target="_blank" rel="noopener noreferrer">Open Published Content &#8599;</a>
+                                    </c:when>
+                                    <c:otherwise><span class="muted">Publication context unavailable</span></c:otherwise>
+                                </c:choose>
+                            </div>
+                            <div class="performance-obligation-due">Performance Due ${ob.performanceDueDate} (non-reschedulable)${ob.completed ? ' — COMPLETED' : ''}</div>
+                        </div>
                         <c:set var="sc" value="${scorecardsByObligation[ob.id]}"/>
                         <c:choose>
                             <c:when test="${not empty sc and sc.submitted}">
-                                <p>Hook Rate: <c:out value="${sc.hookRatePercent}" default="N/A"/>% &middot;
-                                   Hold Rate: <c:out value="${sc.holdRatePercent}" default="N/A"/>% &middot;
-                                   CTR: <c:out value="${sc.ctrPercent}" default="N/A"/>%</p>
+                                <%-- Hook/Hold/CTR read from effectiveMetricsByObligation (latest per-metric
+                                     correction applied), never the raw sc.*RatePercent frozen at submission -
+                                     otherwise a correction would never visibly change the summary. --%>
+                                <c:set var="effMetrics" value="${effectiveMetricsByObligation[ob.id]}"/>
+                                <p>Hook Rate: <c:out value="${effMetrics.hookRatePercent}" default="N/A"/>% &middot;
+                                   Hold Rate: <c:out value="${effMetrics.holdRatePercent}" default="N/A"/>% &middot;
+                                   CTR: <c:out value="${effMetrics.ctrPercent}" default="N/A"/>%</p>
                                 <c:if test="${canPerformanceUpdate}">
                                     <details>
                                         <summary>Correct a metric</summary>
-                                        <form class="action-form" method="post"
+                                        <%-- Only metrics not marked N/A on THIS scorecard are offered - never a
+                                             blind universal list (a metric legitimately N/A for this
+                                             Platform/Output was never really "part of" this scorecard). --%>
+                                        <form class="action-form performance-correction-form" method="post"
                                               action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/scorecards/${sc.id}/corrections">
                                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <label>Corrected Link Clicks <input type="number" name="correctedLinkClicks"></label>
+                                            <label>Metric to correct
+                                                <select class="metric-correction-select" required>
+                                                    <option value="" disabled selected>Select metric&hellip;</option>
+                                                    <c:if test="${not effMetrics.views3secIsNa}">
+                                                        <option value="views3sec">3-sec Views</option>
+                                                    </c:if>
+                                                    <option value="plays">Plays</option>
+                                                    <c:if test="${not effMetrics.watchTimeIsNa}">
+                                                        <option value="watchTime">Avg Watch</option>
+                                                    </c:if>
+                                                    <c:if test="${not effMetrics.videoLengthIsNa}">
+                                                        <option value="videoLength">Video Length</option>
+                                                    </c:if>
+                                                    <c:if test="${not effMetrics.clicksIsNa}">
+                                                        <option value="linkClicks">Link Clicks</option>
+                                                    </c:if>
+                                                    <option value="impressions">Impressions</option>
+                                                </select>
+                                            </label>
+                                            <div class="performance-metric-correction-field hidden" data-metric="views3sec">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.views3sec}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" min="0" name="correctedViews3sec"></label>
+                                            </div>
+                                            <div class="performance-metric-correction-field hidden" data-metric="plays">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.plays}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" min="0" name="correctedPlays"></label>
+                                            </div>
+                                            <div class="performance-metric-correction-field hidden" data-metric="watchTime">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.averageWatchTimeSeconds}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedWatchTimeSeconds"></label>
+                                            </div>
+                                            <div class="performance-metric-correction-field hidden" data-metric="videoLength">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.videoLengthSeconds}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedVideoLengthSeconds"></label>
+                                            </div>
+                                            <div class="performance-metric-correction-field hidden" data-metric="linkClicks">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.linkClicks}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" min="0" name="correctedLinkClicks"></label>
+                                            </div>
+                                            <div class="performance-metric-correction-field hidden" data-metric="impressions">
+                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.impressions}" default="N/A"/></p>
+                                                <label>Corrected Value <input type="number" min="0" name="correctedImpressions"></label>
+                                            </div>
                                             <label>Reason * <input type="text" name="correctionReason" required></label>
                                             <button type="submit">Save Correction</button>
                                         </form>
                                     </details>
+                                    <details>
+                                        <summary>Correction History</summary>
+                                        <%-- Per-scorecard history, distinct from the company-wide Reports -> Logs
+                                             audit trail (that stays untouched - see PERFORMANCE_METRIC_CORRECTED
+                                             audit record still written by PerformanceService#correctMetrics). --%>
+                                        <c:forEach var="corr" items="${correctionsByObligation[ob.id]}">
+                                            <div class="correction-history-entry">
+                                                <c:if test="${not empty corr.newViews3sec}">
+                                                    <p>3-sec Views: <c:out value="${corr.priorViews3sec}" default="N/A"/> &rarr; ${corr.newViews3sec}</p>
+                                                </c:if>
+                                                <c:if test="${not empty corr.newPlays}">
+                                                    <p>Plays: <c:out value="${corr.priorPlays}" default="N/A"/> &rarr; ${corr.newPlays}</p>
+                                                </c:if>
+                                                <c:if test="${not empty corr.newWatchTime}">
+                                                    <p>Avg Watch: <c:out value="${corr.priorWatchTime}" default="N/A"/> &rarr; ${corr.newWatchTime}</p>
+                                                </c:if>
+                                                <c:if test="${not empty corr.newVideoLength}">
+                                                    <p>Video Length: <c:out value="${corr.priorVideoLength}" default="N/A"/> &rarr; ${corr.newVideoLength}</p>
+                                                </c:if>
+                                                <c:if test="${not empty corr.newClicks}">
+                                                    <p>Link Clicks: <c:out value="${corr.priorClicks}" default="N/A"/> &rarr; ${corr.newClicks}</p>
+                                                </c:if>
+                                                <c:if test="${not empty corr.newImpressions}">
+                                                    <p>Impressions: <c:out value="${corr.priorImpressions}" default="N/A"/> &rarr; ${corr.newImpressions}</p>
+                                                </c:if>
+                                                <p class="muted">Reason: <c:out value="${corr.mandatoryReason}"/> &middot;
+                                                   By <c:out value="${corr.correctedBy.fullName}"/> &middot; ${kcpc:ist(corr.correctedAt)}</p>
+                                            </div>
+                                        </c:forEach>
+                                        <c:if test="${empty correctionsByObligation[ob.id]}"><p class="muted">No corrections yet.</p></c:if>
+                                    </details>
                                 </c:if>
                             </c:when>
                             <c:when test="${canPerformanceUpdate}">
+                                <c:if test="${not empty sc}"><p class="performance-draft-status">Draft saved</p></c:if>
                                 <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/draft">
                                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                                     <div class="field-row">
-                                        <div><label>3-sec Views <input type="number" name="views3sec"></label></div>
-                                        <div><label>Plays <input type="number" name="plays"></label></div>
+                                        <div><label>3-sec Views <input type="number" min="0" name="views3sec" value="${sc.views3sec}"></label></div>
+                                        <div><label>Plays <input type="number" min="0" name="plays" value="${sc.plays}"></label></div>
                                     </div>
                                     <div class="field-row">
-                                        <div><label>Avg Watch (s) <input type="number" step="0.01" name="averageWatchTimeSeconds"></label></div>
-                                        <div><label>Video Length (s) <input type="number" step="0.01" name="videoLengthSeconds"></label></div>
+                                        <div><label>Avg Watch (s) <input type="number" step="0.01" min="0" name="averageWatchTimeSeconds" value="${sc.averageWatchTimeSeconds}"></label></div>
+                                        <div><label>Video Length (s) <input type="number" step="0.01" min="0" name="videoLengthSeconds" value="${sc.videoLengthSeconds}"></label></div>
                                     </div>
                                     <div class="field-row">
-                                        <div><label>Link Clicks <input type="number" name="linkClicks"></label></div>
-                                        <div><label>Impressions <input type="number" name="impressions"></label></div>
+                                        <div><label>Link Clicks <input type="number" min="0" name="linkClicks" value="${sc.linkClicks}"></label></div>
+                                        <div><label>Impressions <input type="number" min="0" name="impressions" value="${sc.impressions}"></label></div>
                                     </div>
                                     <p class="note-box">Any field may be left blank while a draft. Metrics not applicable to this platform/output should be handled via N/A (server-side default false here; use the correction path once submitted).</p>
                                     <button type="submit">Save Draft</button>
                                 </form>
-                                <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/submit">
-                                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                    <button type="submit">Submit Scorecard (final)</button>
-                                </form>
+                                <c:choose>
+                                    <c:when test="${not empty sc}">
+                                        <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/submit">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <button type="submit">Submit Scorecard (final)</button>
+                                        </form>
+                                    </c:when>
+                                    <c:otherwise><p class="muted">Save a draft first to enable final submission.</p></c:otherwise>
+                                </c:choose>
                             </c:when>
                             <c:otherwise><p class="muted">No draft yet.</p></c:otherwise>
                         </c:choose>
-                    </c:forEach>
-                    <c:if test="${empty obligations}"><p class="muted">No performance obligations yet.</p></c:if>
-                </c:otherwise>
-            </c:choose>
-        </div>
+                    </div>
+                </c:forEach>
+                <c:if test="${empty obligations}"><div class="panel"><p class="muted">No performance obligations yet.</p></div></c:if>
+            </c:otherwise>
+        </c:choose>
     </div>
 
     <%-- ============================ TIMELINE ============================ --%>
@@ -1750,33 +1831,13 @@
                 <button type="submit">Confirm Request Rework</button>
             </form>
 
-            <form class="content-detail-action-form hidden" data-action-key="APPROVE_SHOOT_REVIEW" method="post"
-                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/review/decision">
-                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <input type="hidden" name="approve" value="true"/>
-                <button type="submit">Confirm Approve Shoot</button>
-            </form>
-            <form class="content-detail-action-form hidden" data-action-key="REQUEST_REWORK_SHOOT_REVIEW" method="post"
-                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/review/decision">
-                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <input type="hidden" name="approve" value="false"/>
-                <label>Rework Reason * <textarea name="reason" rows="2" required></textarea></label>
-                <button type="submit">Confirm Request Rework</button>
-            </form>
-
-            <form class="content-detail-action-form hidden" data-action-key="APPROVE_EDIT_REVIEW" method="post"
-                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/review/decision">
-                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <input type="hidden" name="approve" value="true"/>
-                <button type="submit">Confirm Approve Edit</button>
-            </form>
-            <form class="content-detail-action-form hidden" data-action-key="REQUEST_REWORK_EDIT_REVIEW" method="post"
-                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/review/decision">
-                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <input type="hidden" name="approve" value="false"/>
-                <label>Rework Reason * <textarea name="reason" rows="2" required></textarea></label>
-                <button type="submit">Confirm Request Rework</button>
-            </form>
+            <%-- Shoot Review / Edit Review decisions are deliberately NOT here (UI consistency fix):
+                 approval requires selecting at least one qualifying final Cameraperson/Editor, a
+                 control that only exists in the Shoot/Edit tabs' own canonical review UI below -
+                 duplicating a reduced Approve-only form here would always fail server-side
+                 (ShootingService/EditingService reject Approve without that selection). Make the
+                 decision from the Shoot/Edit tab (or Reviews -> Shoot/Edit), which share the exact
+                 same backend endpoint this form used to post to. --%>
 
             <form class="content-detail-action-form hidden" data-action-key="RESCHEDULE" method="post"
                   action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/reschedule">
@@ -1854,13 +1915,14 @@
             <form class="content-detail-action-form hidden" data-action-key="HOLD" method="post"
                   action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/hold">
                 <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <label>Reason * <input type="text" name="reason" required></label>
-                <button type="submit">Confirm Hold</button>
+                <label>Hold Reason * <input type="text" name="reason" required></label>
+                <label>Expected Resume Date (Optional) <input type="date" name="expectedResumeDate"></label>
+                <button type="submit">Confirm Hold Work</button>
             </form>
             <form class="content-detail-action-form hidden" data-action-key="RESUME" method="post"
                   action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/resume">
                 <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                <button type="submit">Confirm Resume</button>
+                <button type="submit">Confirm Resume Work</button>
             </form>
 
             <form class="content-detail-action-form hidden" data-action-key="REOPEN_PUBLISHING" method="post"
@@ -1982,5 +2044,6 @@
 <script src="${pageContext.request.contextPath}/js/my-work-tabs.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/content-detail.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/publisher-assignment-modal.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/performance-metric-correction.js" defer></script>
 </body>
 </html>

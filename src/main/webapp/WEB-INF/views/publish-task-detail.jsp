@@ -116,7 +116,7 @@
             <div class="panel">
                 <h2>Publication Targets</h2>
                 <c:choose>
-                    <c:when test="${status == 'PUBG' and canPublishingExecute and isPublishActiveAssignee}">
+                    <c:when test="${status == 'PUBG' and canPublishingExecute and isPublishActiveAssignee and empty openHold}">
                         <form method="post" id="publishing-checklist-form"
                               action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events/bulk">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
@@ -296,6 +296,17 @@
                     </c:when>
                     <c:when test="${status == 'RFP'}">
                         <p class="shoot-status-compact">Ready for Publishing</p>
+                    </c:when>
+                    <c:when test="${status == 'PUBG' and not empty openHold}">
+                        <div class="hold-info-block">
+                            <p class="hold-info-title">&#9888; This task is currently on hold.</p>
+                            <p><strong>Hold Reason:</strong> <c:out value="${openHold.holdReason}"/></p>
+                            <p><strong>Held By:</strong> <c:out value="${openHold.heldBy.fullName}"/></p>
+                            <p><strong>Held On:</strong> ${kcpc:ist(openHold.heldAt)}</p>
+                            <c:if test="${not empty openHold.expectedResumeDate}">
+                                <p><strong>Expected Resume Date:</strong> ${openHold.expectedResumeDate}</p>
+                            </c:if>
+                        </div>
                     </c:when>
                     <c:when test="${status == 'PUBG'}">
                         <p class="shoot-status-compact">Publishing in progress &mdash; record events in Publication Targets</p>

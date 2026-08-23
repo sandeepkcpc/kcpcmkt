@@ -22,6 +22,7 @@
         <%@ include file="fragments/reviews-content.jspf" %>
     </div>
 </main>
+<script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/reviews-workspace.js" defer></script>
 </body>
 </html>

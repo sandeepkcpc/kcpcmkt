@@ -1,0 +1,67 @@
+<%-- Shared Shoot/Edit stage comment thread - the single canonical markup/AJAX contract
+     (stage-discussion.js's wireStageDiscussion) reused by BOTH Content Detail -> Shoot/Edit and
+     Reviews -> Shoot/Edit, so a Cameraperson's/Editor's task comment is visible identically from
+     either entry point (Manager review-consistency fix). Caller sets, before including this file:
+     ${plan} (for .id), ${user} (for own-comment menu gating), ${stageCommentsPath}
+     ("shooting"/"editing" - the URL segment the existing StageCommentController endpoints use),
+     ${stageCommentsList} (${shootComments}/${editComments}), ${stageCommentsCanPost}
+     (${canCommentOnShoot}/${canCommentOnEdit}). The outer panel/heading is deliberately NOT part of
+     this fragment - Content Detail and Reviews each wrap it in their own already-established
+     heading/panel style; only the comment thread itself (and its exact backend contract) is shared. --%>
+<div class="stage-comments" data-comments-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/${stageCommentsPath}/comments">
+    <div class="stage-comments-list">
+        <c:forEach var="cm" items="${stageCommentsList}">
+            <div class="stage-comment" data-comment-id="${cm.id}" data-commenter-name="${cm.commenter.fullName}" data-created-at="${kcpc:ist(cm.createdAt)}">
+                <c:choose>
+                    <c:when test="${cm.deleted}">
+                        <div class="stage-comment-meta"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}</div>
+                        <div class="stage-comment-text muted">This comment was deleted.</div>
+                    </c:when>
+                    <c:otherwise>
+                        <div class="stage-comment-meta">
+                            <span class="stage-comment-meta-text"><strong><c:out value="${cm.commenter.fullName}"/></strong> &middot; ${kcpc:ist(cm.createdAt)}<c:if test="${not empty cm.editedAt}"> &middot; <span class="stage-comment-edited">edited</span></c:if></span>
+                            <c:if test="${cm.commenter.id == user.id}">
+                                <div class="stage-comment-menu">
+                                    <button type="button" class="stage-comment-menu-btn" aria-label="Comment actions">&hellip;</button>
+                                    <div class="stage-comment-menu-dropdown hidden">
+                                        <button type="button" class="stage-comment-edit-trigger">Edit</button>
+                                        <button type="button" class="stage-comment-delete-trigger">Delete</button>
+                                    </div>
+                                </div>
+                            </c:if>
+                        </div>
+                        <div class="stage-comment-text"><c:out value="${cm.commentText}"/></div>
+                        <c:if test="${cm.commenter.id == user.id}">
+                            <form class="action-form stage-comment-edit-form hidden" method="post"
+                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/${stageCommentsPath}/comments/${cm.id}/edit">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                <textarea name="commentText" rows="2" required><c:out value="${cm.commentText}"/></textarea>
+                                <div class="review-actions">
+                                    <button type="button" class="stage-comment-edit-cancel-btn">Cancel</button>
+                                    <button type="submit">Save</button>
+                                </div>
+                            </form>
+                            <form class="action-form stage-comment-delete-form hidden" method="post"
+                                  action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/${stageCommentsPath}/comments/${cm.id}/delete">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                <span class="stage-comment-delete-confirm-text">Delete this comment? This cannot be undone.</span>
+                                <div class="review-actions">
+                                    <button type="button" class="stage-comment-delete-cancel-btn">Cancel</button>
+                                    <button type="submit" class="stage-comment-delete-confirm-btn">Yes, delete</button>
+                                </div>
+                            </form>
+                        </c:if>
+                    </c:otherwise>
+                </c:choose>
+            </div>
+        </c:forEach>
+    </div>
+    <c:if test="${stageCommentsCanPost}">
+        <form class="action-form stage-comment-form" method="post"
+              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/${stageCommentsPath}/comments">
+            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+            <textarea name="commentText" rows="2" placeholder="Write a comment..." required></textarea>
+            <button type="submit">Comment</button>
+        </form>
+    </c:if>
+</div>

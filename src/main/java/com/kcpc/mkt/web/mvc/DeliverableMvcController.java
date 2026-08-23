@@ -296,7 +296,13 @@ public class DeliverableMvcController {
                         com.kcpc.mkt.production.domain.EditingExecutionParticipant::getEditor));
         model.addAttribute("activeUsers", userRepository.findByActiveTrueOrderByFullNameAsc());
 
-        model.addAttribute("events", eventRepository.findByContentPlan(plan));
+        List<ActualPublicationEvent> events = eventRepository.findByContentPlan(plan);
+        model.addAttribute("events", events);
+        // Actual Publication Events table must show the CURRENT effective evidence URL (latest
+        // correction if one exists), never the raw immutable original event.evidenceUrl directly -
+        // same shared resolver the Pipeline platform popover uses, so the two views can never
+        // disagree on which correction is current.
+        model.addAttribute("effectiveEvidenceUrlByEventId", publishingService.resolveEffectiveEvidenceUrls(events));
         List<PerformanceObligation> obligations = obligationRepository.findByEvent_ContentPlan_Id(id);
         model.addAttribute("obligations", obligations);
         // Collectors.toMap rejects null values (no scorecard drafted yet is the common case) -
@@ -307,6 +313,23 @@ public class DeliverableMvcController {
             scorecardsByObligation.put(obligation.getId(), scorecardRepository.findByObligation(obligation).orElse(null));
         }
         model.addAttribute("scorecardsByObligation", scorecardsByObligation);
+        // Correct-a-Metric's "Current Value" and the submitted-scorecard summary (Hook/Hold/CTR)
+        // must both reflect the latest per-metric correction (ERD-CON-060), never the frozen
+        // at-submission-time raw value - same resolver for both, keyed by obligation id like
+        // scorecardsByObligation above so the JSP can look either map up from the same ${ob.id}.
+        java.util.Map<UUID, com.kcpc.mkt.performance.dto.EffectiveScorecardMetrics> effectiveMetricsByObligation =
+                new java.util.HashMap<>();
+        java.util.Map<UUID, java.util.List<com.kcpc.mkt.performance.domain.PerformanceMetricCorrection>> correctionsByObligation =
+                new java.util.HashMap<>();
+        for (PerformanceObligation obligation : obligations) {
+            com.kcpc.mkt.performance.domain.CreativePerformanceScorecard sc = scorecardsByObligation.get(obligation.getId());
+            if (sc != null && sc.isSubmitted()) {
+                effectiveMetricsByObligation.put(obligation.getId(), performanceService.resolveEffectiveMetrics(sc));
+                correctionsByObligation.put(obligation.getId(), performanceService.correctionsFor(sc));
+            }
+        }
+        model.addAttribute("effectiveMetricsByObligation", effectiveMetricsByObligation);
+        model.addAttribute("correctionsByObligation", correctionsByObligation);
 
         var timeline = new java.util.ArrayList<>(transitionHistoryRepository
                 .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance()));
@@ -315,6 +338,12 @@ public class DeliverableMvcController {
         Optional<com.kcpc.mkt.workflow.domain.WorkHoldRecord> openHold =
                 holdRecordRepository.findByWorkflowInstanceAndResumedAtIsNull(plan.getWorkflowInstance());
         model.addAttribute("openHold", openHold.orElse(null));
+        // BR-063 Hold/Resume: every Hold/Resume cycle stays individually visible here (append-only,
+        // ERD-CON-062 - a later cycle never overwrites an earlier one's reason), separate from the
+        // real WorkflowTransitionHistory-based Timeline above since Hold is deliberately not a
+        // status transition (ERD-CON-061).
+        model.addAttribute("holdHistory",
+                holdRecordRepository.findByWorkflowInstanceOrderByHeldAtDesc(plan.getWorkflowInstance()));
         model.addAttribute("delayed", plan.getPlannedLiveDate() != null
                 && plan.getPlannedLiveDate().isBefore(LocalDate.now(BUSINESS_ZONE))
                 && status != WorkflowStatus.COMP && status != WorkflowStatus.CAN);
@@ -641,18 +670,19 @@ public class DeliverableMvcController {
         List<com.kcpc.mkt.web.mvc.dto.AvailableAction> actions = new ArrayList<>();
         Map<String, Object> attrs = model.asMap();
 
-        // Primary: whichever review gate is currently pending decision for this user.
+        // Primary: whichever review gate is currently pending decision for this user. Planning
+        // Review is a plain boolean decision (PlanningService#decidePlanningReview takes no extra
+        // selection), so its Action Center form is genuinely complete and stays here. Shoot/Edit
+        // Review are NOT plain boolean decisions - approval requires selecting at least one
+        // qualifying final Cameraperson/Editor (ShootingService#decideShootReview,
+        // EditingService#decideEditReview both throw VALIDATION_FAILED without one), and that
+        // selection control only exists in the Shoot/Edit tabs' own canonical review UI - never
+        // duplicated here. Exposing APPROVE_SHOOT_REVIEW/APPROVE_EDIT_REVIEW here would be a
+        // dead-end action that always 400s, so Shoot/Edit review decisions live exclusively in
+        // their own stage tab (Content Detail -> Shoot/Edit, and Reviews -> Shoot/Edit).
         if (Boolean.TRUE.equals(attrs.get("canDecidePlanningReview")) && status == WorkflowStatus.PLRV) {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_PLANNING_REVIEW", "Approve Planning", "primary", "primary", false));
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_PLANNING_REVIEW", "Request Rework", "danger", "primary", true));
-        }
-        if (Boolean.TRUE.equals(attrs.get("canDecideShootReview")) && status == WorkflowStatus.SRV) {
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_SHOOT_REVIEW", "Approve Shoot", "primary", "primary", false));
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_SHOOT_REVIEW", "Request Rework", "danger", "primary", true));
-        }
-        if (Boolean.TRUE.equals(attrs.get("canDecideEditReview")) && status == WorkflowStatus.ERV) {
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_EDIT_REVIEW", "Approve Edit", "primary", "primary", false));
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_EDIT_REVIEW", "Request Rework", "danger", "primary", true));
         }
 
         // Other actions - same permission flags the old admin-actions bar used, PLUS the exact same
@@ -668,11 +698,11 @@ public class DeliverableMvcController {
         if (notClosed && Boolean.TRUE.equals(attrs.get("canReassign"))) {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REASSIGN", "Reassign", "secondary", "other", true));
         }
-        if (nativeAuthority && (status == WorkflowStatus.SIP || status == WorkflowStatus.ED)) {
+        if (nativeAuthority && (status == WorkflowStatus.SIP || status == WorkflowStatus.ED || status == WorkflowStatus.PUBG)) {
             if (openHold.isEmpty()) {
-                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("HOLD", "Hold", "secondary", "other", true));
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("HOLD", "Hold Work", "secondary", "other", true));
             } else {
-                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESUME", "Resume", "secondary", "other", false));
+                actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESUME", "Resume Work", "secondary", "other", false));
             }
         }
         // AdminActionService#cancel is stricter still - blocked once the plan has EVER reached
@@ -2077,12 +2107,21 @@ public class DeliverableMvcController {
 
     @PostMapping("/performance/scorecards/{scorecardId}/corrections")
     public String correctMetric(@PathVariable UUID id, @PathVariable UUID scorecardId,
+                                 @RequestParam(required = false) Integer correctedViews3sec,
+                                 @RequestParam(required = false) Integer correctedPlays,
+                                 @RequestParam(required = false) java.math.BigDecimal correctedWatchTimeSeconds,
+                                 @RequestParam(required = false) java.math.BigDecimal correctedVideoLengthSeconds,
                                  @RequestParam(required = false) Integer correctedLinkClicks,
+                                 @RequestParam(required = false) Integer correctedImpressions,
                                  @RequestParam String correctionReason,
                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            performanceService.correctMetrics(principal.user(), scorecardId, null, null, null, null, null, null, null,
-                    correctedLinkClicks, null, null, correctionReason);
+            // Metric to correct is chosen one at a time in the UI (Correct-a-Metric dropdown), but
+            // the params are all optional here (same contract as API-OP-046/CorrectScorecardMetricsRequest)
+            // so a correction may still touch more than one metric if a future caller needs to.
+            performanceService.correctMetrics(principal.user(), scorecardId, correctedViews3sec, null, correctedPlays,
+                    correctedWatchTimeSeconds, null, correctedVideoLengthSeconds, null, correctedLinkClicks, null,
+                    correctedImpressions, correctionReason);
             ra.addFlashAttribute("successMessage", "Metric correction recorded.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
@@ -2134,10 +2173,11 @@ public class DeliverableMvcController {
 
     @PostMapping("/hold")
     public String hold(@PathVariable UUID id, @RequestParam String reason,
+                        @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate expectedResumeDate,
                         @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
             ContentPlan plan = requirePlan(id);
-            holdService.placeHold(principal.user(), plan.getWorkflowInstance(), reason);
+            holdService.placeHold(principal.user(), plan.getWorkflowInstance(), reason, expectedResumeDate);
             ra.addFlashAttribute("successMessage", "Work placed on Hold.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());

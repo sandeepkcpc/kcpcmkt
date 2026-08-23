@@ -13,6 +13,10 @@
 <main class="app-main app-main-wide">
     <%@ include file="fragments/admin-tabs.jspf" %>
     <h1>Business Roles</h1>
+    <p class="admin-page-lead">A Business Role never grants an operational permission by itself.
+        Permissions are assigned separately through the Permissions module. Workflow participation
+        determines whether employees in this Business Role use a production workspace - it does
+        not grant operational permissions either.</p>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
     <c:if test="${not empty errorMessage}"><div class="alert-error">${errorMessage}</div></c:if>
 
@@ -100,11 +104,12 @@
                     </select>
                 </label>
                 <label class="checkbox-inline" style="display:flex;align-items:center;gap:0.4rem;margin-top:1rem;">
-                    <input type="checkbox" name="participatesInWorkflow" value="true" style="width:auto;margin-top:0;" checked>
+                    <input type="checkbox" name="participatesInWorkflow" value="true" style="width:auto;margin-top:0;">
                     Participates in Content Production workflow
                 </label>
                 <p class="note-box">The role will be created as Active by default. You can deactivate it anytime.
-                    Unchecking workflow participation restricts this role to My Ideas + Submit Idea only.</p>
+                    Safe default: a new role starts Non-production (My Ideas + Submit Idea only) unless you
+                    explicitly check workflow participation above.</p>
                 <div class="btn-row"><button type="submit">Create</button></div>
             </form>
         </div>

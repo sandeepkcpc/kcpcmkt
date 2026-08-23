@@ -27,11 +27,12 @@ public class ActiveWorkItem {
     private final String actionLabel;
     private final String driveLink;
     private final String targetsSummary;
+    private final boolean onHold;
 
     public ActiveWorkItem(UUID contentPlanId, String contentId, String title, String roleLabel, String priority,
                            String priorityCssClass, LocalDate plannedDate, String leadName, boolean shootLead,
                            String models, String statusLabel, String statusCssClass, Integer delayDays,
-                           String actionLabel, String driveLink, String targetsSummary) {
+                           String actionLabel, String driveLink, String targetsSummary, boolean onHold) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.title = title;
@@ -48,6 +49,7 @@ public class ActiveWorkItem {
         this.actionLabel = actionLabel;
         this.driveLink = driveLink;
         this.targetsSummary = targetsSummary;
+        this.onHold = onHold;
     }
 
     public UUID getContentPlanId() {
@@ -117,5 +119,15 @@ public class ActiveWorkItem {
     /** ENG-068: "resolved/total" Publication Target count - null for Shoot/Edit rows, only ever set for Publisher rows. */
     public String getTargetsSummary() {
         return targetsSummary;
+    }
+
+    /**
+     * BR-063 Hold/Resume: an open {@code WorkHoldRecord} exists for this row's workflow instance.
+     * The row stays visible in My Work either way (never moved to History) - the JSP suppresses
+     * the primary action button while true, since an ordinary Employee never holds the native
+     * authority Resume requires (they see a read-only On Hold state, not a Resume control).
+     */
+    public boolean isOnHold() {
+        return onHold;
     }
 }

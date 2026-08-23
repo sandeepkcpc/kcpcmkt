@@ -205,6 +205,19 @@ button[type="submit"] {
 /* ENG-067: My Shoots shows the raw WorkflowStatus name (not a per-stage friendly relabel, since a
    Model isn't executing a specific stage) - a single neutral gray pill covers every status value. */
 .status-pill.status-neutral { background: #e5e7eb; color: #374151; }
+/* BR-063 Hold/Resume: same amber used by .flag-hold (Pipeline/Content Detail's own On Hold badge)
+   - a supplementary badge alongside the real status pill, never replacing it. */
+.status-pill.status-onhold { background: #fff4e5; color: #92400e; margin-left: 0.3rem; }
+
+/* BR-063 Hold/Resume: the prominent on-hold information block on Shoot/Edit/Publish Task Detail
+   (request section 9) - same amber family as .flag-hold/.status-onhold, just a full block instead
+   of a small pill, since this is the primary thing the page needs to communicate while held. */
+.hold-info-block {
+    background: #fff8ec; border: 1px solid #fde3b8; border-radius: 8px;
+    padding: 0.9rem 1.1rem; margin: 0.5rem 0;
+}
+.hold-info-block p { margin: 0.3rem 0; font-size: 0.88rem; color: #78350f; }
+.hold-info-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem; }
 
 .priority-pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
 .priority-pill.priority-high { background: #fee2e2; color: #b91c1c; }
@@ -262,6 +275,7 @@ button[type="submit"] {
     margin-bottom: 1.5rem;
 }
 .page-header-row h1 { margin-bottom: 0.2rem; }
+.page-header-row-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
 .employee-summary-card {
     display: flex;
@@ -871,13 +885,25 @@ button[type="submit"].success { background: #1a7f4b; }
    group on the row's cross-axis independently by its own (differing) total height - the actual
    cause of Search/Delayed-only/the buttons appearing to float at inconsistent vertical positions. */
 .pipeline-filter-bar {
-    --pipeline-filter-control-h: 42px;
+    /* Corrected from an arbitrary 42px to the .pipeline-stage-tab pill's own actual computed
+       height, so the filter row is genuinely equal to the pills above it instead of merely
+       internally consistent with itself: a pill has no explicit height - it's sized by
+       padding (0.3rem top+bottom = 9.6px) + border (2px) + its tallest inline child, which is
+       .pipeline-stage-count's own explicit height:1.4rem (22.4px), taller than the pill's own
+       text line-height. 22.4 + 9.6 + 2 = 34px. */
+    --pipeline-filter-control-h: 34px;
     display: flex; align-items: flex-end; gap: 0.9rem; flex-wrap: wrap;
     background: var(--kcpc-surface); border: 1px solid var(--kcpc-border); border-radius: 10px;
     padding: 0.5rem 0.85rem; margin-bottom: 0.55rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
+/* box-sizing:border-box already applies globally (see the top-of-file `* {}` rule), so height
+   alone is enough - min-height + box-sizing are still declared explicitly here too (scoped to
+   this filter bar only, not a global input/select/button change) purely as a defensive pin
+   against exactly this class of bug recurring silently in the future. */
 .pipeline-filter-bar select, .pipeline-filter-bar input[type="date"], .pipeline-filter-bar input[type="text"] {
     height: var(--pipeline-filter-control-h);
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
     padding: 0 0.65rem;
     border: 1px solid var(--kcpc-border);
     border-radius: 7px;
@@ -908,6 +934,8 @@ button[type="submit"].success { background: #1a7f4b; }
 .pipeline-filter-checkbox {
     display: flex; align-items: center; gap: 0.4rem;
     height: var(--pipeline-filter-control-h);
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
     font-size: 0.82rem; font-weight: 600; color: var(--kcpc-ink); white-space: nowrap;
 }
 .btn-primary {
@@ -917,11 +945,19 @@ button[type="submit"].success { background: #1a7f4b; }
     background: var(--kcpc-accent); color: #fff; font-size: 0.85rem; font-weight: 700;
     cursor: pointer; white-space: nowrap;
 }
+/* min-height/box-sizing pinned explicitly here (scoped to this filter bar, not a global .btn-primary
+   change - other pages using .btn-primary, e.g. Export's Generate Export, are untouched). */
+.pipeline-filter-bar .btn-primary {
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
+}
 /* Clear reuses the shared .btn-outline look - scoped here (not on the shared rule) so its height
    only changes inside this filter bar, not on every other page that uses .btn-outline. */
 .pipeline-filter-bar .btn-outline {
     display: inline-flex; align-items: center; justify-content: center;
     height: var(--pipeline-filter-control-h);
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
 }
 .btn-primary:hover { background: #d63852; border-color: #d63852; }
 
@@ -1878,6 +1914,33 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
    click-driven show/hide, not a duplicated tab mechanism). */
 .content-detail-timeline-preview { margin-top: 1rem; padding: 1.1rem 1.4rem; }
 .content-detail-stage-comments-block { margin-top: 1rem; padding: 1.1rem 1.4rem; }
+
+/* Performance tab - each obligation is its own compact card (sibling .panel, matching the Shoot/
+   Edit tabs' own comments-block convention) led by a publication identity block, so the manager
+   never enters metrics against the wrong REEL variation/Platform/Channel. */
+.performance-obligation-card { margin-bottom: 1rem; }
+.performance-obligation-card:last-child { margin-bottom: 0; }
+.performance-obligation-identity { padding-bottom: 0.75rem; margin-bottom: 0.75rem; border-bottom: 1px solid var(--kcpc-border); }
+.performance-obligation-identity-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.performance-obligation-content-type { font-weight: 700; font-size: 0.95rem; color: var(--kcpc-ink); }
+.performance-obligation-event-type-badge {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    color: #6b7280; background: #f3f4f6; padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap;
+}
+.performance-obligation-target { font-size: 0.85rem; color: #475569; margin-top: 0.25rem; }
+.performance-obligation-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: #6b7280; margin-top: 0.35rem; }
+.performance-obligation-due { font-size: 0.8rem; font-weight: 600; color: var(--kcpc-ink); margin-top: 0.35rem; }
+
+/* Draft status + Correct-a-Metric (metric picker reveals exactly one Corrected Value field at a
+   time, scoped per-card via .closest('form') in performance-metric-correction.js - never a
+   page-wide selector, so multiple obligation cards on one page can never cross-read each other's
+   values) and Correction History, all still inside the same compact card. */
+.performance-draft-status { font-size: 0.8rem; font-weight: 600; color: #15803d; margin: 0.5rem 0; }
+.performance-metric-correction-field { margin-top: 0.5rem; }
+.performance-metric-correction-current { font-size: 0.85rem; color: #475569; margin: 0.15rem 0 0.35rem; }
+.correction-history-entry { padding: 0.6rem 0; border-bottom: 1px solid var(--kcpc-border); font-size: 0.85rem; }
+.correction-history-entry:last-child { border-bottom: none; }
+.correction-history-entry p { margin: 0.15rem 0; }
 .content-detail-timeline-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .content-detail-timeline-item {
     display: flex; align-items: flex-start; gap: 0.75rem;
@@ -2037,7 +2100,19 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .team-workload-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
 .team-workload-card-header h2 { margin: 0; }
 .team-workload-table-scroll { overflow-y: auto; min-height: 0; }
-.team-workload-card-assignee .team-workload-table-scroll { flex: 1; }
+/* CSS-only safety net: caps Assignee Load's scroll area even if JS hasn't run yet (or fails for
+   any reason) - the page can never grow unbounded from a long employee list either way. JS
+   (team-workload-dashboard.js, ResizeObserver-driven) overrides this with the Stage card's exact
+   rendered height on every browser that runs it, for a pixel-perfect match; this value is only
+   the fallback baseline. flex:1 on the desktop grid still lets it grow to fill the row when the
+   Stage card is taller than this baseline. */
+.team-workload-card-assignee .team-workload-table-scroll { flex: 1; max-height: 420px; }
+/* Stacked layout (request's own responsive rule): let Assignee Load take its natural full height
+   here - no fixed/max height, ordinary page scroll - the internal-scroll treatment is a desktop/
+   tablet-side-by-side concern only. */
+@media (max-width: 1100px) {
+    .team-workload-card-assignee .team-workload-table-scroll { max-height: none; }
+}
 .team-workload-assignee-table thead th { position: sticky; top: 0; background: #f9fafb; z-index: 1; }
 .team-workload-stage-table td, .team-workload-assignee-table td { vertical-align: middle; }
 .team-workload-stage-table .num, .team-workload-assignee-table .num { text-align: right; }
@@ -2339,6 +2414,21 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .reviews-decision-reject:hover:not(:disabled) { background: #fee2e2; }
 .reviews-decision-retain { background: #fff; border-color: #93c5fd; color: #1d4ed8; }
 .reviews-decision-retain:hover:not(:disabled) { background: #eff6ff; }
+/* Reviews -> Ideas "Retained" sub-view (added after Idea Queue was removed from CEO/MM nav) - its
+   own small toggle above the queue table, and the Reopen button standing in for Approve/Reject/
+   Retain in the detail panel once an idea is selected there. Reopen deliberately does NOT share
+   .reviews-decision-btn (its click handler posts to the Approve/Reject/Retain decision endpoint,
+   which Reopen must never hit) - this duplicates just its base look, in the same blue Retain
+   already uses since Reopen is the same kind of neutral/administrative action. */
+.reviews-idea-subtabs { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
+.reviews-idea-subtab { font-size: 0.8rem; padding: 0.4rem 0.2rem; }
+.reviews-idea-reopen-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    padding: 0.55rem 0.9rem; border-radius: 7px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    border: 1px solid #93c5fd; background: #fff; color: #1d4ed8;
+}
+.reviews-idea-reopen-btn:hover:not(:disabled) { background: #eff6ff; }
+.reviews-idea-reopen-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .reviews-decision-rework { background: #fff; border-color: #fecaca; color: #b91c1c; }
 .reviews-decision-rework:hover:not(:disabled) { background: #fee2e2; }
 .reviews-marks-row { margin: 0.2rem 0; }
@@ -2452,10 +2542,22 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .admin-action-badge.admin-action-permission_revoke { background: #fee2e2; color: #b91c1c; }
 .admin-action-badge.admin-action-generic { background: #eef2ff; color: #3730a3; }
 
-/* Export screen */
-.export-format-panel { padding: 1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1rem; }
+/* Export screen. Generate Export sits beside the Export Format field (not full-width dropdown +
+   floating bottom-right button) - align-items: flex-end lines its bottom edge up with the
+   dropdown's own bottom edge, since the field column is taller (label + gap + select) than the
+   button alone, same technique .pipeline-filter-bar uses to line up mixed-height filter groups.
+   flex-wrap lets the button drop to its own line on narrow viewports without horizontal overflow. */
+.export-format-panel { padding: 1rem 1.2rem; display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.export-format-field { display: flex; flex-direction: column; gap: 0.4rem; }
 .export-format-label { font-weight: 700; font-size: 0.85rem; }
-.export-format-select { padding: 0.5rem 0.7rem; border: 1px solid var(--kcpc-border); border-radius: 6px; font-size: 0.9rem; min-width: 180px; }
+.export-format-select {
+    height: 42px; padding: 0 0.7rem; border: 1px solid var(--kcpc-border); border-radius: 6px;
+    font-size: 0.9rem; width: 340px; max-width: 100%;
+}
+/* Compact primary button, not the oversized/clipped default an <svg> with no explicit size and no
+   inherited control-height var renders at (browsers default an unsized SVG to 300x150). */
+.export-generate-btn { height: 42px; }
+.export-generate-btn svg { width: 16px; height: 16px; flex: none; }
 .export-scope-panel { padding: 1.1rem 1.3rem; }
 .export-scope-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .export-scope-head h2 { margin: 0; font-size: 1rem; }

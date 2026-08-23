@@ -121,12 +121,17 @@ public class CreativePerformanceScorecard extends BaseEntity {
         this.ctrPercent = computeRatePercent(clicksNumerator, toDecimal(impressions));
     }
 
-    private static BigDecimal toDecimal(Integer value) {
+    public static BigDecimal toDecimal(Integer value) {
         return value == null ? null : BigDecimal.valueOf(value);
     }
 
-    /** SC-REQ-001: null/N-A numerator or zero/null denominator -&gt; N/A (never 0, never divide-by-zero). */
-    private static BigDecimal computeRatePercent(BigDecimal numerator, BigDecimal denominator) {
+    /**
+     * SC-REQ-001: null/N-A numerator or zero/null denominator -&gt; N/A (never 0, never
+     * divide-by-zero). Exposed (not private) so {@link com.kcpc.mkt.performance.service.PerformanceService}
+     * can recompute rates from effective (corrected) metric values using the exact same formula,
+     * rather than duplicating it.
+     */
+    public static BigDecimal computeRatePercent(BigDecimal numerator, BigDecimal denominator) {
         if (numerator == null || denominator == null || denominator.compareTo(BigDecimal.ZERO) == 0) {
             return null;
         }

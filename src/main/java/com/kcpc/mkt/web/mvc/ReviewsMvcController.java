@@ -100,6 +100,8 @@ public class ReviewsMvcController {
     private final EditingExecutionParticipantRepository editingParticipantRepository;
     private final PlannedOutputRepository plannedOutputRepository;
     private final ContentPlanTalentEntryRepository talentEntryRepository;
+    private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
+    private final com.kcpc.mkt.identity.repository.UserRepository userRepository;
 
     public ReviewsMvcController(IdeaRepository ideaRepository, IdeaService ideaService,
                                  ContentPlanRepository contentPlanRepository, PipelineDashboardService pipelineDashboardService,
@@ -113,7 +115,9 @@ public class ReviewsMvcController {
                                  EditingAssignmentRepository editingAssignmentRepository,
                                  EditingExecutionParticipantRepository editingParticipantRepository,
                                  PlannedOutputRepository plannedOutputRepository,
-                                 ContentPlanTalentEntryRepository talentEntryRepository) {
+                                 ContentPlanTalentEntryRepository talentEntryRepository,
+                                 com.kcpc.mkt.discussion.service.StageCommentService stageCommentService,
+                                 com.kcpc.mkt.identity.repository.UserRepository userRepository) {
         this.ideaRepository = ideaRepository;
         this.ideaService = ideaService;
         this.contentPlanRepository = contentPlanRepository;
@@ -131,6 +135,8 @@ public class ReviewsMvcController {
         this.editingParticipantRepository = editingParticipantRepository;
         this.plannedOutputRepository = plannedOutputRepository;
         this.talentEntryRepository = talentEntryRepository;
+        this.stageCommentService = stageCommentService;
+        this.userRepository = userRepository;
     }
 
     private static boolean isAjax(String requestedWith) {
@@ -141,6 +147,7 @@ public class ReviewsMvcController {
 
     @GetMapping
     public String reviews(@RequestParam(required = false, defaultValue = "ideas") String tab,
+                           @RequestParam(required = false, defaultValue = "pending") String ideaView,
                            @RequestParam(required = false) String q,
                            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate dateFrom,
                            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate dateTo,
@@ -174,15 +181,29 @@ public class ReviewsMvcController {
                     OperationalPermission.PERM_05_SHOOT_REVIEW, q, null, null, delayedOnly, selectedId, page, pageSize, model);
             case "edit" -> buildPlanTab(user, allPlans, WorkflowStatus.ERV, GateType.EDIT_REVIEW,
                     OperationalPermission.PERM_07_EDIT_REVIEW, q, null, null, delayedOnly, selectedId, page, pageSize, model);
-            default -> buildIdeasTab(user, pendingIdeas, q, dateFrom, dateTo, sort, selectedId, page, pageSize, model);
+            default -> buildIdeasTab(user, pendingIdeas, ideaView, q, dateFrom, dateTo, sort, selectedId, page, pageSize, model);
         }
         return isAjax(requestedWith) ? "reviews-content" : "reviews";
     }
 
     // --------------------------------------------------------------- Ideas
 
-    private void buildIdeasTab(User user, List<Idea> pending, String q, LocalDate dateFrom, LocalDate dateTo,
+    private void buildIdeasTab(User user, List<Idea> pendingIdeas, String ideaView, String q, LocalDate dateFrom, LocalDate dateTo,
                                 String sort, UUID selectedId, int page, int pageSize, Model model) {
+        // "Retained" sub-view (added after Idea Queue was removed from CEO/MM nav): a RETAIN
+        // decision moves an idea's workflow status to RET (dormant), not a label while it stays
+        // PA - so it drops out of the pending queue above entirely. With no more Idea Queue screen
+        // to browse/reopen a retained idea from, this sub-view inside Reviews -> Ideas is now the
+        // only place to find one, using the exact same queue/detail split, row DTO and history
+        // rendering as the pending view - only the source list, status, and the bottom action
+        // (Reopen instead of Approve/Reject/Retain) differ.
+        boolean retainedView = "retained".equals(ideaView);
+        List<Idea> retainedIdeas = ideaRepository.findByWorkflowInstance_CurrentStatusCodeOrderBySubmittedAtAsc(WorkflowStatus.RET);
+        model.addAttribute("ideaView", retainedView ? "retained" : "pending");
+        model.addAttribute("ideasRetainedCount", retainedIdeas.size());
+        WorkflowStatus rowStatus = retainedView ? WorkflowStatus.RET : WorkflowStatus.PA;
+        List<Idea> pending = retainedView ? retainedIdeas : pendingIdeas;
+
         List<UUID> instanceIds = pending.stream().map(i -> i.getWorkflowInstance().getId()).toList();
         Map<UUID, List<WorkflowTransitionHistory>> lifecycleByInstance = transitionHistoryRepository
                 .findByWorkflowInstance_IdInOrderByTransitionTimestampAsc(instanceIds).stream()
@@ -193,10 +214,11 @@ public class ReviewsMvcController {
             List<WorkflowTransitionHistory> lifecycle = lifecycleByInstance
                     .getOrDefault(idea.getWorkflowInstance().getId(), List.of());
             String latestTrigger = lifecycle.isEmpty() ? null : lifecycle.get(lifecycle.size() - 1).getTriggerCommand();
-            String label = IdeaMvcController.statusLabel(WorkflowStatus.PA, latestTrigger);
+            String label = IdeaMvcController.statusLabel(rowStatus, latestTrigger);
+            boolean canAct = retainedView ? canReopenIdea(user, idea) : canDecideIdea(user, idea);
             return new IdeaQueueRow(idea.getId(), idea.getBusinessIdeaCode(), idea.getTitle(),
                     idea.getSubmittedBy().getId(), idea.getSubmittedBy().getFullName(), idea.getSubmittedAt(),
-                    label, IdeaMvcController.statusCssClass(label), canDecideIdea(user, idea));
+                    label, IdeaMvcController.statusCssClass(label), canAct);
         }).toList();
 
         String qLower = q == null ? "" : q.trim().toLowerCase();
@@ -243,7 +265,7 @@ public class ReviewsMvcController {
         model.addAttribute("ideaStatusLabel", label);
         model.addAttribute("ideaStatusCssClass", IdeaMvcController.statusCssClass(label));
         model.addAttribute("ideaStatusHistory", IdeaMvcController.toHistoryEvents(lifecycle));
-        model.addAttribute("canDecideSelected", canDecideIdea(user, idea));
+        model.addAttribute("canDecideSelected", retainedView ? canReopenIdea(user, idea) : canDecideIdea(user, idea));
     }
 
     private List<WorkflowTransitionHistory> ideaLifecycleHistoryDesc(Idea idea) {
@@ -277,6 +299,33 @@ public class ReviewsMvcController {
             return ResponseEntity.ok(Map.of("status", "ok"));
         } catch (DomainException e) {
             return ajaxError(e, request);
+        }
+    }
+
+    /** Reviews -> Ideas "Retained" sub-view's only action - same {@link IdeaService#reopen} the
+     *  REST API already exposed, just now reachable from the UI now that the Idea Queue screen
+     *  (the old way to browse/reopen a retained idea) is no longer in CEO/MM navigation. */
+    @PostMapping("/ideas/{id}/reopen")
+    public ResponseEntity<?> reopenIdea(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                         HttpServletRequest request) {
+        try {
+            ideaService.reopen(principal.user(), id);
+            return ResponseEntity.ok(Map.of("status", "ok"));
+        } catch (DomainException e) {
+            return ajaxError(e, request);
+        }
+    }
+
+    /** Mirrors {@link IdeaService#reopen}'s own authorization check exactly (same permission,
+     *  same stage) - unlike {@link #canDecideIdea}, reopening is administrative rather than a
+     *  review judgment, so it carries no self-conflict restriction (the service itself has none). */
+    private boolean canReopenIdea(User currentUser, Idea idea) {
+        try {
+            authorizationService.requireAuthority(currentUser, OperationalPermission.PERM_01_IDEA_REVIEW,
+                    LifecycleStage.IDEA_MANAGEMENT, idea.getWorkflowInstance());
+            return true;
+        } catch (DomainException e) {
+            return false;
         }
     }
 
@@ -352,12 +401,25 @@ public class ReviewsMvcController {
             model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
             model.addAttribute("qualifyingParticipants", dedupeByUser(
                     shootingParticipantRepository.findByContentPlan(plan), ShootingExecutionParticipant::getCameraperson));
+            // Manager review-consistency fix: Reviews -> Shoot must show the exact same Shoot
+            // Comments thread as Content Detail -> Shoot (same StageCommentService call, same
+            // canCommentOnShoot rule as DeliverableMvcController#view - never a second, reduced
+            // comment source), so a Cameraperson's task comment is visible from either entry point.
+            boolean canCommentOnShoot = nativeAuthority || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                    .stream().anyMatch(a -> a.getCameraperson().getId().equals(user.getId()));
+            model.addAttribute("canCommentOnShoot", canCommentOnShoot);
+            model.addAttribute("shootComments", stageCommentService.listComments(plan.getId(), LifecycleStage.SHOOTING));
         } else if (gateType == GateType.EDIT_REVIEW) {
             model.addAttribute("editingAssignments", editingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
             model.addAttribute("qualifyingParticipants", dedupeByUser(
                     editingParticipantRepository.findByContentPlan(plan), EditingExecutionParticipant::getEditor));
             model.addAttribute("canSeeEditDescription",
                     allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
+            // Same review-consistency fix as Shoot above, for Edit.
+            boolean canCommentOnEdit = nativeAuthority || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                    .stream().anyMatch(a -> a.getEditor().getId().equals(user.getId()));
+            model.addAttribute("canCommentOnEdit", canCommentOnEdit);
+            model.addAttribute("editComments", stageCommentService.listComments(plan.getId(), LifecycleStage.EDITING));
         }
     }
 
@@ -434,11 +496,27 @@ public class ReviewsMvcController {
     /** The reviewer's-eye-view history for one gate on one plan - every DECIDED cycle, newest first,
      * reusing {@link ShootFeedbackEntry} exactly as Content Detail's own Review Feedback History does. */
     private List<ShootFeedbackEntry> reviewHistory(ContentPlan plan, GateType gateType) {
-        return reviewCycleRepository.findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), gateType)
-                .stream().filter(c -> c.getDecidedAt() != null)
-                .map(c -> new ShootFeedbackEntry(gateType.name(), c.getCycleNumber(),
-                        decisionLabel(c.getDecision()), decisionCssClass(c.getDecision()), c.getDecisionReason(),
-                        c.getReviewer() != null ? c.getReviewer().getFullName() : "—", false, c.getDecidedAt()))
+        List<com.kcpc.mkt.workflow.domain.ReviewCycle> decided = reviewCycleRepository
+                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), gateType)
+                .stream().filter(c -> c.getDecidedAt() != null).toList();
+        // ReviewCycle.reviewer is LAZY and this controller isn't @Transactional (open-in-view is
+        // disabled app-wide) - touch only the proxy's own .getId() (safe, no DB hit), then batch-
+        // fetch the real User rows once, same established pattern DeliverableMvcController already
+        // uses for the identical Shoot feedback history (ENG-062), rather than a second reduced
+        // implementation that would re-introduce the exact LazyInitializationException it fixed.
+        java.util.Set<java.util.UUID> reviewerIds = decided.stream().map(com.kcpc.mkt.workflow.domain.ReviewCycle::getReviewer)
+                .filter(java.util.Objects::nonNull).map(User::getId).collect(java.util.stream.Collectors.toSet());
+        Map<java.util.UUID, User> reviewersById = reviewerIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(reviewerIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+        return decided.stream()
+                .map(c -> {
+                    java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
+                    User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
+                    return new ShootFeedbackEntry(gateType.name(), c.getCycleNumber(),
+                            decisionLabel(c.getDecision()), decisionCssClass(c.getDecision()), c.getDecisionReason(),
+                            reviewer != null ? reviewer.getFullName() : "—", false, c.getDecidedAt());
+                })
                 .toList();
     }
 

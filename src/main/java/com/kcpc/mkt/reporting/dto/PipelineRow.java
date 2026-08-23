@@ -43,6 +43,7 @@ public class PipelineRow {
     private final boolean delayed;
     private final Integer delayDays;
     private final List<PipelinePlatformSummary> platformSummaries;
+    private final boolean onHold;
 
     public PipelineRow(UUID contentPlanId, String contentId, String sku, String ideaTitle, String referenceLink,
                         boolean referenceLinkIsUrl, String category, String channels, String actor,
@@ -50,7 +51,8 @@ public class PipelineRow {
                         LocalDate plannedShootDate, LocalDate plannedEditDate, LocalDate plannedLiveDate,
                         String actualShootDate, String actualEditDate, String actualLiveDate, String platforms,
                         String performanceState, boolean performanceLinkEligible, String status, String priority,
-                        boolean delayed, Integer delayDays, List<PipelinePlatformSummary> platformSummaries) {
+                        boolean delayed, Integer delayDays, List<PipelinePlatformSummary> platformSummaries,
+                        boolean onHold) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.sku = sku;
@@ -78,6 +80,7 @@ public class PipelineRow {
         this.delayed = delayed;
         this.delayDays = delayDays;
         this.platformSummaries = platformSummaries;
+        this.onHold = onHold;
     }
 
     public UUID getContentPlanId() {
@@ -201,5 +204,15 @@ public class PipelineRow {
      */
     public List<PipelinePlatformSummary> getPlatformSummaries() {
         return platformSummaries;
+    }
+
+    /**
+     * BR-063 Hold/Resume: whether an open {@code WorkHoldRecord} currently exists for this plan's
+     * workflow instance - a purely supplementary flag, never a replacement for {@link #status}
+     * (Hold is deliberately not a 23rd workflow status, ERD-CON-061). The Content ID stays counted
+     * under its real current stage either way.
+     */
+    public boolean isOnHold() {
+        return onHold;
     }
 }

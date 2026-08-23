@@ -97,21 +97,40 @@
     // Active Tasks by Stage is always exactly 6 fixed rows (5 stages + Total) - its rendered
     // height is the one both cards must match. CSS alone can't stretch Assignee Load to that
     // height and then clip its overflow (a Grid/Flex row's height is set by its tallest content,
-    // which would just be Assignee Load itself) - so this measures the Stage card after every
-    // render and applies it as an explicit height on the Assignee card, whose own
-    // .team-workload-table-scroll (flex:1, overflow-y:auto) turns any overflow into an internal
-    // scrollbar instead of growing the card/page.
+    // which would just be Assignee Load itself) - so this measures the Stage card and applies it
+    // as an explicit height on the Assignee card, whose own .team-workload-table-scroll (flex:1,
+    // overflow-y:auto) turns any overflow into an internal scrollbar instead of growing the
+    // card/page. A ResizeObserver on the Stage card - rather than calling this once per known
+    // mutation point (initial load, each AJAX swap, window resize) - means it re-applies
+    // automatically no matter what changes the Stage card's size (including causes those specific
+    // call sites can't anticipate, e.g. web font swap-in reflowing row heights after first paint),
+    // so this can never silently go stale the way a call-site-based approach can.
+    var stageResizeObserver = null;
+
     function syncTeamWorkloadCardHeights() {
         var stageCard = region.querySelector('.team-workload-card-stage');
         var assigneeCard = region.querySelector('.team-workload-card-assignee');
+        if (stageResizeObserver) {
+            stageResizeObserver.disconnect();
+            stageResizeObserver = null;
+        }
         if (!stageCard || !assigneeCard) {
             return;
         }
-        assigneeCard.style.height = '';
-        if (window.matchMedia('(max-width: 1100px)').matches) {
-            return; // stacked single-column layout below this width - no sync needed
+
+        function apply() {
+            assigneeCard.style.height = '';
+            if (window.matchMedia('(max-width: 1100px)').matches) {
+                return; // stacked single-column layout below this width - no sync needed
+            }
+            assigneeCard.style.height = stageCard.offsetHeight + 'px';
         }
-        assigneeCard.style.height = stageCard.offsetHeight + 'px';
+
+        apply();
+        if (window.ResizeObserver) {
+            stageResizeObserver = new ResizeObserver(apply);
+            stageResizeObserver.observe(stageCard);
+        }
     }
 
     window.addEventListener('resize', function () {

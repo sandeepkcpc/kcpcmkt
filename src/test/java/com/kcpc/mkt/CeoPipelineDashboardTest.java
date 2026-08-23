@@ -219,7 +219,10 @@ class CeoPipelineDashboardTest {
         employee.login("pl-hr-" + unique + "@kcpcbandhani.local", "Passw0rd!");
         HttpResponse<String> employeeAttempt = employee.get("/app/pipeline");
         assertThat(employeeAttempt.statusCode()).isEqualTo(302); // redirected away, never rendered
-        assertThat(employeeAttempt.headers().firstValue("Location").orElseThrow()).contains("/app/home");
+        // HR Manager is a non-production EMPLOYEE Business Role (WorkflowParticipationInterceptor,
+        // ENG Business-Role-Workspace change) - deny-by-default sends it to /app/ideas for any
+        // /app/** URL outside the My Ideas family, not the old generic /app/home.
+        assertThat(employeeAttempt.headers().firstValue("Location").orElseThrow()).contains("/app/ideas");
         assertThat(employeeAttempt.body()).doesNotContain("pipeline-table");
 
         // Existing Marketing Manager behaviour does not regress - MM still sees the same view.

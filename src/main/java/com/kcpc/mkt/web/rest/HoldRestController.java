@@ -33,7 +33,7 @@ public class HoldRestController {
     public ResponseEntity<Void> hold(@PathVariable UUID id, @Valid @RequestBody HoldRequest request,
                                       @AuthenticationPrincipal KcpcUserPrincipal principal) {
         var plan = contentPlanRepository.findById(id).orElseThrow(() -> DomainException.notFound("Content Plan not found"));
-        holdService.placeHold(principal.user(), plan.getWorkflowInstance(), request.reason());
+        holdService.placeHold(principal.user(), plan.getWorkflowInstance(), request.reason(), request.expectedResumeDate());
         return ResponseEntity.ok().build();
     }
 

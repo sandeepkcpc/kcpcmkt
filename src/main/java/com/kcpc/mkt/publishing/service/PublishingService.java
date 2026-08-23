@@ -29,6 +29,7 @@ import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
+import com.kcpc.mkt.workflow.service.HoldService;
 import com.kcpc.mkt.workflow.service.WorkflowTransitionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,9 +37,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** BRS-REQ-042..051: Publishing execution, Actual Publication events, Target N/A governance. */
 @Service
@@ -56,6 +61,7 @@ public class PublishingService {
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
+    private final HoldService holdService;
 
     public PublishingService(ContentPlanRepository contentPlanRepository, PlannedOutputRepository plannedOutputRepository,
                               PublicationTargetRepository publicationTargetRepository,
@@ -66,7 +72,7 @@ public class PublishingService {
                               PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                               PublishingAssignmentRepository publishingAssignmentRepository,
                               WorkflowTransitionService workflowService, AuthorizationService authorizationService,
-                              AuditService auditService) {
+                              AuditService auditService, HoldService holdService) {
         this.contentPlanRepository = contentPlanRepository;
         this.plannedOutputRepository = plannedOutputRepository;
         this.publicationTargetRepository = publicationTargetRepository;
@@ -79,6 +85,7 @@ public class PublishingService {
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
+        this.holdService = holdService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -199,6 +206,7 @@ public class PublishingService {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     "Actual Publication can only be recorded while Publishing is underway");
         }
+        holdService.requireNoOpenHold(workflowInstance);
         Optional<PermissionGrant> actingGrant = requirePublishingAuthority(actor, workflowInstance);
         requireActiveAssignee(actor, plan);
         PlannedOutput plannedOutput = plannedOutputRepository.findById(plannedOutputId)
@@ -357,6 +365,28 @@ public class PublishingService {
         auditService.record(actor, actingGrant, "PUBLISHING", "PUBLICATION_EVIDENCE_CORRECTED",
                 "publication_evidence_corrections", correction.getId(), correctionReason);
         return correction;
+    }
+
+    /**
+     * Effective (current) evidence URL per event = its latest correction's corrected URL if one
+     * exists, else the event's own immutable original evidenceUrl - the single shared resolver
+     * every Publishing view that shows "what's the current published link" must use (Content
+     * Detail's Actual Publication Events table, the Pipeline platform popover), never a second,
+     * independently-maintained computation that could silently diverge from this one.
+     */
+    public Map<UUID, String> resolveEffectiveEvidenceUrls(List<ActualPublicationEvent> events) {
+        if (events.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> eventIds = events.stream().map(ActualPublicationEvent::getId).collect(Collectors.toSet());
+        Map<UUID, PublicationEvidenceCorrection> latestByEventId =
+                PublicationEvidenceCorrection.latestByEventId(evidenceCorrectionRepository.findByEvent_IdIn(eventIds));
+        Map<UUID, String> effectiveUrlByEventId = new HashMap<>();
+        for (ActualPublicationEvent event : events) {
+            PublicationEvidenceCorrection latest = latestByEventId.get(event.getId());
+            effectiveUrlByEventId.put(event.getId(), latest != null ? latest.getCorrectedEvidenceUrl() : event.getEvidenceUrl());
+        }
+        return effectiveUrlByEventId;
     }
 
     /** ERD-CON-017: completion/scope-resolution blocked if all planned targets end up N/A with zero live posts. */

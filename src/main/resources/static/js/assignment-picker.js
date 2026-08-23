@@ -141,9 +141,29 @@
         }
     }
 
+    /**
+     * The "Assign ...(s)" submit button is normally nested inside the picker (Shoot/Edit), but
+     * Publishing's modal footer places it outside .kcpc-assignment-picker entirely (shared with
+     * "Cancel" in a modal-wide footer) and associates it to the form purely via the HTML
+     * <button form="..."> attribute - so it must also be findable that way, or every button-state
+     * call below silently no-ops for Publishing (the actual root cause of ENG-Publishing-assign:
+     * the button always stayed in its default enabled/no-feedback state because this lookup never
+     * found it, not because the click/submit/fetch chain itself was broken).
+     */
+    function findAssignSubmitButton(picker, addForm) {
+        var inline = picker.querySelector('.assignment-add-submit');
+        if (inline) {
+            return inline;
+        }
+        return addForm && addForm.id
+            ? document.querySelector('button.assignment-add-submit[form="' + addForm.id + '"]')
+            : null;
+    }
+
     /** Only clickable once there's something to save: a staged chip, or a changed Lead selection. */
     function updateAssignButtonState(picker) {
-        var addSubmit = picker.querySelector('.assignment-add-submit');
+        var addForm = picker.querySelector('.assignment-add-form');
+        var addSubmit = findAssignSubmitButton(picker, addForm);
         if (!addSubmit) {
             return;
         }
@@ -258,6 +278,11 @@
             var currentLead = leadSelect ? (leadSelect.getAttribute('data-current-lead') || '') : null;
             var leadChanged = leadSelect ? leadValue !== currentLead : false;
             if (stagedChips.length === 0 && !leadChanged) {
+                // Purely an observability hook for callers that want to react (e.g. Publishing's
+                // modal shows its own "Select at least one Publisher." message for this) - Shoot/
+                // Edit have no listener for it, so nothing changes for them; they still just no-op
+                // exactly as before.
+                picker.dispatchEvent(new CustomEvent('kcpc:assignment-empty-selection', {bubbles: true}));
                 return;
             }
             var checkboxSample = picker.querySelector('.kcpc-model-checklist input[type="checkbox"]');
@@ -273,6 +298,15 @@
             });
             if (leadSelect) {
                 params.append(leadSelect.name, leadValue);
+            }
+
+            // Disable for the round-trip, both as a "processing" cue and to stop a rapid double-
+            // click from firing a second overlapping request (the backend is already idempotent on
+            // this specific POST - see PublishingService#assignPublisher's existing-assignment
+            // short-circuit - but there is no reason to rely on that alone for normal clicking).
+            var addSubmit = findAssignSubmitButton(picker, addForm);
+            if (addSubmit) {
+                addSubmit.disabled = true;
             }
 
             fetch(addAction, {
@@ -299,7 +333,16 @@
                     leadSelect.setAttribute('data-current-lead', leadValue);
                 }
                 updateAssignButtonState(picker);
+                // Same observability hook as above, for a successful save - Publishing's modal
+                // reloads the page on this (its own established "action succeeds -> full refresh"
+                // pattern, same as every other Content Detail Action Center form); Shoot/Edit have
+                // no listener, so their existing no-reload chip-based UX is completely unchanged.
+                picker.dispatchEvent(new CustomEvent('kcpc:assignment-saved', {bubbles: true, detail: {userIds: userIds}}));
             }).catch(function () {
+                if (addSubmit) {
+                    addSubmit.disabled = false;
+                }
+                updateAssignButtonState(picker);
                 showAjaxError(picker, 'Could not save the assignment. Please try again.');
             });
         });

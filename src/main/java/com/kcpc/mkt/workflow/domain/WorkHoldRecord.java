@@ -14,11 +14,14 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * ERD-TBL-043: BR-063 In-Progress Work Hold &amp; Resume. Primary workflow status is
  * deliberately untouched by Hold/Resume (ERD-CON-061) - this is a parallel administrative
- * record, not a 23rd workflow status.
+ * record, not a 23rd workflow status. Permitted while Shoot In Progress, Editing, or Publishing
+ * (SIP/ED/PUBG) - the three in-progress execution stages an urgent reassignment can realistically
+ * interrupt; Idea Review/Planning Review/Performance/Completed are deliberately excluded.
  */
 @Entity
 @Table(name = "work_hold_records")
@@ -33,7 +36,11 @@ public class WorkHoldRecord extends BaseEntity {
     @Column(name = "held_status_code", nullable = false, length = 10)
     private WorkflowStatus heldStatusCode;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    // EAGER (matching WorkflowTransitionHistory#triggeredBy's own precedent) - heldBy is always
+    // displayed directly by non-@Transactional MVC controllers (Task Detail pages, Content Detail's
+    // Hold History), which would otherwise hit LazyInitializationException the moment the session
+    // that loaded the record is gone.
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "held_by_user_id", nullable = false)
     private User heldBy;
 
@@ -44,7 +51,13 @@ public class WorkHoldRecord extends BaseEntity {
     @Column(name = "hold_reason", nullable = false, columnDefinition = "text")
     private String holdReason;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    /** Additive, optional (request section 2) - purely informational, never read by any workflow
+     * rule; a manager who wants to actually move a planned date still uses Reschedule (section 7). */
+    @Column(name = "expected_resume_date")
+    private LocalDate expectedResumeDate;
+
+    // Same EAGER reasoning as heldBy above - the Hold History block reads it directly, once set.
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "resumed_by_user_id")
     private User resumedBy;
 
@@ -54,14 +67,17 @@ public class WorkHoldRecord extends BaseEntity {
     protected WorkHoldRecord() {
     }
 
-    public WorkHoldRecord(WorkflowInstance workflowInstance, WorkflowStatus heldStatusCode, User heldBy, String holdReason) {
-        if (heldStatusCode != WorkflowStatus.SIP && heldStatusCode != WorkflowStatus.ED) {
-            throw new IllegalArgumentException("Hold is only permitted while SIP or ED (ERD-CON-061)");
+    public WorkHoldRecord(WorkflowInstance workflowInstance, WorkflowStatus heldStatusCode, User heldBy,
+                           String holdReason, LocalDate expectedResumeDate) {
+        if (heldStatusCode != WorkflowStatus.SIP && heldStatusCode != WorkflowStatus.ED
+                && heldStatusCode != WorkflowStatus.PUBG) {
+            throw new IllegalArgumentException("Hold is only permitted while SIP, ED, or PUBG (ERD-CON-061)");
         }
         this.workflowInstance = workflowInstance;
         this.heldStatusCode = heldStatusCode;
         this.heldBy = heldBy;
         this.holdReason = holdReason;
+        this.expectedResumeDate = expectedResumeDate;
     }
 
     /** ERD-CON-062 rules 3/7: resumed_by and resumed_at transition together, exactly once. */
@@ -97,7 +113,15 @@ public class WorkHoldRecord extends BaseEntity {
         return holdReason;
     }
 
+    public LocalDate getExpectedResumeDate() {
+        return expectedResumeDate;
+    }
+
     public Instant getResumedAt() {
         return resumedAt;
+    }
+
+    public User getResumedBy() {
+        return resumedBy;
     }
 }

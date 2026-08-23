@@ -213,6 +213,12 @@
                             <c:if test="${row.delayed}">
                                 <span class="pipeline-status-badge stage-delayed">Delayed &middot; ${row.delayDays} day<c:if test="${row.delayDays != 1}">s</c:if></span>
                             </c:if>
+                            <%-- BR-063 Hold/Resume: purely a supplementary badge next to the real
+                                 stage above - the Content ID stays counted under its actual
+                                 lifecycle stage, never a fake "Hold" stage/row. --%>
+                            <c:if test="${row.onHold}">
+                                <span class="flag-chip flag-hold">On Hold</span>
+                            </c:if>
                         </div>
                     </td>
                 </tr>

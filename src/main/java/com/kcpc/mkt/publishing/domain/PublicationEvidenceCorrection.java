@@ -13,6 +13,10 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /** ERD-TBL-027: append-only Publication Evidence URL correction history under Permission #8 (SAD-DES-022). */
 @Entity
@@ -90,5 +94,21 @@ public class PublicationEvidenceCorrection extends BaseEntity {
 
     public Instant getCorrectedAt() {
         return correctedAt;
+    }
+
+    /**
+     * Picks the most recent correction (by corrected_at) per event id - the single shared "which
+     * correction is currently effective" rule every resolver in the app must use, so Content
+     * Detail's Actual Publication Events table and the Pipeline platform popover can never diverge
+     * on which one wins. Older corrections are never discarded by this - they remain fully queryable
+     * for audit/history via {@code supersedesCorrection}; this only picks which ONE is "current".
+     */
+    public static Map<UUID, PublicationEvidenceCorrection> latestByEventId(List<PublicationEvidenceCorrection> corrections) {
+        Map<UUID, PublicationEvidenceCorrection> result = new HashMap<>();
+        for (PublicationEvidenceCorrection correction : corrections) {
+            result.merge(correction.getEvent().getId(), correction,
+                    (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
+        }
+        return result;
     }
 }

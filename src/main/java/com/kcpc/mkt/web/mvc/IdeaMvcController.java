@@ -56,7 +56,6 @@ public class IdeaMvcController {
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
 
-    private static final int MY_IDEAS_PAGE_SIZE = 6;
     /** Package-visible: reused as-is by ReviewsMvcController's Ideas tab (see {@link #statusLabel}). */
     static final Set<String> IDEA_LIFECYCLE_TRIGGER_COMMANDS =
             Set.of("SUBMIT_IDEA", "APPROVE_IDEA", "REJECT_IDEA", "RETAIN_IDEA", "REOPEN_IDEA");
@@ -121,13 +120,15 @@ public class IdeaMvcController {
                          @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
                          Model model) {
         User currentUser = principal.user();
-        // ENG-059: EMPLOYEE-class users get "My Ideas" (own submissions only, KPI cards +
-        // search/filter/pagination) instead of the company-wide Idea Queue CEO/MM see - same route,
-        // branched by accessClass, matching how /app/my-work and /app/pipeline already work.
-        if (currentUser.resolvedAccessClass() == AccessClass.EMPLOYEE) {
-            return myIdeas(currentUser, q, status, range, page, model);
-        }
-        return ideaQueue(currentUser, q, status, submittedBy, dateFrom, dateTo, page, pageSize, sort, requestedWith, model);
+        // ENG-059/CEO+Manager-nav-redesign: every AccessClass now gets "My Ideas" here (own
+        // submissions only, KPI cards + search/filter/pagination) - same route, branched by
+        // accessClass, matching how /app/my-work and /app/pipeline already work. Idea review for
+        // CEO/MM now lives entirely in Reviews -> Ideas (ReviewsMvcController), which is the sole
+        // remaining Idea-review entry point, so nobody needs the old company-wide queue view here
+        // any more. #ideaQueue below is intentionally left intact rather than deleted (still fully
+        // functional, just no longer reachable from this dispatcher) in case it is ever needed
+        // again - see the Manager/CEO Idea Queue removal requests.
+        return myIdeas(currentUser, q, status, range, page, pageSize, model);
     }
 
     private static boolean isAjax(String requestedWith) {
@@ -237,7 +238,8 @@ public class IdeaMvcController {
      * AJAX mechanism - no such client-side table-filtering pattern exists anywhere else in this
      * app to reuse, and inventing one here would cut against "reuse existing JSP/CSS/vanilla JS."
      */
-    private String myIdeas(User user, String q, String statusFilter, String range, int page, Model model) {
+    private String myIdeas(User user, String q, String statusFilter, String range, int page, int pageSize, Model model) {
+        int resolvedPageSize = IDEA_QUEUE_ALLOWED_PAGE_SIZES.contains(pageSize) ? pageSize : IDEA_QUEUE_DEFAULT_PAGE_SIZE;
         List<Idea> ideas = ideaRepository.findBySubmittedByOrderBySubmittedAtDesc(user);
         List<UUID> instanceIds = ideas.stream().map(i -> i.getWorkflowInstance().getId()).toList();
 
@@ -279,10 +281,10 @@ public class IdeaMvcController {
                 .toList();
 
         int totalCount = filtered.size();
-        int totalPages = Math.max(1, (int) Math.ceil(totalCount / (double) MY_IDEAS_PAGE_SIZE));
+        int totalPages = Math.max(1, (int) Math.ceil(totalCount / (double) resolvedPageSize));
         int currentPage = Math.max(1, Math.min(page, totalPages));
-        int fromIndex = Math.min((currentPage - 1) * MY_IDEAS_PAGE_SIZE, totalCount);
-        int toIndex = Math.min(fromIndex + MY_IDEAS_PAGE_SIZE, totalCount);
+        int fromIndex = Math.min((currentPage - 1) * resolvedPageSize, totalCount);
+        int toIndex = Math.min(fromIndex + resolvedPageSize, totalCount);
 
         model.addAttribute("myIdeaRows", filtered.subList(fromIndex, toIndex));
         model.addAttribute("myIdeasQuery", q == null ? "" : q);
@@ -293,6 +295,8 @@ public class IdeaMvcController {
         model.addAttribute("myIdeasFromIndex", totalCount == 0 ? 0 : fromIndex + 1);
         model.addAttribute("myIdeasToIndex", toIndex);
         model.addAttribute("myIdeasTotalCount", totalCount);
+        model.addAttribute("myIdeasPageSize", resolvedPageSize);
+        model.addAttribute("reportsDataAsOf", Instant.now());
         return "my-ideas";
     }
 

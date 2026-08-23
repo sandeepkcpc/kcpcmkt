@@ -252,7 +252,15 @@
                                 </form>
                             </c:when>
                             <c:when test="${not empty openHold}">
-                                <p class="note-box">On Hold since ${kcpc:ist(openHold.heldAt)} &mdash; <c:out value="${openHold.holdReason}"/></p>
+                                <div class="hold-info-block">
+                                    <p class="hold-info-title">&#9888; This task is currently on hold.</p>
+                                    <p><strong>Hold Reason:</strong> <c:out value="${openHold.holdReason}"/></p>
+                                    <p><strong>Held By:</strong> <c:out value="${openHold.heldBy.fullName}"/></p>
+                                    <p><strong>Held On:</strong> ${kcpc:ist(openHold.heldAt)}</p>
+                                    <c:if test="${not empty openHold.expectedResumeDate}">
+                                        <p><strong>Expected Resume Date:</strong> ${openHold.expectedResumeDate}</p>
+                                    </c:if>
+                                </div>
                             </c:when>
                         </c:choose>
                     </c:when>

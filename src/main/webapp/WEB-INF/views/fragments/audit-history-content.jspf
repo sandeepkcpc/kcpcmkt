@@ -7,7 +7,7 @@
      pagination attrs, ${reportsDataAsOf}. --%>
 <div class="page-header-row">
     <div>
-        <h1>Audit History</h1>
+        <h1>Logs</h1>
     </div>
     <%@ include file="reports-asof-badge.jspf" %>
 </div>

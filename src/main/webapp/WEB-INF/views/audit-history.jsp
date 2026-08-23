@@ -7,7 +7,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>KCPC Bandhani — Audit History</title>
+    <title>KCPC Bandhani — Logs</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
 </head>
 <body>

@@ -1,14 +1,33 @@
 <%-- Manager Reviews Workspace - Ideas tab. Caller (ReviewsMvcController#buildIdeasTab) sets
-     ${queueRows} (List<IdeaQueueRow>), ${q}/${dateFrom}/${dateTo}/${sort}, pagination attrs
+     ${queueRows} (List<IdeaQueueRow>), ${ideaView} ("pending" or "retained"), ${ideasRetainedCount},
+     ${q}/${dateFrom}/${dateTo}/${sort}, pagination attrs
      (${totalCount}/${currentPage}/${totalPages}/${fromIndex}/${toIndex}/${pageSize}), ${selectedId},
      and - when an item is selected - ${selectedIdea}/${ideaStatusLabel}/${ideaStatusCssClass}/
      ${ideaStatusHistory}/${canDecideSelected}. Idea status here is ALWAYS the Idea-only vocabulary
-     (Under Review/Reopened) - this queue only ever contains PA-status ideas, never a downstream
-     Content status. --%>
+     (Under Review/Reopened/Retained) - this queue only ever contains PA-status ideas (pending view)
+     or RET-status ideas (retained view), never a downstream Content status.
+
+     Retained sub-view: a RETAIN decision moves the idea to workflow status RET (dormant), out of
+     the pending queue entirely - with the old company-wide Idea Queue screen gone from CEO/MM nav,
+     this toggle is now the only place to find/reopen a retained idea. Every URL below carries
+     ${ideaView} through exactly like ${tab}=ideas already is, so switching sub-views, searching,
+     paging, and sorting all stay on the same sub-view instead of silently bouncing back to Pending. --%>
 <div class="reviews-body">
     <div class="reviews-queue">
+        <div class="reviews-idea-subtabs">
+            <a class="reviews-tab reviews-idea-subtab ${ideaView == 'retained' ? '' : 'active'}"
+               href="${pageContext.request.contextPath}/app/reviews?tab=ideas">
+                Pending Reviews <span class="count-badge">${ideasPendingCount}</span>
+            </a>
+            <a class="reviews-tab reviews-idea-subtab ${ideaView == 'retained' ? 'active' : ''}"
+               href="${pageContext.request.contextPath}/app/reviews?tab=ideas&amp;ideaView=retained">
+                Retained <span class="count-badge">${ideasRetainedCount}</span>
+            </a>
+        </div>
+
         <form method="get" action="${pageContext.request.contextPath}/app/reviews" class="reviews-filters" id="reviewsFilterForm">
             <input type="hidden" name="tab" value="ideas">
+            <input type="hidden" name="ideaView" value="${ideaView}">
             <input type="hidden" name="sort" value="${sort}">
             <div class="filter-field filter-field-search">
                 <label for="rvIdeaSearch">Search</label>
@@ -22,13 +41,13 @@
                     <input type="date" name="dateTo" id="rvIdeaDateTo" value="${dateTo}">
                 </div>
             </div>
-            <a class="btn-outline reviews-clear" href="${pageContext.request.contextPath}/app/reviews?tab=ideas">
+            <a class="btn-outline reviews-clear" href="${pageContext.request.contextPath}/app/reviews?tab=ideas&amp;ideaView=${ideaView}">
                 <span aria-hidden="true">&#8635;</span> Clear
             </a>
         </form>
 
         <div class="panel reviews-table-panel">
-            <h2 class="reviews-queue-title">Pending Idea Reviews</h2>
+            <h2 class="reviews-queue-title">${ideaView == 'retained' ? 'Retained Ideas' : 'Pending Idea Reviews'}</h2>
             <div class="reviews-table-scroll">
             <table class="data-table reviews-table">
                 <thead>
@@ -38,7 +57,7 @@
                     <th>Submitted By</th>
                     <th>
                         <c:url var="rvSortUrl" value="/app/reviews">
-                            <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                            <c:param name="tab" value="ideas"/><c:param name="ideaView" value="${ideaView}"/><c:param name="q" value="${q}"/>
                             <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
                             <c:param name="pageSize" value="${pageSize}"/>
                             <c:param name="sort" value="${sort == 'DATE_ASC' ? 'DATE_DESC' : 'DATE_ASC'}"/>
@@ -51,7 +70,7 @@
                 <tbody>
                 <c:forEach var="row" items="${queueRows}">
                     <c:url var="rvRowUrl" value="/app/reviews">
-                        <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                        <c:param name="tab" value="ideas"/><c:param name="ideaView" value="${ideaView}"/><c:param name="q" value="${q}"/>
                         <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
                         <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
                         <c:param name="page" value="${currentPage}"/><c:param name="selectedId" value="${row.ideaId}"/>
@@ -65,7 +84,7 @@
                     </tr>
                 </c:forEach>
                 <c:if test="${empty queueRows}">
-                    <tr><td colspan="5" class="muted">No ideas are currently pending review.</td></tr>
+                    <tr><td colspan="5" class="muted">${ideaView == 'retained' ? 'No ideas are currently retained.' : 'No ideas are currently pending review.'}</td></tr>
                 </c:if>
                 </tbody>
             </table>
@@ -84,7 +103,7 @@
                     <c:choose>
                         <c:when test="${currentPage > 1}">
                             <c:url var="rvPrevUrl" value="/app/reviews">
-                                <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                <c:param name="tab" value="ideas"/><c:param name="ideaView" value="${ideaView}"/><c:param name="q" value="${q}"/>
                                 <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
                                 <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
                                 <c:param name="page" value="${currentPage - 1}"/>
@@ -98,7 +117,7 @@
                             <c:when test="${p == currentPage}"><span class="page-current">${p}</span></c:when>
                             <c:otherwise>
                                 <c:url var="rvPageUrl" value="/app/reviews">
-                                    <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                    <c:param name="tab" value="ideas"/><c:param name="ideaView" value="${ideaView}"/><c:param name="q" value="${q}"/>
                                     <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
                                     <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
                                     <c:param name="page" value="${p}"/>
@@ -110,7 +129,7 @@
                     <c:choose>
                         <c:when test="${currentPage < totalPages}">
                             <c:url var="rvNextUrl" value="/app/reviews">
-                                <c:param name="tab" value="ideas"/><c:param name="q" value="${q}"/>
+                                <c:param name="tab" value="ideas"/><c:param name="ideaView" value="${ideaView}"/><c:param name="q" value="${q}"/>
                                 <c:param name="dateFrom" value="${dateFrom}"/><c:param name="dateTo" value="${dateTo}"/>
                                 <c:param name="sort" value="${sort}"/><c:param name="pageSize" value="${pageSize}"/>
                                 <c:param name="page" value="${currentPage + 1}"/>
@@ -134,7 +153,7 @@
             <c:otherwise>
                 <div class="panel reviews-detail-card" id="reviewsDetailCard" data-review-type="idea" data-review-id="${selectedIdea.id}">
                     <div class="reviews-detail-head">
-                        <h2 class="reviews-detail-title">Reviewing Idea</h2>
+                        <h2 class="reviews-detail-title">${ideaView == 'retained' ? 'Retained Idea' : 'Reviewing Idea'}</h2>
                         <span class="status-pill ${ideaStatusCssClass}"><c:out value="${ideaStatusLabel}"/></span>
                     </div>
                     <div class="reviews-detail-id-row"><c:out value="${selectedIdea.businessIdeaCode}"/></div>
@@ -151,7 +170,7 @@
                                     <c:when test="${not empty selectedIdea.referenceLink}">
                                         <a href="${fn:escapeXml(selectedIdea.referenceLink)}" target="_blank" rel="noopener noreferrer"><c:out value="${selectedIdea.referenceLink}"/></a>
                                     </c:when>
-                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                    <c:otherwise><span class="muted">-</span></c:otherwise>
                                 </c:choose>
                             </span>
                         </div>
@@ -160,7 +179,7 @@
                             <span class="reviews-field-value">
                                 <c:choose>
                                     <c:when test="${not empty selectedIdea.notesRemarks}"><c:out value="${selectedIdea.notesRemarks}"/></c:when>
-                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                    <c:otherwise><span class="muted">-</span></c:otherwise>
                                 </c:choose>
                             </span>
                         </div>
@@ -169,7 +188,7 @@
                             <span class="reviews-field-value">
                                 <c:choose>
                                     <c:when test="${not empty selectedIdea.additionalNote}"><c:out value="${selectedIdea.additionalNote}"/></c:when>
-                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                                    <c:otherwise><span class="muted">-</span></c:otherwise>
                                 </c:choose>
                             </span>
                         </div>
@@ -198,6 +217,23 @@
                     </div>
 
                     <c:choose>
+                        <c:when test="${ideaView == 'retained'}">
+                            <c:choose>
+                                <c:when test="${canDecideSelected}">
+                                    <div class="reviews-detail-section reviews-decision-section">
+                                        <h3 class="reviews-detail-subhead">Reopen This Idea</h3>
+                                        <p class="muted">Reopening sends this idea back to Pending Approval for a fresh review decision.</p>
+                                        <div class="reviews-decision-buttons">
+                                            <button type="button" class="reviews-idea-reopen-btn" id="reviewsIdeaReopenBtn">&#8635; Reopen</button>
+                                        </div>
+                                        <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
+                                    </div>
+                                </c:when>
+                                <c:otherwise>
+                                    <p class="note-box">You do not hold Idea Review permission to reopen this idea.</p>
+                                </c:otherwise>
+                            </c:choose>
+                        </c:when>
                         <c:when test="${canDecideSelected}">
                             <div class="reviews-detail-section reviews-decision-section">
                                 <h3 class="reviews-detail-subhead">Your Decision</h3>

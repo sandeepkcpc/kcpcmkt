@@ -15,9 +15,12 @@
     <div class="page-header-row">
         <div>
             <h1>My Ideas</h1>
-            <p class="muted">Ideas you have submitted for review and their current status.</p>
+            <p class="muted">Ideas you have personally submitted.</p>
         </div>
-        <a class="btn-outline" href="${pageContext.request.contextPath}/app/ideas/new">+ Submit New Idea</a>
+        <div class="page-header-row-actions">
+            <%@ include file="fragments/reports-asof-badge.jspf" %>
+            <a class="btn-outline" href="${pageContext.request.contextPath}/app/ideas/new">+ Submit New Idea</a>
+        </div>
     </div>
 
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
@@ -62,7 +65,7 @@
     </div>
 
     <div class="panel my-work-table-wrapper">
-        <form method="get" action="${pageContext.request.contextPath}/app/ideas" class="my-ideas-filters">
+        <form method="get" action="${pageContext.request.contextPath}/app/ideas" class="my-ideas-filters" id="myIdeasFilterForm">
             <div class="filter-field filter-field-search">
                 <label for="my-ideas-search">Search</label>
                 <input type="text" id="my-ideas-search" name="q" class="my-ideas-search-input"
@@ -89,6 +92,14 @@
                 </select>
             </div>
             <div class="filter-field">
+                <label for="my-ideas-page-size">Per Page</label>
+                <select id="my-ideas-page-size" name="pageSize" onchange="this.form.submit()">
+                    <option value="10" ${myIdeasPageSize == 10 ? 'selected' : ''}>10 per page</option>
+                    <option value="25" ${myIdeasPageSize == 25 ? 'selected' : ''}>25 per page</option>
+                    <option value="50" ${myIdeasPageSize == 50 ? 'selected' : ''}>50 per page</option>
+                </select>
+            </div>
+            <div class="filter-field">
                 <button type="submit" class="btn-outline">Search</button>
             </div>
             <div class="filter-field">
@@ -110,8 +121,8 @@
             <tbody>
             <c:forEach var="row" items="${myIdeaRows}">
                 <tr>
-                    <td>${row.businessIdeaCode}</td>
-                    <td>
+                    <td><a class="idea-id-link" href="${pageContext.request.contextPath}/app/ideas/${row.ideaId}"><c:out value="${row.businessIdeaCode}"/></a></td>
+                    <td class="idea-queue-title-cell" title="${fn:escapeXml(row.title)}">
                         <c:out value="${row.title}"/>
                         <c:if test="${not empty row.description}">
                             <div class="idea-description-hint"><c:out value="${row.description}"/></div>
@@ -122,7 +133,7 @@
                         <div class="submitted-on-time muted">${kcpc:istTime(row.submittedAt)}</div>
                     </td>
                     <td><span class="status-pill ${row.statusCssClass}"><c:out value="${row.statusLabel}"/></span></td>
-                    <td><c:out value="${empty row.feedback ? '—' : row.feedback}"/></td>
+                    <td><c:out value="${empty row.feedback ? '-' : row.feedback}"/></td>
                     <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/ideas/${row.ideaId}">&#128065; View Details</a></td>
                 </tr>
             </c:forEach>
@@ -142,6 +153,7 @@
                                 <c:param name="q" value="${myIdeasQuery}"/>
                                 <c:param name="status" value="${myIdeasStatusFilter}"/>
                                 <c:param name="range" value="${myIdeasRangeFilter}"/>
+                                <c:param name="pageSize" value="${myIdeasPageSize}"/>
                                 <c:param name="page" value="${myIdeasCurrentPage - 1}"/>
                             </c:url>
                             <a href="${prevPageUrl}">&#8249;</a>
@@ -156,6 +168,7 @@
                                     <c:param name="q" value="${myIdeasQuery}"/>
                                     <c:param name="status" value="${myIdeasStatusFilter}"/>
                                     <c:param name="range" value="${myIdeasRangeFilter}"/>
+                                    <c:param name="pageSize" value="${myIdeasPageSize}"/>
                                     <c:param name="page" value="${p}"/>
                                 </c:url>
                                 <a href="${pageUrl}">${p}</a>
@@ -168,6 +181,7 @@
                                 <c:param name="q" value="${myIdeasQuery}"/>
                                 <c:param name="status" value="${myIdeasStatusFilter}"/>
                                 <c:param name="range" value="${myIdeasRangeFilter}"/>
+                                <c:param name="pageSize" value="${myIdeasPageSize}"/>
                                 <c:param name="page" value="${myIdeasCurrentPage + 1}"/>
                             </c:url>
                             <a href="${nextPageUrl}">&#8250;</a>

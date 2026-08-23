@@ -19,6 +19,7 @@
     var closeBtn = document.getElementById('publishingAssignmentModalClose');
     var cancelBtn = document.getElementById('publishingAssignmentModalCancel');
     var changeLog = document.getElementById('publishingScopeChangeLog');
+    var publisherPicker = overlay.querySelector('.kcpc-assignment-picker');
 
     function openModal() {
         overlay.classList.remove('hidden');
@@ -60,4 +61,44 @@
         changeLog.appendChild(li);
         changeLog.classList.remove('hidden');
     });
+
+    // ---- "Assign Publisher(s)" empty-selection / success feedback -----------------------------
+    // assignment-picker.js does the real staging/validation/AJAX work (shared with Shoot/Edit's own
+    // pickers, untouched here) and only dispatches these two events as an observability hook; this
+    // is the ONLY file that reacts to them, so Shoot/Edit's existing no-reload chip UX is completely
+    // unaffected. Root cause this fixes: the "Assign Publisher(s)" button lives in the modal footer
+    // (shared with Cancel), outside .kcpc-assignment-picker, associated to its form only via the
+    // HTML `form="publishingAssignmentAddForm"` attribute - so a successful assignment previously
+    // had NO visible effect at all (no modal close, no refreshed Publisher list/button label/scope
+    // table), making a working button indistinguishable from a broken one.
+    if (publisherPicker) {
+        publisherPicker.addEventListener('kcpc:assignment-empty-selection', function () {
+            showPickerMessage(publisherPicker, 'Select at least one Publisher.');
+        });
+        publisherPicker.addEventListener('kcpc:assignment-saved', function () {
+            // Same "action succeeds -> full page refresh" pattern every other Content Detail Action
+            // Center form already uses (content-detail.js's plain form.submit() for Reschedule/
+            // Reassign/Cancel/Hold/Resume) - re-rendering the whole page from the server is what
+            // naturally closes this modal (it starts hidden on a fresh load) and shows the newly
+            // assigned Publisher(s), the updated "Assign Publisher(s)"/"Manage Publisher(s) &
+            // Publishing Scope" button label, the current verified scope, and any now-available
+            // governed actions - all from the one real source of truth, never a second client-side
+            // re-render of server state.
+            window.location.reload();
+        });
+    }
+
+    function showPickerMessage(picker, message) {
+        var existing = picker.querySelector('.ajax-error');
+        if (existing) {
+            existing.remove();
+        }
+        var el = document.createElement('div');
+        el.className = 'ajax-error';
+        el.textContent = message;
+        picker.appendChild(el);
+        setTimeout(function () {
+            el.remove();
+        }, 4000);
+    }
 })();

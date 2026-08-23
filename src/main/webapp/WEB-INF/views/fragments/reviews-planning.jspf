@@ -136,57 +136,57 @@
                         <h3 class="reviews-detail-subhead">Basic Planning</h3>
                         <div class="reviews-field-row"><span class="reviews-field-label">Idea / Content Title</span><span class="reviews-field-value"><c:out value="${row.ideaTitle}"/></span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Planning Mode</span><span class="reviews-field-value"><span class="planning-mode-badge planning-mode-${fn:toLowerCase(plan.planningMode)}"><c:out value="${plan.planningMode}"/></span></span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Urgency Reason</span><span class="reviews-field-value">${empty plan.urgencyReason ? '&mdash;' : plan.urgencyReason}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '&mdash;' : row.priority}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">SKU Reference</span><span class="reviews-field-value">${empty row.sku ? '&mdash;' : row.sku}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Category</span><span class="reviews-field-value">${empty row.category ? '&mdash;' : row.category}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Urgency Reason</span><span class="reviews-field-value">${empty plan.urgencyReason ? '-' : plan.urgencyReason}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '-' : row.priority}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">SKU Reference</span><span class="reviews-field-value">${kcpc:dash(row.sku)}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Category</span><span class="reviews-field-value">${kcpc:dash(row.category)}</span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Planned Dates</h3>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Shoot Date</span><span class="reviews-field-value">${empty row.plannedShootDate ? '&mdash;' : row.plannedShootDate}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Edit Date</span><span class="reviews-field-value">${empty row.plannedEditDate ? '&mdash;' : row.plannedEditDate}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Live Date</span><span class="reviews-field-value">${empty row.plannedLiveDate ? '&mdash;' : row.plannedLiveDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Shoot Date</span><span class="reviews-field-value">${empty row.plannedShootDate ? '-' : row.plannedShootDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Edit Date</span><span class="reviews-field-value">${empty row.plannedEditDate ? '-' : row.plannedEditDate}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Planned Live Date</span><span class="reviews-field-value">${empty row.plannedLiveDate ? '-' : row.plannedLiveDate}</span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Planned Outputs</h3>
                         <div class="reviews-field-row"><span class="reviews-field-label">Outputs</span><span class="reviews-field-value">
                             <c:forEach var="oc" items="${outputCountsByType}" varStatus="ocs">${oc.value} <c:out value="${oc.key}"/><c:if test="${!ocs.last}">, </c:if></c:forEach>
-                            <c:if test="${empty outputCountsByType}"><span class="muted">&mdash;</span></c:if>
+                            <c:if test="${empty outputCountsByType}"><span class="muted">-</span></c:if>
                         </span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Reel Type</span><span class="reviews-field-value">
                             <c:forEach var="rt" items="${outputReelTypes}" varStatus="rts"><c:out value="${rt}"/><c:if test="${!rts.last}">, </c:if></c:forEach>
-                            <c:if test="${empty outputReelTypes}"><span class="muted">&mdash;</span></c:if>
+                            <c:if test="${empty outputReelTypes}"><span class="muted">-</span></c:if>
                         </span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Channels</span><span class="reviews-field-value">${empty row.channels ? '&mdash;' : row.channels}</span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Platforms</span><span class="reviews-field-value">${empty row.platforms ? '&mdash;' : row.platforms}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Channels</span><span class="reviews-field-value">${kcpc:dash(row.channels)}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Platforms</span><span class="reviews-field-value">${kcpc:dash(row.platforms)}</span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">People</h3>
                         <div class="reviews-field-row"><span class="reviews-field-label">Model(s)</span><span class="reviews-field-value">
                             <c:forEach var="t" items="${talentEntries}" varStatus="ts"><c:out value="${t.talentName}"/><c:if test="${!ts.last}">, </c:if></c:forEach>
-                            <c:if test="${empty talentEntries}"><span class="muted">&mdash;</span></c:if>
+                            <c:if test="${empty talentEntries}"><span class="muted">-</span></c:if>
                         </span></div>
-                        <div class="reviews-field-row"><span class="reviews-field-label">Cameraperson(s)</span><span class="reviews-field-value">${empty row.cameraPersons ? '&mdash;' : row.cameraPersons}</span></div>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Cameraperson(s)</span><span class="reviews-field-value">${kcpc:dash(row.cameraPersons)}</span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Shoot Lead</span><span class="reviews-field-value">
                             <c:set var="planLead" value=""/>
                             <c:forEach var="a" items="${shootingAssignments}"><c:if test="${a.lead}"><c:set var="planLead" value="${a.cameraperson.fullName}"/></c:if></c:forEach>
-                            <c:out value="${empty planLead ? '&mdash;' : planLead}"/>
+                            <c:out value="${empty planLead ? '-' : planLead}"/>
                         </span></div>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Shoot Instructions</h3>
-                        <p class="reviews-freetext">${empty plan.shootDescription ? '&mdash;' : plan.shootDescription}</p>
+                        <p class="reviews-freetext">${empty plan.shootDescription ? '-' : plan.shootDescription}</p>
                     </div>
 
                     <div class="reviews-detail-section">
                         <h3 class="reviews-detail-subhead">Drive</h3>
                         <c:choose>
                             <c:when test="${not empty row.driveLink}"><a href="${fn:escapeXml(row.driveLink)}" target="_blank" rel="noopener noreferrer">Open Drive Link &#8599;</a></c:when>
-                            <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+                            <c:otherwise><span class="muted">-</span></c:otherwise>
                         </c:choose>
                     </div>
 

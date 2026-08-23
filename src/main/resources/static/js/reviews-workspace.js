@@ -45,6 +45,12 @@
                     return;
                 }
                 region.innerHTML = html;
+                // Shoot/Edit review inspector reuses the exact same Shoot/Edit Comments thread
+                // markup and AJAX behavior as Content Detail (stage-discussion.js) - re-wire it
+                // within the freshly-swapped region on every load, same as a plain page load does.
+                if (window.wireStageDiscussion) {
+                    window.wireStageDiscussion(region);
+                }
                 setLoading(false);
                 if (pushHistory) {
                     history.pushState(null, '', url);
@@ -281,5 +287,62 @@
         }
 
         submitDecision(card, params);
+    });
+
+    // --- Reopen (Retained sub-view only) ----------------------------------------------------
+    // Deliberately a separate small handler, not routed through submitDecision/decisionEndpoints -
+    // Reopen isn't an IdeaReviewDecision (no APPROVE/REJECT/RETAIN value for it) and posts to its
+    // own endpoint with no body params beyond CSRF, but still reuses the exact same
+    // loadReviews(window.location.href, false) refresh-in-place and reviewsDecisionError display
+    // as every other Reviews action.
+    region.addEventListener('click', function (event) {
+        var btn = event.target.closest('#reviewsIdeaReopenBtn');
+        if (!btn || btn.disabled) {
+            return;
+        }
+        var card = btn.closest('.reviews-detail-card');
+        if (!card) {
+            return;
+        }
+        var id = card.dataset.reviewId;
+        var params = new URLSearchParams();
+        var csrfInput = document.getElementById('reviewsCsrfToken');
+        if (csrfInput) {
+            params.set(csrfInput.name, csrfInput.value);
+        }
+
+        clearDecisionError();
+        btn.disabled = true;
+
+        fetch(contextPath() + '/app/reviews/ideas/' + id + '/reopen', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: params.toString()
+        })
+            .then(function (response) {
+                if (response.ok) {
+                    return {ok: true};
+                }
+                return response.json().then(function (body) {
+                    return {ok: false, message: body.message || 'The idea could not be reopened.'};
+                }).catch(function () {
+                    return {ok: false, message: 'The idea could not be reopened.'};
+                });
+            })
+            .then(function (result) {
+                if (result.ok) {
+                    // The reopened idea drops out of the Retained list server-side (it's back at
+                    // PA now) - re-fetching the same URL naturally reflects that, same pattern as
+                    // a decision dropping an item out of the pending queue.
+                    loadReviews(window.location.href, false);
+                } else {
+                    btn.disabled = false;
+                    showDecisionError(result.message);
+                }
+            })
+            .catch(function () {
+                btn.disabled = false;
+                showDecisionError('Network error - the idea was not reopened. Please try again.');
+            });
     });
 })();
