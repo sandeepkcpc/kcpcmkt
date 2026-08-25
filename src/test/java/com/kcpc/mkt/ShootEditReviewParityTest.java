@@ -60,6 +60,13 @@ class ShootEditReviewParityTest {
         return user.get("userId").asText() + "|" + email;
     }
 
+    /** Candidate eligibility/execution is now permission-driven (OperationalEligibilityService). */
+    private void grantExecutionPermission(TestApiClient ceo, String userId, String permissionCode) throws Exception {
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"" + permissionCode + "\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"review parity test fixture execution grant\"}");
+    }
+
     /** Fresh Marketing Manager reviewer client, logged in and ready to act as a reviewer. */
     private TestApiClient marketingManagerReviewer(TestApiClient ceo, long unique) throws Exception {
         String[] idEmail = createUser(ceo, "mm-reviewer", MARKETING_MANAGER_ROLE_ID, unique).split("\\|");
@@ -80,6 +87,7 @@ class ShootEditReviewParityTest {
         String[] camIdEmail = createUser(ceo, "cam", CAMERA_PERSON_ROLE_ID, unique).split("\\|");
         String camId = camIdEmail[0];
         String camEmail = camIdEmail[1];
+        grantExecutionPermission(ceo, camId, "PERM_18_SHOOT_EXECUTION");
 
         String planId = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow().getId().toString();
@@ -123,6 +131,7 @@ class ShootEditReviewParityTest {
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         String[] editorIdEmail = createUser(ceo, "editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
+        grantExecutionPermission(ceo, editorIdEmail[0], "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments",
                 "{\"editorUserId\":\"" + editorIdEmail[0] + "\"}");
         TestApiClient editor = new TestApiClient(port);
@@ -237,6 +246,7 @@ class ShootEditReviewParityTest {
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
 
         String[] editorIdEmail = createUser(ceo, "editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
+        grantExecutionPermission(ceo, editorIdEmail[0], "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments",
                 "{\"editorUserId\":\"" + editorIdEmail[0] + "\"}");
         TestApiClient editor = new TestApiClient(port);

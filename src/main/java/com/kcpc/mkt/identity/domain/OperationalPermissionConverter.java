@@ -3,7 +3,7 @@ package com.kcpc.mkt.identity.domain;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
-/** Maps {@link OperationalPermission} to its INTEGER permission_number column value (1..17). */
+/** Maps {@link OperationalPermission} to its INTEGER permission_number column value (1..19). */
 @Converter(autoApply = true)
 public class OperationalPermissionConverter implements AttributeConverter<OperationalPermission, Integer> {
 

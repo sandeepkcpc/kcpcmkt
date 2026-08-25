@@ -159,6 +159,9 @@ class MyIdeasVisibilityTest {
         String planId = contentPlanRepository.findByIdea(ideaA).orElseThrow().getId().toString();
         String camId = createUser(ceo, "MyIdeas Lifecycle Cam " + unique,
                 "e2e-myideas-lifecycle-cam-" + unique + "@kcpcbandhani.local", "01926e3e-0001-7000-8000-000000000004");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
         ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
         ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
                 "{\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\"}");

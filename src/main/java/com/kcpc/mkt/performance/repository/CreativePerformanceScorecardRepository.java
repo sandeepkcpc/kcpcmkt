@@ -4,9 +4,14 @@ import com.kcpc.mkt.performance.domain.CreativePerformanceScorecard;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface CreativePerformanceScorecardRepository extends JpaRepository<CreativePerformanceScorecard, UUID> {
     Optional<CreativePerformanceScorecard> findByObligation(PerformanceObligation obligation);
+
+    /** Batch variant across every relevant obligation at once (avoids N+1) - KPI Dashboard only. */
+    List<CreativePerformanceScorecard> findByObligation_IdIn(Collection<UUID> obligationIds);
 }

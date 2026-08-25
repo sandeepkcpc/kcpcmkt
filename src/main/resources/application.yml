@@ -55,6 +55,16 @@ app:
   csrf:
     cookie-name: KCPC_CSRF
     header-name: X-CSRF-TOKEN
+  drive:
+    # Google Drive per-Content-ID folder provisioning. Disabled by default everywhere this app
+    # runs today (no real service-account credentials exist in this repo) - set DRIVE_ENABLED=true
+    # plus the credentials/IDs below only in an environment that actually has a Google Workspace
+    # service account and target Shared Drive configured. Never commit real values for any of these.
+    enabled: ${DRIVE_ENABLED:false}
+    service-account-key: ${DRIVE_SERVICE_ACCOUNT_KEY:}
+    shared-drive-id: ${DRIVE_SHARED_DRIVE_ID:}
+    root-folder-id: ${DRIVE_ROOT_FOLDER_ID:}
+    impersonate-user: ${DRIVE_IMPERSONATE_USER:}
 
 logging:
   level:

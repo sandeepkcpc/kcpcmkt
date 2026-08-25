@@ -83,6 +83,18 @@ class CeoPipelineDashboardTest {
         TestApiClient pubClient = new TestApiClient(port);
         pubClient.login(pubEmail, "Passw0rd!");
         ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + cam1 + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + cam2 + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + ed1 + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + ed2 + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test publisher grant\"}");
         String model1 = createUser(ceo, "Aisha " + unique, "pl-model1-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);

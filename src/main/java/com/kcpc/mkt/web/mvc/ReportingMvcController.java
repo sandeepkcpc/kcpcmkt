@@ -13,8 +13,8 @@ import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.reporting.dto.AdminActionRow;
 import com.kcpc.mkt.reporting.dto.DelayedDeliverableRow;
-import com.kcpc.mkt.reporting.dto.KpiValue;
 import com.kcpc.mkt.reporting.service.AdminReportingService;
+import com.kcpc.mkt.reporting.service.KpiDashboardService;
 import com.kcpc.mkt.reporting.service.KpiService;
 import com.kcpc.mkt.reporting.service.MultiFormatExportService;
 import com.kcpc.mkt.reporting.service.TeamWorkloadService;
@@ -51,14 +51,6 @@ import java.util.UUID;
 public class ReportingMvcController {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
-    private static final List<String> CATEGORY_ORDER =
-            List.of("OPERATIONAL", "PRODUCTIVITY", "CONTENT_UNITS", "APPROVAL_REVIEW", "DELAY_SLA");
-    private static final Map<String, String> CATEGORY_LABELS = Map.of(
-            "OPERATIONAL", "1. Operations (KPI-001..007)",
-            "PRODUCTIVITY", "2. Productivity (KPI-008..011)",
-            "CONTENT_UNITS", "3. Content & Publishing (KPI-012..020)",
-            "APPROVAL_REVIEW", "4. Approval & Review (KPI-021..024)",
-            "DELAY_SLA", "5. Delay / SLA / On-Time (KPI-025..030)");
 
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final Set<Integer> ADMIN_ACTIONS_PAGE_SIZES = Set.of(10, 25, 50);
@@ -112,6 +104,7 @@ public class ReportingMvcController {
             Map.entry("work_hold_records", "Holds"));
 
     private final KpiService kpiService;
+    private final KpiDashboardService kpiDashboardService;
     private final AdminReportingService adminReportingService;
     private final SystemAuditLogRepository auditLogRepository;
     private final AuthorizationService authorizationService;
@@ -121,12 +114,14 @@ public class ReportingMvcController {
     private final UserRepository userRepository;
     private final ContentPlanRepository contentPlanRepository;
 
-    public ReportingMvcController(KpiService kpiService, AdminReportingService adminReportingService,
+    public ReportingMvcController(KpiService kpiService, KpiDashboardService kpiDashboardService,
+                                   AdminReportingService adminReportingService,
                                    SystemAuditLogRepository auditLogRepository, AuthorizationService authorizationService,
                                    MultiFormatExportService multiFormatExportService, TeamWorkloadService teamWorkloadService,
                                    BusinessRoleRepository businessRoleRepository, UserRepository userRepository,
                                    ContentPlanRepository contentPlanRepository) {
         this.kpiService = kpiService;
+        this.kpiDashboardService = kpiDashboardService;
         this.adminReportingService = adminReportingService;
         this.auditLogRepository = auditLogRepository;
         this.authorizationService = authorizationService;
@@ -202,28 +197,47 @@ public class ReportingMvcController {
     // one shared "Data as of" convention.
     // ============================================================================
 
+    private static final Set<String> KPI_DASHBOARD_VIEWS = Set.of("overview", "workflow", "content", "quality", "performance");
+
+    /**
+     * KPI Dashboard (spec: Overview / Workflow &amp; SLA / Content &amp; Publishing / Quality &amp;
+     * Reviews / Performance) - a real server-rendered {@code view=} query param, not client-only
+     * JS state, so Refresh/Back/Forward/deep-links all work; an invalid/missing {@code view} falls
+     * back to {@code overview}. The same {@code startDate}/{@code endDate} apply to every view
+     * (carried forward via a hidden field in the shared date-range form - see
+     * fragments/reports-kpi-dashboard-content.jspf). Supersedes the old flat KPI-001..030 console
+     * at this same route; {@link KpiService#queryGovernedKpis} and its REST endpoint
+     * ({@code GET /api/v1/reports/kpis}) are untouched for any other caller.
+     */
     @GetMapping("/reports/kpis")
-    public String kpiConsole(@RequestParam(required = false) String category,
-                              @RequestParam(required = false) String kpiCode,
-                              @RequestParam(required = false) LocalDate startDate,
-                              @RequestParam(required = false) LocalDate endDate,
-                              @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
-                              @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+    public String kpiDashboard(@RequestParam(required = false) String view,
+                                @RequestParam(required = false) LocalDate startDate,
+                                @RequestParam(required = false) LocalDate endDate,
+                                @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
         if (!allowed(principal, OperationalPermission.PERM_15_TEAM_KPI_VIEW)) {
             return "redirect:/app/home";
         }
-        List<KpiValue> all = kpiService.queryGovernedKpis(principal.user(), category, kpiCode, startDate, endDate);
-        Map<String, List<KpiValue>> grouped = new LinkedHashMap<>();
-        for (String cat : CATEGORY_ORDER) {
-            List<KpiValue> inCategory = all.stream().filter(k -> k.getCategory().equals(cat)).toList();
-            if (!inCategory.isEmpty()) {
-                grouped.put(CATEGORY_LABELS.get(cat), inCategory);
-            }
+        String effectiveView = view != null && KPI_DASHBOARD_VIEWS.contains(view) ? view : "overview";
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        LocalDate effectiveStart = startDate != null ? startDate : today.minusDays(29);
+        LocalDate effectiveEnd = endDate != null ? endDate : today;
+        model.addAttribute("kpiView", effectiveView);
+        model.addAttribute("selectedDateFrom", effectiveStart);
+        model.addAttribute("selectedDateTo", effectiveEnd);
+        switch (effectiveView) {
+            case "workflow" -> model.addAttribute("workflowSla",
+                    kpiDashboardService.workflowSla(principal.user(), effectiveStart, effectiveEnd));
+            case "content" -> model.addAttribute("contentPublishing",
+                    kpiDashboardService.contentPublishing(principal.user(), effectiveStart, effectiveEnd));
+            case "quality" -> model.addAttribute("qualityReviews",
+                    kpiDashboardService.qualityReviews(principal.user(), effectiveStart, effectiveEnd));
+            case "performance" -> model.addAttribute("performanceDashboard",
+                    kpiDashboardService.performance(principal.user(), effectiveStart, effectiveEnd));
+            default -> model.addAttribute("overview",
+                    kpiDashboardService.overview(principal.user(), effectiveStart, effectiveEnd));
         }
-        model.addAttribute("grouped", grouped);
-        model.addAttribute("selectedDateFrom", startDate);
-        model.addAttribute("selectedDateTo", endDate);
-        addReportsShellAttributes(model, "kpis");
+        addReportsShellAttributes(model, "kpis", principal);
         return isAjax(requestedWith) ? "reports-kpi-console-content" : "reports-kpi-console";
     }
 
@@ -259,7 +273,7 @@ public class ReportingMvcController {
         model.addAttribute("fromIndex", totalCount == 0 ? 0 : fromIndex + 1);
         model.addAttribute("toIndex", toIndex);
         model.addAttribute("pageSize", effectiveSize);
-        addReportsShellAttributes(model, "delayed");
+        addReportsShellAttributes(model, "delayed", principal);
         return isAjax(requestedWith) ? "reports-delayed-content" : "reports-delayed";
     }
 
@@ -307,7 +321,7 @@ public class ReportingMvcController {
         model.addAttribute("fromIndex", totalCount == 0 ? 0 : fromIndex + 1);
         model.addAttribute("toIndex", toIndex);
         model.addAttribute("pageSize", effectiveSize);
-        addReportsShellAttributes(model, "admin-actions");
+        addReportsShellAttributes(model, "admin-actions", principal);
         return isAjax(requestedWith) ? "reports-admin-actions-content" : "reports-admin-actions";
     }
 
@@ -384,7 +398,7 @@ public class ReportingMvcController {
         model.addAttribute("fromIndex", totalCount == 0 ? 0 : (long) (currentPage - 1) * effectiveSize + 1);
         model.addAttribute("toIndex", Math.min((long) currentPage * effectiveSize, totalCount));
         model.addAttribute("pageSize", effectiveSize);
-        addReportsShellAttributes(model, "audit");
+        addReportsShellAttributes(model, "audit", principal);
         return isAjax(requestedWith) ? "audit-history-content" : "audit-history";
     }
 
@@ -407,12 +421,26 @@ public class ReportingMvcController {
         }
         model.addAttribute("scopeGroups", groups);
         model.addAttribute("tableLabels", TABLE_LABELS);
-        addReportsShellAttributes(model, "export");
+        addReportsShellAttributes(model, "export", principal);
         return "export";
     }
 
-    private void addReportsShellAttributes(Model model, String activeReportTab) {
+    /**
+     * Spec §16.5: the shared Reports tab bar must never expose a management-only section merely
+     * because the viewer holds one report permission - each tab's visibility here mirrors that
+     * tab's own MVC-level gate exactly (Delayed Deliverables/Export stay CEO/MM-only, matching
+     * their controller methods above; KPI/Admin Actions/Logs mirror PERM_15/PERM_16).
+     */
+    private void addReportsShellAttributes(Model model, String activeReportTab, KcpcUserPrincipal principal) {
         model.addAttribute("activeReportTab", activeReportTab);
         model.addAttribute("reportsDataAsOf", Instant.now());
+        boolean nativeAuthority = principal != null && authorizationService.hasNativeAuthority(principal.user());
+        boolean canViewKpi = principal != null && allowed(principal, OperationalPermission.PERM_15_TEAM_KPI_VIEW);
+        boolean canViewAuditPerm = principal != null && allowed(principal, OperationalPermission.PERM_16_AUDIT_HISTORY_VIEW);
+        model.addAttribute("canViewKpiTab", canViewKpi);
+        model.addAttribute("canViewDelayedTab", nativeAuthority);
+        model.addAttribute("canViewAdminActionsTab", canViewAuditPerm);
+        model.addAttribute("canViewLogsTab", canViewAuditPerm);
+        model.addAttribute("canViewExportTab", nativeAuthority);
     }
 }

@@ -8,6 +8,7 @@ import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.PersonalMarkAttribution;
 import com.kcpc.mkt.marks.domain.PredefinedRoleMarks;
 import com.kcpc.mkt.marks.domain.RoleType;
@@ -48,6 +49,7 @@ public class ShootingService {
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
     private final HoldService holdService;
     private final AuditService auditService;
 
@@ -57,7 +59,8 @@ public class ShootingService {
                             PredefinedRoleMarksRepository predefinedRoleMarksRepository,
                             PersonalMarkAttributionRepository attributionRepository,
                             ReviewCycleRepository reviewCycleRepository, WorkflowTransitionService workflowService,
-                            AuthorizationService authorizationService, HoldService holdService,
+                            AuthorizationService authorizationService,
+                            OperationalEligibilityService operationalEligibilityService, HoldService holdService,
                             AuditService auditService) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
@@ -67,6 +70,7 @@ public class ShootingService {
         this.reviewCycleRepository = reviewCycleRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
         this.holdService = holdService;
         this.auditService = auditService;
     }
@@ -77,12 +81,14 @@ public class ShootingService {
     }
 
     /**
-     * No CEO-Granted Operational Permission exists for the shoot-start/submit-for-review acts
-     * themselves (only Assignment #4 and Review #5 are catalogued) - gated to an actively assigned
-     * Cameraperson only, NOT native CEO/MM authority (see docs/IMPLEMENTATION_DECISIONS.md ENG-013,
-     * revised by ENG-043: CEO/MM's native authority covers management actions - Assign, Review
-     * decisions, monitoring - not hands-on execution of an Employee's own task, so it deliberately
-     * does not bypass this check).
+     * Gated to an actively assigned Cameraperson only, NOT native CEO/MM authority (see
+     * docs/IMPLEMENTATION_DECISIONS.md ENG-013, revised by ENG-043: CEO/MM's native authority
+     * covers management actions - Assign, Review decisions, monitoring - not hands-on execution
+     * of an Employee's own task, so it deliberately does not bypass this check). Historically no
+     * CEO-Granted Operational Permission existed for the shoot-start/submit-for-review acts
+     * themselves; PERM_18_SHOOT_EXECUTION now also gates them explicitly (see
+     * {@link #startShooting}/{@link #submitShootReview}, via OperationalEligibilityService) -
+     * this active-assignee check remains a separate, additional requirement, not replaced by it.
      */
     private void requireActiveAssignee(User actor, ContentPlan plan) {
         boolean isAssignee = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
@@ -101,6 +107,7 @@ public class ShootingService {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     "Shooting can only start once Shoot Assigned");
         }
+        operationalEligibilityService.requireShootExecutionEligible(actor, workflowInstance);
         requireActiveAssignee(actor, plan);
         workflowService.transition(workflowInstance, WorkflowStatus.SIP, actor, Optional.empty(),
                 "START_SHOOTING", null);
@@ -117,6 +124,7 @@ public class ShootingService {
                     "Shoot Review can only be submitted while Shoot In Progress");
         }
         holdService.requireNoOpenHold(workflowInstance);
+        operationalEligibilityService.requireShootExecutionEligible(submitter, workflowInstance);
         requireActiveAssignee(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,

@@ -15,6 +15,9 @@ public interface ActualPublicationEventRepository extends InsertOnlyRepository<A
 
     List<ActualPublicationEvent> findByPlannedOutputAndEventType(PlannedOutput plannedOutput, PublicationEventType eventType);
 
+    /** Every event (any type) for this Planned Output - used for cycle-aware resolution, unlike the ORIGINAL-only finder above. */
+    List<ActualPublicationEvent> findByPlannedOutput(PlannedOutput plannedOutput);
+
     List<ActualPublicationEvent> findByContentPlan_IdIn(Collection<UUID> contentPlanIds);
 
     boolean existsByPlannedOutputAndPublicationTarget_IdAndEventType(

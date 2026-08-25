@@ -4,8 +4,10 @@ import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.identity.domain.AccessClass;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
+import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
+import com.kcpc.mkt.workflow.service.WorkspaceAccessService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -21,9 +23,11 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 public class MvcNavigationAdvice {
 
     private final AuthorizationService authorizationService;
+    private final WorkspaceAccessService workspaceAccessService;
 
-    public MvcNavigationAdvice(AuthorizationService authorizationService) {
+    public MvcNavigationAdvice(AuthorizationService authorizationService, WorkspaceAccessService workspaceAccessService) {
         this.authorizationService = authorizationService;
+        this.workspaceAccessService = workspaceAccessService;
     }
 
     @ModelAttribute("accessClass")
@@ -75,5 +79,60 @@ public class MvcNavigationAdvice {
         } catch (DomainException e) {
             return false;
         }
+    }
+
+    /**
+     * My Work/My Shoots nav link for an EMPLOYEE: always shown for a Business Role that
+     * participates in the workflow by default (unchanged prior behavior), and now ALSO shown for a
+     * non-participating-by-default EMPLOYEE who holds an explicit PERM_18/19/08 grant or an active
+     * Shoot/Edit/Publishing assignment - mirrors {@link WorkspaceAccessService#canReachMyWork}
+     * exactly, the same method {@code WorkflowParticipationInterceptor} enforces server-side, so nav
+     * and route reachability can never disagree.
+     */
+    @ModelAttribute("employeeCanSeeMyWork")
+    public boolean employeeCanSeeMyWork(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        if (principal == null) {
+            return false;
+        }
+        User user = principal.user();
+        if (!authorizationService.isNonProductionEmployee(user)) {
+            return true;
+        }
+        return workspaceAccessService.canReachMyWork(user);
+    }
+
+    /** Reviews nav link for an EMPLOYEE holding any review permission (spec §16.3). */
+    @ModelAttribute("employeeCanSeeReviews")
+    public boolean employeeCanSeeReviews(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal != null && workspaceAccessService.canReachReviews(principal.user());
+    }
+
+    /** Team nav link for an EMPLOYEE holding PERM_14_TEAM_WORKLOAD_VIEW (spec §16.4). */
+    @ModelAttribute("employeeCanSeeTeam")
+    public boolean employeeCanSeeTeam(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal != null && workspaceAccessService.canReachTeamWorkload(principal.user());
+    }
+
+    /** Reports nav link for an EMPLOYEE holding PERM_15 (KPI) and/or PERM_16 (Logs) - spec §16.5. */
+    @ModelAttribute("employeeCanSeeReports")
+    public boolean employeeCanSeeReports(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        if (principal == null) {
+            return false;
+        }
+        User user = principal.user();
+        return workspaceAccessService.canReachKpiReports(user) || workspaceAccessService.canReachLogs(user);
+    }
+
+    /** Where the EMPLOYEE "Reports" link should land: KPI Dashboard if reachable, else Logs. */
+    @ModelAttribute("employeeReportsHref")
+    public String employeeReportsHref(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        if (principal == null) {
+            return "/app/reports/kpis";
+        }
+        User user = principal.user();
+        if (workspaceAccessService.canReachKpiReports(user)) {
+            return "/app/reports/kpis";
+        }
+        return "/app/audit";
     }
 }

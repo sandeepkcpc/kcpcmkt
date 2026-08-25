@@ -35,6 +35,20 @@ public interface SystemAuditLogRepository extends InsertOnlyRepository<SystemAud
                                  @Param("targetEntityId") UUID targetEntityId, @Param("eventCategory") String eventCategory,
                                  @Param("from") Instant from, @Param("to") Instant to, Pageable pageable);
 
+    /** Batched "grant reason" lookup for the User Detail Current Granted Permissions table - one
+     * PERMISSION_GRANTED audit row per grant id (grant ids are never reused, so this is always
+     * exactly 0 or 1 row per id; no need for a "latest wins" reduction). */
+    List<SystemAuditLog> findByTargetEntityIdInAndEventType(java.util.Collection<UUID> targetEntityIds, String eventType);
+
+    /** Batched "current reason" lookup for the unified Permission Management table's Reason column
+     * (permission-admin-ui final redesign): a grant's displayed reason must reflect its MOST
+     * RECENT PERMISSION_GRANTED or PERMISSION_MODIFIED audit row (an inline Update that only
+     * changes Expiry/Reason is audited as PERMISSION_MODIFIED, never PERMISSION_GRANTED again -
+     * looking up only the grant event would silently keep showing the original reason forever).
+     * Callers reduce this to "latest per grant id" themselves (by eventTimestamp). */
+    List<SystemAuditLog> findByTargetEntityIdInAndEventTypeIn(java.util.Collection<UUID> targetEntityIds,
+                                                                java.util.Collection<String> eventTypes);
+
     /** Distinct actual eventType/eventCategory values currently stored, for the Audit History
      * filter dropdowns - never a hardcoded/guessed vocabulary list. */
     @Query("select distinct a.eventType from SystemAuditLog a order by a.eventType")

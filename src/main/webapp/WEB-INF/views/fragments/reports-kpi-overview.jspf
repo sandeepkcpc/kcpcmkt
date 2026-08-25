@@ -1,0 +1,135 @@
+<%-- KPI Dashboard -> Overview. Caller sets ${overview} (OverviewDashboardDto). Every value comes
+     straight from KpiDashboardService#overview - never computed or fabricated in this JSP. --%>
+<div class="kpi-cards kpi-cards-4">
+    <div class="kpi-card kpi-active">
+        <div class="kpi-card-icon">&#128203;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Active WIP</span></div>
+            <span class="kpi-card-count">${overview.activeWip}</span>
+            <span class="kpi-card-subtitle">One Content ID counted in exactly one current stage</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-delayed">
+        <div class="kpi-card-icon">&#9200;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Delayed Deliverables</span></div>
+            <span class="kpi-card-count">${overview.delayedDeliverables}</span>
+            <span class="kpi-card-subtitle">Past current approved target</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-icon">&#9989;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">On-Time Delivery (Publishing)</span></div>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty overview.onTimeDelivery.percent}">-</c:when>
+                <c:otherwise>${overview.onTimeDelivery.percent}%</c:otherwise></c:choose></span>
+            <span class="kpi-card-subtitle">${overview.onTimeDelivery.onTimeCycles} of ${overview.onTimeDelivery.eligibleCycles} Publishing cycles due in period</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-icon">&#128226;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Published Content</span></div>
+            <span class="kpi-card-count">${overview.publishedContent}</span>
+            <span class="kpi-card-subtitle">Distinct Content IDs first published in period</span>
+        </div>
+    </div>
+</div>
+
+<div class="kpi-cards kpi-cards-4">
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-icon">&#9203;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Avg End-to-End Cycle Time</span></div>
+            <span class="kpi-card-count">${kcpc:days(overview.avgEndToEndCycleTimeDays)}</span>
+            <span class="kpi-card-subtitle">Idea Submitted &rarr; original Publication Scope Resolved</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-rework">
+        <div class="kpi-card-icon">&#128260;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Rework Rate (All Stages)</span></div>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty overview.reworkRatePercent}">-</c:when>
+                <c:otherwise>${overview.reworkRatePercent}%</c:otherwise></c:choose></span>
+            <span class="kpi-card-subtitle">Planning + Shoot + Edit review cycles</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-icon">&#128100;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Pending Reviews</span></div>
+            <span class="kpi-card-count">${overview.pendingReviews}</span>
+            <span class="kpi-card-subtitle">Idea / Planning / Shoot / Edit gates</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-delayed">
+        <div class="kpi-card-icon">&#128202;</div>
+        <div class="kpi-card-body">
+            <div class="kpi-card-title-row"><span class="kpi-card-title">Performance Overdue</span></div>
+            <span class="kpi-card-count">${overview.performanceOverdue}</span>
+            <span class="kpi-card-subtitle">Incomplete, past due date</span>
+        </div>
+    </div>
+</div>
+
+<div class="kpi-overview-grid">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Stage Bottleneck Summary</h2>
+        <table class="data-table">
+            <thead><tr><th>Stage</th><th class="num">Active</th><th class="num">Delayed</th><th class="num">Avg Age</th><th>Oldest Item</th></tr></thead>
+            <tbody>
+            <c:forEach var="row" items="${overview.stageHealth}">
+                <tr>
+                    <td><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</td>
+                    <td class="num">${row.active}</td>
+                    <td class="num">${row.delayed}</td>
+                    <td class="num">${kcpc:days(row.avgAgeDays)}</td>
+                    <td><c:choose><c:when test="${empty row.oldestItemAgeDays}">-</c:when>
+                        <c:otherwise>${kcpc:days(row.oldestItemAgeDays)}<c:if test="${not empty row.oldestItemContentId}"> (${row.oldestItemContentId})</c:if></c:otherwise></c:choose></td>
+                </tr>
+            </c:forEach>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Attention Needed</h2>
+        <ul class="kpi-attention-list">
+            <c:forEach var="item" items="${overview.attentionItems}">
+                <li>
+                    <span class="kpi-attention-icon">&#9888;</span>
+                    <span class="kpi-attention-text">${item.count} ${item.message}</span>
+                    <c:if test="${not empty item.linkHref}">
+                        <a class="kpi-attention-link" href="${pageContext.request.contextPath}${item.linkHref}">&rarr;</a>
+                    </c:if>
+                </li>
+            </c:forEach>
+            <c:if test="${empty overview.attentionItems}"><li class="muted">Nothing needs attention right now.</li></c:if>
+        </ul>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Idea &rarr; Publish Funnel</h2>
+        <%-- Every number below is the same same-cohort funnel value from KpiDashboardService#ideaFunnel
+             (spec fix: Submitted/Approved/Retained/Rejected/Planned/Published all track the same
+             submitted-in-range Idea cohort forward to its current outcome) - stacked-block
+             presentation only, no calculation here. --%>
+        <div class="kpi-funnel">
+            <div class="kpi-funnel-stage kpi-funnel-submitted"><span class="kpi-funnel-count">${overview.funnel.submitted}</span><span class="kpi-funnel-label">Submitted</span></div>
+            <div class="kpi-funnel-arrow">&darr;</div>
+            <div class="kpi-funnel-stage kpi-funnel-approved"><span class="kpi-funnel-count">${overview.funnel.approved}</span><span class="kpi-funnel-label">Approved</span></div>
+            <div class="kpi-funnel-branch">
+                <span class="kpi-funnel-branch-item">Retained <strong>${overview.funnel.retained}</strong></span>
+                <span class="kpi-funnel-branch-item">Rejected <strong>${overview.funnel.rejected}</strong></span>
+            </div>
+            <div class="kpi-funnel-arrow">&darr;</div>
+            <div class="kpi-funnel-stage kpi-funnel-planned"><span class="kpi-funnel-count">${overview.funnel.planned}</span><span class="kpi-funnel-label">Planned</span></div>
+            <div class="kpi-funnel-arrow">&darr;</div>
+            <div class="kpi-funnel-stage kpi-funnel-published"><span class="kpi-funnel-count">${overview.funnel.published}</span><span class="kpi-funnel-label">Published</span></div>
+        </div>
+        <p class="muted kpi-funnel-note">Approval Rate: <c:choose><c:when test="${empty overview.funnel.approvalRate}">-</c:when>
+            <c:otherwise>${overview.funnel.approvalRate}%</c:otherwise></c:choose> (Approved / (Approved + Rejected) - Retained excluded)</p>
+    </div>
+</div>
+
+<p class="muted kpi-view-link"><a href="${pageContext.request.contextPath}/app/reports/workload">View Team Capacity &rarr;</a></p>

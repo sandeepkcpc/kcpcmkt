@@ -105,4 +105,8 @@ public class PlannedOutput extends BaseEntity {
     public void setReelGroupId(UUID reelGroupId) {
         this.reelGroupId = reelGroupId;
     }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

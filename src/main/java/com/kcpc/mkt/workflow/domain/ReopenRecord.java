@@ -67,4 +67,32 @@ public class ReopenRecord extends BaseEntity {
         this.reopenedBy = reopenedBy;
         this.actingPermissionGrant = actingPermissionGrant;
     }
+
+    public WorkflowInstance getWorkflowInstance() {
+        return workflowInstance;
+    }
+
+    public WorkflowStatus getFromStatusCode() {
+        return fromStatusCode;
+    }
+
+    public WorkflowStatus getToStatusCode() {
+        return toStatusCode;
+    }
+
+    public ReopenPurpose getReopenPurpose() {
+        return reopenPurpose;
+    }
+
+    public String getMandatoryReason() {
+        return mandatoryReason;
+    }
+
+    public User getReopenedBy() {
+        return reopenedBy;
+    }
+
+    public Instant getReopenedAt() {
+        return reopenedAt;
+    }
 }

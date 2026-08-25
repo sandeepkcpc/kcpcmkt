@@ -8,6 +8,7 @@ import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.PersonalMarkAttribution;
 import com.kcpc.mkt.marks.domain.PredefinedRoleMarks;
 import com.kcpc.mkt.marks.domain.RoleType;
@@ -48,6 +49,7 @@ public class EditingService {
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
     private final HoldService holdService;
     private final AuditService auditService;
 
@@ -57,7 +59,8 @@ public class EditingService {
                            PredefinedRoleMarksRepository predefinedRoleMarksRepository,
                            PersonalMarkAttributionRepository attributionRepository,
                            ReviewCycleRepository reviewCycleRepository, WorkflowTransitionService workflowService,
-                           AuthorizationService authorizationService, HoldService holdService,
+                           AuthorizationService authorizationService,
+                           OperationalEligibilityService operationalEligibilityService, HoldService holdService,
                            AuditService auditService) {
         this.contentPlanRepository = contentPlanRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -67,6 +70,7 @@ public class EditingService {
         this.reviewCycleRepository = reviewCycleRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
         this.holdService = holdService;
         this.auditService = auditService;
     }
@@ -93,6 +97,9 @@ public class EditingService {
         }
         authorizationService.requireAuthority(assigner, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
                 LifecycleStage.EDITING, workflowInstance);
+        // Assignee-side eligibility, evaluated against EDITING (the stage being executed) - see
+        // OperationalEligibilityService. Frontend candidate filtering is not authorization.
+        operationalEligibilityService.requireEditExecutionEligible(editor, workflowInstance);
         Optional<EditingAssignment> existing =
                 editingAssignmentRepository.findByContentPlanAndEditorAndActiveTrue(plan, editor);
         if (existing.isPresent()) {
@@ -204,12 +211,14 @@ public class EditingService {
     }
 
     /**
-     * No CEO-Granted Operational Permission exists for the edit-start/submit-for-review acts
-     * themselves (only Assignment #6 and Review #7 are catalogued) - gated to an actively assigned
-     * Editor only, NOT native CEO/MM authority (see docs/IMPLEMENTATION_DECISIONS.md ENG-013,
-     * revised by ENG-043: CEO/MM's native authority covers management actions - Assign, Review
-     * decisions, monitoring - not hands-on execution of an Employee's own task, so it deliberately
-     * does not bypass this check).
+     * Gated to an actively assigned Editor only, NOT native CEO/MM authority (see
+     * docs/IMPLEMENTATION_DECISIONS.md ENG-013, revised by ENG-043: CEO/MM's native authority
+     * covers management actions - Assign, Review decisions, monitoring - not hands-on execution
+     * of an Employee's own task, so it deliberately does not bypass this check). Historically no
+     * CEO-Granted Operational Permission existed for the edit-start/submit-for-review acts
+     * themselves; PERM_19_EDIT_EXECUTION now also gates them explicitly (see
+     * {@link #startEditing}/{@link #submitEditReview}, via OperationalEligibilityService) - this
+     * active-assignee check remains a separate, additional requirement, not replaced by it.
      */
     private void requireActiveAssignee(User actor, ContentPlan plan) {
         boolean isAssignee = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
@@ -228,6 +237,7 @@ public class EditingService {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     "Editing can only start once Edit Assigned");
         }
+        operationalEligibilityService.requireEditExecutionEligible(actor, workflowInstance);
         requireActiveAssignee(actor, plan);
         workflowService.transition(workflowInstance, WorkflowStatus.ED, actor, Optional.empty(), "START_EDITING", null);
         auditService.record(actor, Optional.empty(), "EDITING", "EDITING_STARTED", "content_plans", plan.getId(), null);
@@ -242,6 +252,7 @@ public class EditingService {
                     "Edit Review can only be submitted while Editing");
         }
         holdService.requireNoOpenHold(workflowInstance);
+        operationalEligibilityService.requireEditExecutionEligible(submitter, workflowInstance);
         requireActiveAssignee(submitter, plan);
         if (plan.getFolderLink() == null || plan.getFolderLink().isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,

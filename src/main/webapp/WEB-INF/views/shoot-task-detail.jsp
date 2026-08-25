@@ -113,6 +113,12 @@
                                     <c:otherwise>&mdash;</c:otherwise>
                                 </c:choose>
                             </span></div>
+                            <%-- Raw shoot footage goes here - the governed "01 - Raw Shoot-{CONTENT_ID}" subfolder. --%>
+                            <c:if test="${not empty driveProvisioning and not empty driveProvisioning.rawShootFolderId}">
+                                <div class="info-row"><span class="summary-field-label">Raw Shoot Folder</span><span class="summary-field-value">
+                                    <a class="drive-link" href="https://drive.google.com/drive/folders/${driveProvisioning.rawShootFolderId}" target="_blank" rel="noopener noreferrer">Open Raw Shoot &#8599;</a>
+                                </span></div>
+                            </c:if>
                         </div>
                     </div>
                 </div>

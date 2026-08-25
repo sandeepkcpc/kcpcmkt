@@ -76,8 +76,15 @@ class GoldenEndToEndFlowTest {
         ed.login(edEmail, "Passw0rd!");
         TestApiClient pub = new TestApiClient(port);
         pub.login(pubEmail, "Passw0rd!");
-        // Publisher(s) Business Role alone grants nothing - PERM_08 still needs an explicit
-        // admin grant, same as every other Operational Permission in this app's model.
+        // Business Role alone grants nothing - candidate eligibility/execution is permission-driven
+        // (PERM_18/19/08, OperationalEligibilityService), same as every other Operational
+        // Permission in this app's model - each explicit admin grant is required here.
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e golden path cameraperson grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + edId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e golden path editor grant\"}");
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e golden path publisher grant\"}");

@@ -98,6 +98,7 @@ class StageDiscussionTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createUser(ceo, "Approver Flow Cam", "e2e-approver-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String reviewerEmail = "e2e-approver-reviewer-" + unique + "@kcpcbandhani.local";
         String reviewerId = createUser(ceo, "Approver Flow Reviewer", reviewerEmail, CAMERA_PERSON_ROLE_ID);
         ceo.post("/api/v1/admin/permission-grants",
@@ -145,6 +146,7 @@ class StageDiscussionTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-cmt-cam-" + unique + "@kcpcbandhani.local";
         String cam = createUser(ceo, "Cmt Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String outsiderEmail = "e2e-cmt-outsider-" + unique + "@kcpcbandhani.local";
         createUser(ceo, "Cmt Outsider", outsiderEmail, CAMERA_PERSON_ROLE_ID);
         String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Cmt " + unique);
@@ -225,6 +227,7 @@ class StageDiscussionTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-owncmt-cam-" + unique + "@kcpcbandhani.local";
         String cam = createUser(ceo, "Own Cmt Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Own Cmt " + unique);
         ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
 
@@ -306,9 +309,12 @@ class StageDiscussionTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createUser(ceo, "Pub Cam", "e2e-pubdesc-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String editor = createUser(ceo, "Pub Editor", "e2e-pubdesc-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        grantExecutionPermission(ceo, editor, "PERM_19_EDIT_EXECUTION");
         String pubEmail = "e2e-pubdesc-pub-" + unique + "@kcpcbandhani.local";
         String pub = createUser(ceo, "Pub Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        grantExecutionPermission(ceo, pub, "PERM_08_PUBLISHING_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Pub Desc " + unique);
 
         ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
@@ -362,6 +368,16 @@ class StageDiscussionTest {
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + businessRoleId + "\",\"creationReason\":\"e2e test fixture\"}");
         return response.get("userId").asText();
+    }
+
+    /** Candidate eligibility/execution is now permission-driven (OperationalEligibilityService). */
+    private void grantExecutionPermission(TestApiClient ceo, String userId, String permissionCode) throws Exception {
+        HttpResponse<String> grant = ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"" + permissionCode + "\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        if (grant.statusCode() != 201) {
+            throw new IllegalStateException("Failed to grant " + permissionCode + " to " + userId + ": " + grant.body());
+        }
     }
 
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {

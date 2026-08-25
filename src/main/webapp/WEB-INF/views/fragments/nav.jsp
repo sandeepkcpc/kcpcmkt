@@ -17,14 +17,16 @@
          the "no management/admin controls for employees" rule the My Work redesign asked for. --%>
     <c:choose>
         <c:when test="${accessClass == 'EMPLOYEE'}">
-            <%-- Centralized workflow-participation rule (AuthorizationService
-                 #isNonProductionEmployee, exposed here as ${nonProductionEmployee} from
-                 MvcNavigationAdvice - never a role-name/designation check, never based on
-                 permission grants): an EMPLOYEE whose Business Role does not participate in the
-                 Content Production workflow gets only My Ideas/Submit Idea below - no My Work/My
-                 Shoots, no workflow/management nav at all. Enforced the same way server-side for
-                 direct URLs by WorkflowParticipationInterceptor. --%>
-            <c:if test="${!nonProductionEmployee}">
+            <%-- Permission-driven multi-function workflow: a Business Role that participates in
+                 the workflow by default keeps its existing My Work/My Shoots link unchanged. A
+                 non-participating-by-default EMPLOYEE (e.g. HR Manager) now ALSO sees the relevant
+                 module link the moment they hold the matching explicit permission grant (or, for
+                 My Work, an active execution assignment) - never a blanket "any permission unlocks
+                 everything" rule, one flag per module (${employeeCanSeeMyWork}/
+                 ${employeeCanSeeReviews}/${employeeCanSeeTeam}/${employeeCanSeeReports}), each
+                 mirroring WorkspaceAccessService exactly, the same source WorkflowParticipation-
+                 Interceptor enforces server-side - nav and route reachability can never disagree. --%>
+            <c:if test="${employeeCanSeeMyWork}">
                 <%-- ENG-067: Model employees get "My Shoots" (their own dedicated, read-only
                      shoot-participation screen) instead of "My Work" - Models hold no execution
                      assignment/permission on any stage, so the task-execution "My Work" concept
@@ -38,11 +40,32 @@
                     </c:otherwise>
                 </c:choose>
             </c:if>
+            <c:if test="${employeeCanSeeReviews}">
+                <a class="${currentPath == ctx.concat('/app/reviews') ? 'active' : ''}" href="${ctx}/app/reviews">Reviews</a>
+            </c:if>
+            <c:if test="${employeeCanSeeTeam}">
+                <a class="${currentPath == ctx.concat('/app/reports/workload') or currentPath == ctx.concat('/app/reports/team-kpis') ? 'active' : ''}"
+                   href="${ctx}/app/reports/workload">Team</a>
+            </c:if>
+            <c:if test="${employeeCanSeeReports}">
+                <a class="${currentPath == ctx.concat('/app/reports/kpis') or currentPath == ctx.concat('/app/audit') ? 'active' : ''}"
+                   href="${ctx}${employeeReportsHref}">Reports</a>
+            </c:if>
             <%-- ENG-059: /app/ideas now serves a dedicated own-ideas-only "My Ideas" page for
                  EMPLOYEE-class users (same route as the CEO/MM Idea Queue, branched server-side) -
                  no longer the my-work.jsp#my-ideas anchor ENG-057 used as a stopgap. --%>
             <a class="${currentPath == ctx.concat('/app/ideas') ? 'active' : ''}" href="${ctx}/app/ideas">My Ideas</a>
             <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
+            <%-- spec §16.6 / audit-identified nav-backend mismatch fix: canSeeAdministration
+                 already correctly evaluates true for a PERM_17-holding EMPLOYEE (it never checks
+                 Access Class, only native authority OR the PERM_17 grant), but was previously only
+                 rendered in the CEO/MM branch below, leaving such an EMPLOYEE with backend route
+                 access to Catalogue and no nav link to reach it. Reused verbatim here (not
+                 re-derived) - lands on Catalogue only, never Users/Business Roles/Permissions,
+                 since AdminMvcController's own gates are unchanged. --%>
+            <c:if test="${canSeeAdministration}">
+                <a class="${currentPath == ctx.concat('/app/admin/catalogue') ? 'active' : ''}" href="${ctx}/app/admin/catalogue">Administration</a>
+            </c:if>
         </c:when>
         <c:otherwise>
             <%-- CEO_OWNER and MARKETING_MANAGER share this branch (the only two remaining

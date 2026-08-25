@@ -161,11 +161,38 @@ public class ReviewsMvcController {
                            @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
                            @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
         User user = principal.user();
-        if (user.resolvedAccessClass() == AccessClass.EMPLOYEE) {
+        // Spec §16.3: an EMPLOYEE holding any review permission (PERM_01/03/05/07) can reach
+        // Reviews now, not only CEO/MM - but only the specific tab(s) their own permission covers
+        // ("Render only authorized tabs. Unauthorized direct URLs must be denied server-side.").
+        // Scope-agnostic (hasAnyActiveGrant, not a specific stage/item) is deliberate here - this
+        // is nav-level tab reachability, not the actual review-decision authorization, which each
+        // buildXxxTab() call below still independently enforces with the real stage/item context.
+        boolean nativeAuthority = authorizationService.hasNativeAuthority(user);
+        boolean canViewIdeasTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_01_IDEA_REVIEW);
+        boolean canViewPlanningTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_03_PLANNING_REVIEW);
+        boolean canViewShootTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_05_SHOOT_REVIEW);
+        boolean canViewEditTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_07_EDIT_REVIEW);
+        if (user.resolvedAccessClass() == AccessClass.EMPLOYEE
+                && !(canViewIdeasTab || canViewPlanningTab || canViewShootTab || canViewEditTab)) {
             return "redirect:/app/home";
+        }
+        // A direct URL to a tab this viewer isn't authorized for falls back to one they are,
+        // rather than silently rendering it.
+        boolean requestedTabAllowed = switch (tab) {
+            case "planning" -> canViewPlanningTab;
+            case "shoot" -> canViewShootTab;
+            case "edit" -> canViewEditTab;
+            default -> canViewIdeasTab;
+        };
+        if (!requestedTabAllowed) {
+            tab = canViewIdeasTab ? "ideas" : canViewPlanningTab ? "planning" : canViewShootTab ? "shoot" : "edit";
         }
         model.addAttribute("user", user);
         model.addAttribute("activeTab", tab);
+        model.addAttribute("canViewIdeasTab", canViewIdeasTab);
+        model.addAttribute("canViewPlanningTab", canViewPlanningTab);
+        model.addAttribute("canViewShootTab", canViewShootTab);
+        model.addAttribute("canViewEditTab", canViewEditTab);
 
         List<Idea> pendingIdeas = ideaRepository.findByWorkflowInstance_CurrentStatusCodeOrderBySubmittedAtAsc(WorkflowStatus.PA);
         List<ContentPlan> allPlans = contentPlanRepository.findAllWithPreparedByOrderByCreatedAtDesc();

@@ -45,22 +45,11 @@ public class AdminReportingService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
-    private static final String STAGE_PLANNED_DATE_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV','PLAP','SA','SIP','SRV') THEN cp.planned_shoot_date "
-                    + "WHEN wi.current_status_code IN ('SAP','EA','ED','ERV') THEN cp.planned_edit_date "
-                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG','PP','PFUP') THEN cp.planned_live_date "
-                    + "ELSE NULL END";
-    /** Defect fix: Planning-phase codes (PL/PLRV) were previously bucketed into 'Shoot' here.
-     * Boundaries now match the already-shipped, already-correct Content Detail stepper
-     * (deliverable-detail.jsp's cdStageIndex 0..4: Planning/Shoot/Edit/Publishing/Performance) so
-     * Delayed Deliverables and the KPI dashboard never disagree about which stage a status is in. */
-    private static final String STAGE_LABEL_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV') THEN 'Planning' "
-                    + "WHEN wi.current_status_code IN ('PLAP','SA','SIP','SRV','SAP') THEN 'Shoot' "
-                    + "WHEN wi.current_status_code IN ('EA','ED','ERV') THEN 'Edit' "
-                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG') THEN 'Publishing' "
-                    + "WHEN wi.current_status_code IN ('PP','PFUP') THEN 'Performance' "
-                    + "ELSE 'Other' END";
+    /** Shared with {@link KpiService} and {@link KpiDashboardService} via {@link StageSqlFragments}
+     * so Delayed Deliverables and both KPI screens never disagree about which stage a status is in. */
+    private static final String STAGE_PLANNED_DATE_CASE = StageSqlFragments.STAGE_PLANNED_DATE_CASE;
+
+    private static final String STAGE_LABEL_CASE = StageSqlFragments.STAGE_LABEL_CASE;
     /** Current-stage assignee(s) only - never a future stage's assignment (spec requirement).
      * Planning's "assignee" is its preparer (planning_preparers); Shoot/Edit use the active
      * assignment tables; Publishing/Performance have no single-owner assignment table today, so

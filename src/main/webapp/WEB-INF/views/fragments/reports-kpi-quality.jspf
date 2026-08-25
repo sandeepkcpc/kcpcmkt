@@ -1,0 +1,81 @@
+<%-- KPI Dashboard -> Quality & Reviews. Caller sets ${qualityReviews} (QualityReviewsDashboardDto). --%>
+<div class="kpi-cards kpi-cards-4">
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-body"><span class="kpi-card-title">First-Pass Approval Rate</span>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty qualityReviews.firstPassApprovalRatePercent}">-</c:when>
+                <c:otherwise>${qualityReviews.firstPassApprovalRatePercent}%</c:otherwise></c:choose></span></div>
+    </div>
+    <div class="kpi-card kpi-rework">
+        <div class="kpi-card-body"><span class="kpi-card-title">Overall Rework Rate</span>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty qualityReviews.overallReworkRatePercent}">-</c:when>
+                <c:otherwise>${qualityReviews.overallReworkRatePercent}%</c:otherwise></c:choose></span></div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body"><span class="kpi-card-title">Avg Review Turnaround</span>
+            <span class="kpi-card-count">${kcpc:days(qualityReviews.avgReviewTurnaroundDays)}</span></div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body"><span class="kpi-card-title">Pending Reviews</span>
+            <span class="kpi-card-count">${qualityReviews.pendingReviews}</span></div>
+    </div>
+</div>
+
+<div class="panel">
+    <h2 class="reports-kpi-group-title">Rework Rate by Stage</h2>
+    <%-- Same reworkPercent values already shown numerically - Planning/Shoot/Edit only, exact
+         approved percentages, no recalculation. --%>
+    <div class="kpi-hbar-chart">
+        <c:forEach var="row" items="${qualityReviews.reworkByStage}">
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label"><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</span>
+                <c:choose>
+                    <c:when test="${empty row.reworkPercent}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise>
+                        <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-warning" style="width:${row.reworkPercent}%"></div></div>
+                    </c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value"><c:choose><c:when test="${empty row.reworkPercent}">-</c:when>
+                    <c:otherwise>${row.reworkPercent}%</c:otherwise></c:choose></span>
+            </div>
+        </c:forEach>
+    </div>
+    <p class="muted kpi-footnote">Publishing has no ReviewCycle gate, so it has no Rework Rate - not shown here.</p>
+</div>
+
+<div class="panel">
+    <h2 class="reports-kpi-group-title">Stage-wise Review Performance</h2>
+    <table class="data-table">
+        <thead><tr><th>Stage</th><th class="num">Total Reviews</th><th class="num">First-Cycle Reviews</th>
+            <th class="num">First-Pass Approved</th><th class="num">Rework</th><th class="num">Avg Review Time</th></tr></thead>
+        <tbody>
+        <c:forEach var="row" items="${qualityReviews.stageWisePerformance}">
+            <tr>
+                <td>${row.stage}</td>
+                <td class="num">${row.totalReviews}</td>
+                <td class="num">${row.firstCycleReviews}</td>
+                <td class="num">${row.firstPassApproved} <c:if test="${not empty row.firstPassApprovedPercent}">(${row.firstPassApprovedPercent}%)</c:if></td>
+                <td class="num">${row.rework}</td>
+                <td class="num">${kcpc:days(row.avgReviewTimeDays)}</td>
+            </tr>
+        </c:forEach>
+        </tbody>
+    </table>
+    <p class="muted kpi-footnote">First-Pass Approved % is cycle-1 approvals / cycle-1 decided reviews
+        (First-Cycle Reviews) - never divided by Total Reviews, which also includes later rework cycles.
+        Idea Review is reported separately below - its decision semantics (Approved / Rejected / Retained)
+        differ from a production rework gate.</p>
+</div>
+
+<div class="kpi-overview-grid">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Idea Rejection Rate</h2>
+        <span class="kpi-card-count"><c:choose><c:when test="${empty qualityReviews.ideaRejectionRatePercent}">-</c:when>
+            <c:otherwise>${qualityReviews.ideaRejectionRatePercent}%</c:otherwise></c:choose></span>
+        <p class="muted kpi-footnote">of decided Idea Reviews in period</p>
+    </div>
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Evidence Corrections</h2>
+        <span class="kpi-card-count">${qualityReviews.evidenceCorrectionCount}</span>
+        <p class="muted kpi-footnote">of published content in period</p>
+    </div>
+</div>

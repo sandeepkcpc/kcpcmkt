@@ -8,6 +8,7 @@ import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
@@ -27,8 +28,11 @@ import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
+import com.kcpc.mkt.workflow.domain.ReopenPurpose;
+import com.kcpc.mkt.workflow.domain.ReopenRecord;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
+import com.kcpc.mkt.workflow.repository.ReopenRecordRepository;
 import com.kcpc.mkt.workflow.service.HoldService;
 import com.kcpc.mkt.workflow.service.WorkflowTransitionService;
 import org.springframework.http.HttpStatus;
@@ -58,8 +62,10 @@ public class PublishingService {
     private final PerformanceObligationRepository obligationRepository;
     private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
+    private final ReopenRecordRepository reopenRecordRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
     private final AuditService auditService;
     private final HoldService holdService;
 
@@ -71,7 +77,9 @@ public class PublishingService {
                               PerformanceObligationRepository obligationRepository,
                               PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                               PublishingAssignmentRepository publishingAssignmentRepository,
+                              ReopenRecordRepository reopenRecordRepository,
                               WorkflowTransitionService workflowService, AuthorizationService authorizationService,
+                              OperationalEligibilityService operationalEligibilityService,
                               AuditService auditService, HoldService holdService) {
         this.contentPlanRepository = contentPlanRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -82,8 +90,10 @@ public class PublishingService {
         this.obligationRepository = obligationRepository;
         this.evidenceCorrectionRepository = evidenceCorrectionRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
+        this.reopenRecordRepository = reopenRecordRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
         this.auditService = auditService;
         this.holdService = holdService;
     }
@@ -147,6 +157,10 @@ public class PublishingService {
                     "Publisher assignment is only valid while Ready for Publishing");
         }
         authorizationService.requireNativeAuthority(actor, "Publisher assignment");
+        // Assignee-side eligibility (PERM_08, scoped to PUBLISHING) - the actor-side rule above
+        // (native CEO/MM authority only) is unchanged; this is a separate, additional check on
+        // who is actually being assigned. Frontend candidate filtering is not authorization.
+        operationalEligibilityService.requirePublishingExecutionEligible(publisher, workflowInstance);
         Optional<PublishingAssignment> existing =
                 publishingAssignmentRepository.findByContentPlanAndPublisherAndActiveTrue(plan, publisher);
         if (existing.isPresent()) {
@@ -196,26 +210,24 @@ public class PublishingService {
         return plan;
     }
 
+    /**
+     * API-OP-038 original shape: the caller (REST API) declares the intended {@code eventType},
+     * still validated against reality - an explicit ORIGINAL is rejected once a live ORIGINAL
+     * already exists for this exact (output, target) pair (ENG-055; a Repost must go through as
+     * REPOST). Preserved unchanged for backward compatibility with existing API callers/tests.
+     * The MVC checklist/manual-entry paths use {@link #recordActualPublication(User, UUID, UUID,
+     * UUID, Instant, String)} below instead, which derives the type itself rather than trusting a
+     * user-facing form field - see that overload's javadoc for why.
+     */
     @Transactional
     public ActualPublicationEvent recordActualPublication(User actor, UUID contentPlanId, UUID plannedOutputId,
                                                             UUID publicationTargetId, PublicationEventType eventType,
                                                             Instant actualPublicationTimestamp, String evidenceUrl) {
         ContentPlan plan = requirePlan(contentPlanId);
-        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
-        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.PUBG) {
-            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Actual Publication can only be recorded while Publishing is underway");
-        }
-        holdService.requireNoOpenHold(workflowInstance);
-        Optional<PermissionGrant> actingGrant = requirePublishingAuthority(actor, workflowInstance);
-        requireActiveAssignee(actor, plan);
         PlannedOutput plannedOutput = plannedOutputRepository.findById(plannedOutputId)
                 .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
         PublicationTarget target = publicationTargetRepository.findById(publicationTargetId)
                 .orElseThrow(() -> DomainException.notFound("Publication Target not found: " + publicationTargetId));
-        if (evidenceUrl == null || evidenceUrl.isBlank()) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Evidence URL is required");
-        }
         // ENG-055: an Original publish for a (output, target) pair is a one-time task, not
         // resubmittable - the Publishing checklist enforces this by never showing a checkbox for an
         // already-completed row, but that's UI-only; this is the actual source of truth. A genuine
@@ -224,6 +236,47 @@ public class PublishingService {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                     "An Original publication event already exists for " + plannedOutput.getOutputType()
                             + " / " + target.getPlatform().getPlatformName() + " - use Repost instead");
+        }
+        return doRecordActualPublication(actor, plan, plannedOutput, target, eventType, actualPublicationTimestamp, evidenceUrl);
+    }
+
+    /**
+     * Same operation, but {@code eventType} is derived here rather than accepted from the caller
+     * (build-prompt/ENG-055 intent, and the reopened-Publishing defect fix): whether a publish is
+     * an ORIGINAL or a REPOST is a fact about whether a live ORIGINAL already exists for this exact
+     * (Planned Output, Publication Target) pair, not something a Publisher should have to correctly
+     * guess from a raw dropdown - a reopened/repost cycle in particular must never depend on the UI
+     * (or the user) correctly remembering to pick REPOST. Used by the MVC checklist (bulk) and
+     * manual-entry (single) Publishing endpoints; the REST API keeps the explicit-type overload
+     * above for backward compatibility.
+     */
+    @Transactional
+    public ActualPublicationEvent recordActualPublication(User actor, UUID contentPlanId, UUID plannedOutputId,
+                                                            UUID publicationTargetId, Instant actualPublicationTimestamp,
+                                                            String evidenceUrl) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        PlannedOutput plannedOutput = plannedOutputRepository.findById(plannedOutputId)
+                .orElseThrow(() -> DomainException.notFound("Planned Output not found: " + plannedOutputId));
+        PublicationTarget target = publicationTargetRepository.findById(publicationTargetId)
+                .orElseThrow(() -> DomainException.notFound("Publication Target not found: " + publicationTargetId));
+        PublicationEventType eventType = hasLivePost(plannedOutput, target)
+                ? PublicationEventType.REPOST : PublicationEventType.ORIGINAL;
+        return doRecordActualPublication(actor, plan, plannedOutput, target, eventType, actualPublicationTimestamp, evidenceUrl);
+    }
+
+    private ActualPublicationEvent doRecordActualPublication(User actor, ContentPlan plan, PlannedOutput plannedOutput,
+                                                               PublicationTarget target, PublicationEventType eventType,
+                                                               Instant actualPublicationTimestamp, String evidenceUrl) {
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.PUBG) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Actual Publication can only be recorded while Publishing is underway");
+        }
+        holdService.requireNoOpenHold(workflowInstance);
+        Optional<PermissionGrant> actingGrant = requirePublishingAuthority(actor, workflowInstance);
+        requireActiveAssignee(actor, plan);
+        if (evidenceUrl == null || evidenceUrl.isBlank()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Evidence URL is required");
         }
 
         ActualPublicationEvent event = eventRepository.save(new ActualPublicationEvent(plan, plannedOutput, target,
@@ -295,6 +348,42 @@ public class PublishingService {
                 .anyMatch(e -> e.getPublicationTarget().getId().equals(target.getId()));
     }
 
+    /**
+     * The current Publishing cycle's start time: the {@code reopenedAt} of the latest
+     * PUBLISHING_REOPEN {@link ReopenRecord} for this workflow instance, or {@code null} if this
+     * deliverable has never been reopened for Publishing (the very first, ORIGINAL-only cycle).
+     * The single source of truth both {@link #isScopeResolved} and
+     * {@code DeliverableMvcController#buildPublishingChecklist} use to decide "does this pair's
+     * publication satisfy the CURRENT cycle" - reused rather than re-derived so the workflow
+     * auto-advance rule and the Publisher's own checklist can never disagree about which cycle is
+     * active. {@code public} because the checklist lives in the MVC layer, not this service.
+     */
+    public Instant currentPublishingCycleStart(WorkflowInstance workflowInstance) {
+        return reopenRecordRepository
+                .findFirstByWorkflowInstanceAndReopenPurposeOrderByReopenedAtDesc(workflowInstance, ReopenPurpose.PUBLISHING_REOPEN)
+                .map(ReopenRecord::getReopenedAt)
+                .orElse(null);
+    }
+
+    /**
+     * Cycle-aware "is this (output, target) pair resolved" check: for the very first cycle
+     * (cycleStart null) this is exactly {@link #hasLivePost} (ORIGINAL-only, unchanged first-time
+     * Publishing behavior). Once this deliverable has been reopened for Publishing at least once,
+     * an old ORIGINAL recorded before the current cycle started must NOT count - only an event
+     * (necessarily a REPOST, since ORIGINAL can never recur once it exists) recorded on-or-after
+     * the current cycle's own Reopen satisfies it. Uses the event's own immutable {@code recordedAt}
+     * (insertion time), never the user-suppliable {@code actualPublicationTimestamp}, so a
+     * backdated "actual publication date" can't misclassify which cycle an event belongs to.
+     */
+    private boolean hasLivePostInCurrentCycle(PlannedOutput output, PublicationTarget target, Instant cycleStart) {
+        if (cycleStart == null) {
+            return hasLivePost(output, target);
+        }
+        return eventRepository.findByPlannedOutput(output).stream()
+                .filter(e -> e.getPublicationTarget().getId().equals(target.getId()))
+                .anyMatch(e -> !e.getRecordedAt().isBefore(cycleStart));
+    }
+
     /** ENG-068: "Targets" column/KPI on the Publisher's own screens - resolved (live post or N/A) vs. total mapped (Planned Output, Publication Target) pairs. */
     public record TargetResolutionSummary(int resolvedCount, int totalCount) {
     }
@@ -316,8 +405,15 @@ public class PublishingService {
         return new TargetResolutionSummary(resolved, total);
     }
 
-    /** BFD status #18: scope resolved (every mapped pair live-or-N/A) AND at least one live post exists. */
+    /**
+     * BFD status #18: scope resolved (every mapped pair live-or-N/A, for the CURRENT cycle) AND at
+     * least one live post in that cycle exists. Cycle-aware (see {@link #hasLivePostInCurrentCycle})
+     * so a deliverable reopened for Publishing must have its required repost work actually done
+     * before auto-advancing - old ORIGINAL events from a prior, already-Completed cycle can no
+     * longer satisfy this on their own.
+     */
     private boolean isScopeResolved(ContentPlan plan) {
+        Instant cycleStart = currentPublishingCycleStart(plan.getWorkflowInstance());
         List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
         boolean anyLive = false;
         boolean anyPair = false;
@@ -325,7 +421,7 @@ public class PublishingService {
             for (var mapping : mappingRepository.findByPlannedOutput(output)) {
                 anyPair = true;
                 PublicationTarget target = mapping.getPublicationTarget();
-                if (hasLivePost(output, target)) {
+                if (hasLivePostInCurrentCycle(output, target, cycleStart)) {
                     anyLive = true;
                     continue;
                 }

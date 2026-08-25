@@ -72,8 +72,12 @@
         }
 
         region.addEventListener('click', function (event) {
+            // .kpi-attention-link/.kpi-view-link deliberately excluded - they navigate to a
+            // DIFFERENT module (Reviews/Team Workload/Delayed Deliverables), which returns a full
+            // page, not this region's AJAX partial shape; only .kpi-view-tab stays within this
+            // same /app/reports/kpis region.
             var link = event.target.closest(
-                '.reports-tab, .pagination-controls a, .reports-clear, .reviews-sort-link'
+                '.reports-tab, .pagination-controls a, .reports-clear, .reviews-sort-link, .kpi-view-tab'
             );
             if (link && link.href) {
                 event.preventDefault();

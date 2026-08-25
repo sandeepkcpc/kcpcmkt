@@ -59,7 +59,8 @@ class AssignmentPickerTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam = createUser(ceo, "Idempotent Cam", "e2e-idem-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Idempotent Cam", "e2e-idem-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Idempotent Shoot " + unique);
 
         HttpResponse<String> add1 = ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments",
@@ -88,8 +89,9 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-editpicker-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Edit Picker Cam", camEmail, CAMERA_PERSON_ROLE_ID);
-        String editor = createUser(ceo, "Edit Picker Editor", "e2e-editpicker-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String cam = createUser(ceo, "Edit Picker Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String editor = createUser(ceo, "Edit Picker Editor", "e2e-editpicker-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Picker " + unique);
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
@@ -139,9 +141,11 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-eareload-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "EA Reload Cam", camEmail, CAMERA_PERSON_ROLE_ID);
-        String editor1 = createUser(ceo, "EA Reload Editor 1", "e2e-eareload-ed1-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
-        String editor2 = createUser(ceo, "EA Reload Editor 2", "e2e-eareload-ed2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String cam = createUser(ceo, "EA Reload Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String editor1 = createUser(ceo, "EA Reload Editor 1", "e2e-eareload-ed1-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
+        String editor2 = createUser(ceo, "EA Reload Editor 2", "e2e-eareload-ed2-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "EA Reload " + unique);
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
@@ -181,11 +185,11 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-pubpicker-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Pub Picker Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Pub Picker Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         String editorEmail = "e2e-pubpicker-ed-" + unique + "@kcpcbandhani.local";
-        String editor = createUser(ceo, "Pub Picker Editor", editorEmail, VIDEO_EDITOR_ROLE_ID);
+        String editor = createUser(ceo, "Pub Picker Editor", editorEmail, VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String publisher = createUser(ceo, "Pub Picker Publisher", "e2e-pubpicker-pub-" + unique + "@kcpcbandhani.local",
-                CAMERA_PERSON_ROLE_ID); // deliberately NOT the Publisher role/permission, to prove the 403 path below
+                CAMERA_PERSON_ROLE_ID); // deliberately NOT the Publisher Business Role, to prove the 403 path below
         String planId = approveIdeaAndGetContentPlanId(ceo, "Pub Picker " + unique);
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson/Editor.
         TestApiClient camClient = new TestApiClient(port);
@@ -232,6 +236,12 @@ class AssignmentPickerTest {
                 "{\"publisherUserId\":\"" + publisher + "\"}");
         assertThat(forbidden.statusCode()).isEqualTo(403);
 
+        // Assignee-side eligibility (PERM_08, scoped to PUBLISHING) is now required regardless of
+        // Business Role - grant it explicitly here to prove CEO can assign a non-canonical-role
+        // user who holds the permission (the exact HR-Manager-style scenario permission-driven
+        // eligibility is meant to support), not because Business Role stopped mattering entirely.
+        grantExecutionPermission(ceo, publisher, "PERM_08_PUBLISHING_EXECUTION");
+
         // CEO (native authority) assigns - idempotent on a repeat call.
         HttpResponse<String> add1 = ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments",
                 "{\"publisherUserId\":\"" + publisher + "\"}");
@@ -267,9 +277,9 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-pubexec-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Pub Exec Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Pub Exec Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         String editorEmail = "e2e-pubexec-ed-" + unique + "@kcpcbandhani.local";
-        String editor = createUser(ceo, "Pub Exec Editor", editorEmail, VIDEO_EDITOR_ROLE_ID);
+        String editor = createUser(ceo, "Pub Exec Editor", editorEmail, VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String pubAEmail = "e2e-pubexec-puba-" + unique + "@kcpcbandhani.local";
         String pubA = createUser(ceo, "Pub Exec Publisher A", pubAEmail, CAMERA_PERSON_ROLE_ID);
         String pubB = createUser(ceo, "Pub Exec Publisher B", "e2e-pubexec-pubb-" + unique + "@kcpcbandhani.local",
@@ -303,11 +313,11 @@ class AssignmentPickerTest {
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
                 "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"]}");
 
-        // CEO (native) assigns Publisher A and grants PERM_08 - everything a working Publisher needs.
+        // CEO (native) grants PERM_08 first - assignee-side eligibility is required before the
+        // assignment itself will succeed - then assigns Publisher A, everything a working
+        // Publisher needs.
+        grantExecutionPermission(ceo, pubA, "PERM_08_PUBLISHING_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubA + "\"}");
-        ceo.post("/api/v1/admin/permission-grants",
-                "{\"granteeUserId\":\"" + pubA + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
-                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pub exec test grant\"}");
 
         // Publisher A cannot assign a second Publisher, even though they hold PERM_08.
         HttpResponse<String> assignAttempt = pubAClient.post("/api/v1/content-plans/" + planId + "/publishing/assignments",
@@ -336,8 +346,10 @@ class AssignmentPickerTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam1 = createUser(ceo, "Lead Cam 1", "e2e-lead-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String cam2 = createUser(ceo, "Lead Cam 2", "e2e-lead-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam1 = createUser(ceo, "Lead Cam 1", "e2e-lead-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
+        String cam2 = createUser(ceo, "Lead Cam 2", "e2e-lead-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
         String notAssigned = createUser(ceo, "Lead Not Assigned", "e2e-lead-notassigned-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
         String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Shoot " + unique);
@@ -388,8 +400,9 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-editlead-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Edit Lead Cam", camEmail, CAMERA_PERSON_ROLE_ID);
-        String editor = createUser(ceo, "Edit Lead Editor", "e2e-editlead-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String cam = createUser(ceo, "Edit Lead Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String editor = createUser(ceo, "Edit Lead Editor", "e2e-editlead-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String notAssigned = createUser(ceo, "Edit Lead Not Assigned", "e2e-editlead-notassigned-" + unique + "@kcpcbandhani.local",
                 VIDEO_EDITOR_ROLE_ID);
         String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Edit " + unique);
@@ -433,8 +446,10 @@ class AssignmentPickerTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam1 = createUser(ceo, "Team Cam 1", "e2e-team-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String cam2 = createUser(ceo, "Team Cam 2", "e2e-team-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam1 = createUser(ceo, "Team Cam 1", "e2e-team-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
+        String cam2 = createUser(ceo, "Team Cam 2", "e2e-team-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team " + unique);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
@@ -471,7 +486,8 @@ class AssignmentPickerTest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam = createUser(ceo, "Rollback Cam", "e2e-team-rollback-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Rollback Cam", "e2e-team-rollback-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
         String notAssigned = createUser(ceo, "Rollback Not Assigned", "e2e-team-rollback-na-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
         String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team Rollback " + unique);
@@ -490,9 +506,11 @@ class AssignmentPickerTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-editteam-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Edit Team Cam", camEmail, CAMERA_PERSON_ROLE_ID);
-        String editor1 = createUser(ceo, "Edit Team Editor 1", "e2e-editteam-ed1-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
-        String editor2 = createUser(ceo, "Edit Team Editor 2", "e2e-editteam-ed2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String cam = createUser(ceo, "Edit Team Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String editor1 = createUser(ceo, "Edit Team Editor 1", "e2e-editteam-ed1-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
+        String editor2 = createUser(ceo, "Edit Team Editor 2", "e2e-editteam-ed2-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Team " + unique);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         TestApiClient camClient = new TestApiClient(port);
@@ -527,6 +545,28 @@ class AssignmentPickerTest {
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + businessRoleId + "\",\"creationReason\":\"e2e test fixture\"}");
         return response.get("userId").asText();
+    }
+
+    /**
+     * Same as {@link #createUser(TestApiClient, String, String, String)} but also grants the given
+     * explicit execution permission (PERM_18/19/08) immediately after creation - candidate
+     * eligibility and execution are now permission-driven (OperationalEligibilityService), not
+     * Business-Role-name-driven, so any fixture user meant to be assignable/executable needs this.
+     */
+    private String createUser(TestApiClient ceo, String fullName, String email, String businessRoleId,
+                               String executionPermission) throws Exception {
+        String userId = createUser(ceo, fullName, email, businessRoleId);
+        grantExecutionPermission(ceo, userId, executionPermission);
+        return userId;
+    }
+
+    private void grantExecutionPermission(TestApiClient ceo, String userId, String permissionCode) throws Exception {
+        HttpResponse<String> grant = ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"" + permissionCode + "\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        if (grant.statusCode() != 201) {
+            throw new IllegalStateException("Failed to grant " + permissionCode + " to " + userId + ": " + grant.body());
+        }
     }
 
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {

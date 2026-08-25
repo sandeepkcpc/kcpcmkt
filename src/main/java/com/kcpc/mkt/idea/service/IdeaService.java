@@ -3,6 +3,7 @@ package com.kcpc.mkt.idea.service;
 import com.kcpc.mkt.audit.service.AuditService;
 import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.common.error.ErrorCode;
+import com.kcpc.mkt.drive.service.DriveProvisioningService;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
@@ -55,19 +56,22 @@ public class IdeaService {
     private final ContentIdAllocationService contentIdAllocationService;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
+    private final DriveProvisioningService driveProvisioningService;
 
     public IdeaService(IdeaRepository ideaRepository, ContentPlanRepository contentPlanRepository,
                         PredefinedRoleMarksRepository marksRepository,
                         PredefinedMarkCorrectionRepository markCorrectionRepository,
                         ReviewCycleRepository reviewCycleRepository,
                         WorkflowTransitionService workflowService, ContentIdAllocationService contentIdAllocationService,
-                        AuthorizationService authorizationService, AuditService auditService) {
+                        AuthorizationService authorizationService, AuditService auditService,
+                        DriveProvisioningService driveProvisioningService) {
         this.ideaRepository = ideaRepository;
         this.contentPlanRepository = contentPlanRepository;
         this.marksRepository = marksRepository;
         this.markCorrectionRepository = markCorrectionRepository;
         this.reviewCycleRepository = reviewCycleRepository;
         this.workflowService = workflowService;
+        this.driveProvisioningService = driveProvisioningService;
         this.contentIdAllocationService = contentIdAllocationService;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
@@ -148,6 +152,10 @@ public class IdeaService {
         contentPlanRepository.save(contentPlan);
         PredefinedRoleMarks marks = new PredefinedRoleMarks(contentPlan, cameramanMark, editorMark, reviewer);
         marksRepository.save(marks);
+        // Cheap tracking-row insert only (no network call) - the real Google Drive folder
+        // creation happens after this transaction commits (DriveProvisioningService), so a Drive
+        // failure can never roll back or duplicate Content ID creation.
+        driveProvisioningService.initiateProvisioning(contentPlan);
 
         workflowService.transition(workflowInstance, WorkflowStatus.PL, reviewer, actingGrant, "APPROVE_IDEA", null);
         auditService.record(reviewer, actingGrant, "IDEA", "IDEA_APPROVED", "ideas", idea.getId(),

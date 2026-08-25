@@ -1,0 +1,134 @@
+<%-- KPI Dashboard -> Workflow & SLA. Caller sets ${workflowSla} (WorkflowSlaDashboardDto). --%>
+<div class="panel">
+    <h2 class="reports-kpi-group-title">Stage Health</h2>
+    <table class="data-table">
+        <thead><tr><th>Stage</th><th class="num">Active</th><th class="num">Delayed</th>
+            <th class="num">Within SLA %</th><th class="num">Avg Age</th><th>Oldest Item</th></tr></thead>
+        <tbody>
+        <c:forEach var="row" items="${workflowSla.stageHealth}">
+            <tr>
+                <td><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</td>
+                <td class="num">${row.active}</td>
+                <td class="num">${row.delayed}</td>
+                <td class="num"><c:choose><c:when test="${empty row.withinSlaPercent}">-</c:when>
+                    <c:otherwise>${row.withinSlaPercent}%</c:otherwise></c:choose></td>
+                <td class="num">${kcpc:days(row.avgAgeDays)}</td>
+                <td><c:choose><c:when test="${empty row.oldestItemAgeDays}">-</c:when>
+                    <c:otherwise>${kcpc:days(row.oldestItemAgeDays)}<c:if test="${not empty row.oldestItemContentId}"> (${row.oldestItemContentId})</c:if></c:otherwise></c:choose></td>
+            </tr>
+        </c:forEach>
+        </tbody>
+    </table>
+    <p class="muted kpi-footnote">Within SLA % is a point-in-time snapshot ((Active - Delayed) / Active) - historical
+        delivery compliance is shown separately below (On-Time Delivery / cycle time).</p>
+
+    <h3 class="reports-kpi-group-title" style="font-size:0.88rem;margin-top:1rem;">Within SLA % by Stage</h3>
+    <%-- Same withinSlaPercent values as the table above, drawn as bars - never a separate
+         calculation. Color bands (>=90 healthy / 75-89 warning / &lt;75 breached) are a
+         presentational threshold only, the displayed percentage itself is unchanged. --%>
+    <div class="kpi-hbar-chart">
+        <c:forEach var="row" items="${workflowSla.stageHealth}">
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label"><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</span>
+                <c:choose>
+                    <c:when test="${empty row.withinSlaPercent}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise>
+                        <div class="kpi-hbar-track"><div
+                                class="kpi-hbar-fill ${row.withinSlaPercent >= 90 ? 'kpi-hbar-fill-positive' : (row.withinSlaPercent >= 75 ? 'kpi-hbar-fill-warning' : 'kpi-hbar-fill-danger')}"
+                                style="width:${row.withinSlaPercent}%"></div></div>
+                    </c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value"><c:choose><c:when test="${empty row.withinSlaPercent}">-</c:when>
+                    <c:otherwise>${row.withinSlaPercent}%</c:otherwise></c:choose></span>
+            </div>
+        </c:forEach>
+    </div>
+</div>
+
+<div class="kpi-cards kpi-cards-3">
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">Planning Turnaround Time</span>
+            <span class="kpi-card-count">${kcpc:days(workflowSla.planningTurnaroundDays)}</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">Shoot-to-Publish Cycle Time</span>
+            <span class="kpi-card-count">${kcpc:days(workflowSla.shootToPublishCycleTimeDays)}</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">End-to-End Cycle Time</span>
+            <span class="kpi-card-count">${kcpc:days(workflowSla.endToEndCycleTimeDays)}</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">On-Time Delivery %</span>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty workflowSla.onTimeDelivery.percent}">-</c:when>
+                <c:otherwise>${workflowSla.onTimeDelivery.percent}%</c:otherwise></c:choose></span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-delayed">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">Average Delay</span>
+            <span class="kpi-card-count">${kcpc:days(workflowSla.averageDelayDays)}</span>
+        </div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body">
+            <span class="kpi-card-title">On Hold Count</span>
+            <span class="kpi-card-count">${workflowSla.onHoldSummary.openCount}</span>
+        </div>
+    </div>
+</div>
+
+<div class="kpi-overview-grid">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Delay Aging</h2>
+        <%-- Segmented bar drawn from the exact same bucket counts listed in the legend below it -
+             no separate calculation, agingTotal is a plain sum of the counts already shown. --%>
+        <c:set var="agingTotal" value="0"/>
+        <c:forEach var="bucket" items="${workflowSla.delayAging}">
+            <c:set var="agingTotal" value="${agingTotal + bucket.count}"/>
+        </c:forEach>
+        <c:choose>
+            <c:when test="${agingTotal == 0}">
+                <p class="kpi-chart-empty-note">No data for selected period</p>
+            </c:when>
+            <c:otherwise>
+                <div class="kpi-segbar">
+                    <c:forEach var="bucket" items="${workflowSla.delayAging}" varStatus="s">
+                        <c:if test="${bucket.count > 0}">
+                            <div class="kpi-segbar-segment kpi-donut-color-${s.index % 6}"
+                                 style="width:${bucket.count / agingTotal * 100}%" title="${bucket.label}: ${bucket.count}">
+                                <c:if test="${(bucket.count / agingTotal * 100) >= 8}">${bucket.count}</c:if>
+                            </div>
+                        </c:if>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+        <div class="kpi-segbar-legend">
+            <c:forEach var="bucket" items="${workflowSla.delayAging}" varStatus="s">
+                <span class="kpi-segbar-legend-item"><span class="kpi-donut-swatch kpi-donut-color-${s.index % 6}"></span>${bucket.label}: <strong>${bucket.count}</strong></span>
+            </c:forEach>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">On Hold Summary</h2>
+        <div class="kpi-metric-row"><span>On Hold</span><strong>${workflowSla.onHoldSummary.openCount}</strong></div>
+        <div class="kpi-metric-row"><span>Avg Hold Duration</span><strong>${kcpc:days(workflowSla.onHoldSummary.avgHoldDurationDays)}</strong></div>
+        <div class="kpi-metric-row"><span>Longest Hold</span><strong>${kcpc:days(workflowSla.onHoldSummary.longestHoldDurationDays)}</strong></div>
+        <p class="muted kpi-view-link"><a href="${pageContext.request.contextPath}/app/reports/workload">View Team Capacity &rarr;</a></p>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Reopen / Repost Summary</h2>
+        <div class="kpi-metric-row"><span>Reopened Content</span><strong>${workflowSla.reopenedCount}</strong></div>
+        <div class="kpi-metric-row"><span>REPOST Publications</span><strong>${workflowSla.repostPublicationCount}</strong></div>
+    </div>
+</div>

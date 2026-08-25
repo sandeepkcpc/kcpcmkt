@@ -60,8 +60,15 @@ class PublisherScreenTest {
         String editorId = createUser(ceo, "Pub Detail Editor", editorEmail, VIDEO_EDITOR_ROLE_ID);
         String pubEmail = "e2e-pub-detail-" + unique + "@kcpcbandhani.local";
         String pubId = createUser(ceo, "Pub Detail Publisher", pubEmail, PUBLISHER_ROLE_ID);
-        // ENG-043: Publishing execution (Start Publishing, recording events) requires the actor to
-        // hold PERM_08 - Business Role alone doesn't grant it (mirrors CeoPipelineDashboardTest).
+        // ENG-043: execution requires an explicit permission grant - Business Role alone doesn't
+        // grant it (mirrors CeoPipelineDashboardTest). Candidate eligibility/execution is now
+        // permission-driven (OperationalEligibilityService) for all three stages.
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"publisher screen test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editorId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"publisher screen test fixture grant\"}");
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"publisher screen test fixture grant\"}");

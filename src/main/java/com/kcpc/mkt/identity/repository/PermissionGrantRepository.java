@@ -14,4 +14,7 @@ public interface PermissionGrantRepository extends JpaRepository<PermissionGrant
     List<PermissionGrant> findByGrantee(User grantee);
 
     List<PermissionGrant> findByActiveTrueOrderByEffectiveFromDesc();
+
+    /** Bulk lookup for candidate-picker resolution (avoids one query per user - see AuthorizationService). */
+    List<PermissionGrant> findByPermissionAndActiveTrue(OperationalPermission permission);
 }

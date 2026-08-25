@@ -10,13 +10,17 @@ import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.PermissionGrantItemScopeRepository;
 import com.kcpc.mkt.identity.repository.PermissionGrantRepository;
 import com.kcpc.mkt.identity.repository.PermissionGrantStageScopeRepository;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Server-authoritative authorization: access class -&gt; native CEO/MM authority -&gt; active
@@ -30,13 +34,16 @@ public class AuthorizationService {
     private final PermissionGrantRepository grantRepository;
     private final PermissionGrantStageScopeRepository stageScopeRepository;
     private final PermissionGrantItemScopeRepository itemScopeRepository;
+    private final UserRepository userRepository;
 
     public AuthorizationService(PermissionGrantRepository grantRepository,
                                  PermissionGrantStageScopeRepository stageScopeRepository,
-                                 PermissionGrantItemScopeRepository itemScopeRepository) {
+                                 PermissionGrantItemScopeRepository itemScopeRepository,
+                                 UserRepository userRepository) {
         this.grantRepository = grantRepository;
         this.stageScopeRepository = stageScopeRepository;
         this.itemScopeRepository = itemScopeRepository;
+        this.userRepository = userRepository;
     }
 
     public boolean hasNativeAuthority(User user) {
@@ -118,6 +125,80 @@ public class AuthorizationService {
             throw DomainException.forbidden(ErrorCode.PERM_SELF_APPROVAL_PROHIBITED,
                     "Cannot make a review decision on your own submitted/prepared/executed work");
         }
+    }
+
+    /**
+     * Scope-agnostic "does this user hold any currently-valid grant of any of these permissions at
+     * all" check - used for module-aware nav/route reachability (WorkspaceAccessService), never for
+     * authorizing an actual action (which must still go through {@link #requireAuthority} with the
+     * real stage/item context - a STAGE_RESTRICTED/ITEM_SPECIFIC grant that doesn't cover a given
+     * action is still rejected there even though it makes the module reachable here).
+     */
+    public boolean hasAnyActiveGrant(User user, OperationalPermission... permissions) {
+        Instant now = Instant.now();
+        for (OperationalPermission permission : permissions) {
+            if (grantRepository.findByGranteeAndPermissionAndActiveTrue(user, permission).stream()
+                    .anyMatch(grant -> grant.isCurrentlyValid(now))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Explicit-grant-only eligibility check for operational execution candidacy (Shoot/Edit/
+     * Publishing assignee pickers, assignment/reassignment validation, execution start/submit -
+     * see OperationalEligibilityService). Deliberately NEVER treats CEO/MM native authority as
+     * sufficient, unlike {@link #requireAuthority}: management authority is not hands-on
+     * execution eligibility (the same boundary requireActiveAssignee-style checks already draw
+     * for execution itself). Only a currently-valid, scope-covering delegated grant counts.
+     */
+    public boolean hasExplicitPermissionGrant(User user, OperationalPermission permission, LifecycleStage stage,
+                                               WorkflowInstance itemContext) {
+        Instant now = Instant.now();
+        return grantRepository.findByGranteeAndPermissionAndActiveTrue(user, permission).stream()
+                .anyMatch(grant -> grant.isCurrentlyValid(now) && scopeCovers(grant, stage, itemContext));
+    }
+
+    /**
+     * Bulk resolution of every active user currently holding an explicit, currently-valid grant
+     * of {@code permission} covering {@code stage}/{@code itemContext} - the source for every
+     * permission-driven candidate picker. Mirrors {@link #hasExplicitPermissionGrant}'s semantics
+     * (never native-authority-based) at list-population scale: scope rows for every currently
+     * active grant of this permission are bulk-fetched (not one query per grant), so populating a
+     * candidate dropdown never becomes an N+1 permission lookup.
+     */
+    public List<User> findActiveGranteesWithExplicitGrant(OperationalPermission permission, LifecycleStage stage,
+                                                            WorkflowInstance itemContext) {
+        Instant now = Instant.now();
+        List<PermissionGrant> currentGrants = grantRepository.findByPermissionAndActiveTrue(permission).stream()
+                .filter(grant -> grant.isCurrentlyValid(now))
+                .toList();
+        if (currentGrants.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> grantIds = currentGrants.stream().map(PermissionGrant::getId).toList();
+        Set<UUID> stageMatchedGrantIds = stageScopeRepository.findByGrant_IdIn(grantIds).stream()
+                .filter(scope -> scope.getStageNumber() == stage)
+                .map(scope -> scope.getGrant().getId())
+                .collect(Collectors.toSet());
+        Set<UUID> itemMatchedGrantIds = itemContext == null ? Set.of()
+                : itemScopeRepository.findByGrant_IdIn(grantIds).stream()
+                        .filter(scope -> scope.getWorkflowInstance().getId().equals(itemContext.getId()))
+                        .map(scope -> scope.getGrant().getId())
+                        .collect(Collectors.toSet());
+        Set<UUID> eligibleUserIds = currentGrants.stream()
+                .filter(grant -> switch (grant.getScopeType()) {
+                    case GLOBAL -> true;
+                    case STAGE_RESTRICTED -> stageMatchedGrantIds.contains(grant.getId());
+                    case ITEM_SPECIFIC -> itemMatchedGrantIds.contains(grant.getId());
+                })
+                .map(grant -> grant.getGrantee().getId())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (eligibleUserIds.isEmpty()) {
+            return List.of();
+        }
+        return userRepository.findByIdInAndActiveTrueOrderByFullNameAsc(eligibleUserIds);
     }
 
     private boolean scopeCovers(PermissionGrant grant, LifecycleStage stage, WorkflowInstance item) {

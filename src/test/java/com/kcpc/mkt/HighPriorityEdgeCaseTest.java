@@ -68,8 +68,9 @@ class HighPriorityEdgeCaseTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam1Email = "e2e-multicam1-" + unique + "@kcpcbandhani.local";
-        String cam1 = createUser(ceo, "Multi Camera 1", cam1Email, CAMERA_PERSON_ROLE_ID);
-        String cam2 = createUser(ceo, "Multi Camera 2", "e2e-multicam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String cam1 = createUser(ceo, "Multi Camera 1", cam1Email, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String cam2 = createUser(ceo, "Multi Camera 2", "e2e-multicam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson.
         TestApiClient cam1Client = new TestApiClient(port);
         cam1Client.login(cam1Email, "Passw0rd!");
@@ -125,7 +126,7 @@ class HighPriorityEdgeCaseTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-reworkdup-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Rework Dup Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Rework Dup Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
 
@@ -163,18 +164,22 @@ class HighPriorityEdgeCaseTest {
     }
 
     /**
-     * ENG-054: the Reassign form's "New Assignee(s)" is now Business-Role-filtered per Task Stage
-     * on the UI, but that alone doesn't stop a direct API call from reassigning SHOOTING to someone
-     * who isn't a Camera Person - AdminActionService#reassign now rejects that server-side too.
+     * ENG-054/spec §10: Reassign now uses the same permission-driven eligibility rule as initial
+     * assignment (PERM_18_SHOOT_EXECUTION, scoped to SHOOTING) - not Business Role. A direct API
+     * call reassigning SHOOTING to someone without an explicit PERM_18 grant is rejected server-
+     * side regardless of their Business Role; someone who holds the grant is accepted.
      */
     @Test
     void reassignRejectsANewAssigneeWithoutTheMatchingBusinessRoleButAcceptsAMatchingOne() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam1 = createUser(ceo, "Reassign Cam 1", "e2e-reassign-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String cam2 = createUser(ceo, "Reassign Cam 2", "e2e-reassign-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String editor = createUser(ceo, "Reassign Wrong Role Editor", "e2e-reassign-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String cam1 = createUser(ceo, "Reassign Cam 1", "e2e-reassign-cam1-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
+        String cam2 = createUser(ceo, "Reassign Cam 2", "e2e-reassign-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
+                "PERM_18_SHOOT_EXECUTION");
+        // Deliberately no PERM_18 grant - proves rejection is permission-driven, not role-driven.
+        String editor = createUser(ceo, "Reassign No Grant Editor", "e2e-reassign-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Reassign Role Check " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -183,7 +188,7 @@ class HighPriorityEdgeCaseTest {
         String contentPlanId = findContentPlanId(ideaId);
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam1 + "\"}");
 
-        // A Video Editor is not a valid SHOOTING reassignee - rejected, no assignment created.
+        // No explicit PERM_18 grant - not a valid SHOOTING reassignee - rejected, no assignment created.
         ceo.postFormMulti("/app/deliverables/" + contentPlanId + "/reassign", java.util.Map.of(
                 "taskStage", List.of("SHOOTING"),
                 "newAssigneeUserIds", List.of(editor),
@@ -192,7 +197,7 @@ class HighPriorityEdgeCaseTest {
         assertThat(shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                 .anyMatch(a -> a.getCameraperson().getId().equals(UUID.fromString(editor)))).isFalse();
 
-        // A Camera Person is a valid SHOOTING reassignee - accepted.
+        // Holds an explicit PERM_18 grant - a valid SHOOTING reassignee - accepted.
         ceo.postFormMulti("/app/deliverables/" + contentPlanId + "/reassign", java.util.Map.of(
                 "taskStage", List.of("SHOOTING"),
                 "newAssigneeUserIds", List.of(cam2),
@@ -209,10 +214,11 @@ class HighPriorityEdgeCaseTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-multied-cam-" + unique + "@kcpcbandhani.local";
-        String cam = createUser(ceo, "Multi Ed Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String cam = createUser(ceo, "Multi Ed Camera", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         String ed1Email = "e2e-multied1-" + unique + "@kcpcbandhani.local";
-        String ed1 = createUser(ceo, "Multi Editor 1", ed1Email, VIDEO_EDITOR_ROLE_ID);
-        String ed2 = createUser(ceo, "Multi Editor 2", "e2e-multied2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
+        String ed1 = createUser(ceo, "Multi Editor 1", ed1Email, VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
+        String ed2 = createUser(ceo, "Multi Editor 2", "e2e-multied2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID,
+                "PERM_19_EDIT_EXECUTION");
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson/Editor.
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
@@ -361,6 +367,24 @@ class HighPriorityEdgeCaseTest {
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + businessRoleId + "\",\"creationReason\":\"e2e test fixture\"}");
         return response.get("userId").asText();
+    }
+
+    /**
+     * Same as {@link #createUser(TestApiClient, String, String, String)} but also grants the given
+     * explicit execution permission (PERM_18/19) immediately after creation - candidate eligibility
+     * and execution are now permission-driven (OperationalEligibilityService), not Business-Role-
+     * name-driven, so any fixture user meant to be assignable/executable needs this.
+     */
+    private String createUser(TestApiClient ceo, String fullName, String email, String businessRoleId,
+                               String executionPermission) throws Exception {
+        String userId = createUser(ceo, fullName, email, businessRoleId);
+        HttpResponse<String> grant = ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"" + executionPermission + "\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        if (grant.statusCode() != 201) {
+            throw new IllegalStateException("Failed to grant " + executionPermission + " to " + userId + ": " + grant.body());
+        }
+        return userId;
     }
 
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {

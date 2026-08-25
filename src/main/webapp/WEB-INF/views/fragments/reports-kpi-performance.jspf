@@ -1,0 +1,146 @@
+<%-- KPI Dashboard -> Performance. Caller sets ${performanceDashboard} (PerformanceDashboardDto).
+     Ranking metric throughout is explicitly Avg CTR % (never a vague "Top Performing X", never
+     invented Engagement/Reach) - N/A scorecards are excluded from every average, never treated as 0.
+     Every bar below draws the exact same LabelValueRow.value/sampleSize already computed by the
+     service - bar width is presentational scaling only, never a recalculated metric. --%>
+<div class="kpi-cards kpi-cards-4">
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body"><span class="kpi-card-title">Performance Pending</span>
+            <span class="kpi-card-count">${performanceDashboard.performancePending}</span></div>
+    </div>
+    <div class="kpi-card kpi-delayed">
+        <div class="kpi-card-body"><span class="kpi-card-title">Performance Overdue</span>
+            <span class="kpi-card-count">${performanceDashboard.performanceOverdue}</span></div>
+    </div>
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-body"><span class="kpi-card-title">Scorecard Completion %</span>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty performanceDashboard.scorecardCompletionPercent}">-</c:when>
+                <c:otherwise>${performanceDashboard.scorecardCompletionPercent}%</c:otherwise></c:choose></span></div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body"><span class="kpi-card-title">Avg Delay in Reporting</span>
+            <span class="kpi-card-count">${kcpc:days(performanceDashboard.avgDelayInReportingDays)}</span></div>
+    </div>
+</div>
+
+<div class="kpi-overview-grid">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Top Content Type by Avg CTR</h2>
+        <c:choose>
+            <c:when test="${empty performanceDashboard.topContentTypeByCtr}"><p class="kpi-chart-empty-note">Not enough data.</p></c:when>
+            <c:otherwise>
+                <div class="kpi-hbar-chart">
+                    <c:forEach var="row" items="${performanceDashboard.topContentTypeByCtr}" varStatus="s">
+                        <div class="kpi-hbar-row">
+                            <span class="kpi-hbar-label">${s.index + 1}. ${row.label}</span>
+                            <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-neutral"
+                                 style="width:${row.value > 100 ? 100 : row.value}%"></div></div>
+                            <span class="kpi-hbar-value">${row.value}%<span class="kpi-hbar-sub">n=${row.sampleSize}</span></span>
+                        </div>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Top Platform by Avg CTR</h2>
+        <c:choose>
+            <c:when test="${empty performanceDashboard.topPlatformByCtr}"><p class="kpi-chart-empty-note">Not enough data.</p></c:when>
+            <c:otherwise>
+                <div class="kpi-hbar-chart">
+                    <c:forEach var="row" items="${performanceDashboard.topPlatformByCtr}" varStatus="s">
+                        <div class="kpi-hbar-row">
+                            <span class="kpi-hbar-label">${s.index + 1}. ${row.label}</span>
+                            <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-neutral-2"
+                                 style="width:${row.value > 100 ? 100 : row.value}%"></div></div>
+                            <span class="kpi-hbar-value">${row.value}%<span class="kpi-hbar-sub">n=${row.sampleSize}</span></span>
+                        </div>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Top Channel by Avg CTR</h2>
+        <c:choose>
+            <c:when test="${empty performanceDashboard.topChannelByCtr}"><p class="kpi-chart-empty-note">Not enough data.</p></c:when>
+            <c:otherwise>
+                <div class="kpi-hbar-chart">
+                    <c:forEach var="row" items="${performanceDashboard.topChannelByCtr}" varStatus="s">
+                        <div class="kpi-hbar-row">
+                            <span class="kpi-hbar-label">${s.index + 1}. ${row.label}</span>
+                            <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-positive"
+                                 style="width:${row.value > 100 ? 100 : row.value}%"></div></div>
+                            <span class="kpi-hbar-value">${row.value}%<span class="kpi-hbar-sub">n=${row.sampleSize}</span></span>
+                        </div>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+</div>
+
+<%-- CTR (%) and Impressions (count) are never plotted on the same axis - two separate charts. --%>
+<div class="kpi-overview-grid kpi-overview-grid-2">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">ORIGINAL vs REPOST &middot; Avg CTR %</h2>
+        <div class="kpi-hbar-chart">
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label">Original</span>
+                <c:choose>
+                    <c:when test="${empty performanceDashboard.originalAvgCtr.value}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise><div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-original"
+                        style="width:${performanceDashboard.originalAvgCtr.value > 100 ? 100 : performanceDashboard.originalAvgCtr.value}%"></div></div></c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value"><c:choose><c:when test="${empty performanceDashboard.originalAvgCtr.value}">-</c:when>
+                    <c:otherwise>${performanceDashboard.originalAvgCtr.value}%</c:otherwise></c:choose></span>
+            </div>
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label">Repost</span>
+                <c:choose>
+                    <c:when test="${empty performanceDashboard.repostAvgCtr.value}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise><div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-repost"
+                        style="width:${performanceDashboard.repostAvgCtr.value > 100 ? 100 : performanceDashboard.repostAvgCtr.value}%"></div></div></c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value"><c:choose><c:when test="${empty performanceDashboard.repostAvgCtr.value}">-</c:when>
+                    <c:otherwise>${performanceDashboard.repostAvgCtr.value}%</c:otherwise></c:choose></span>
+            </div>
+        </div>
+    </div>
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">ORIGINAL vs REPOST &middot; Avg Impressions</h2>
+        <c:set var="impMax" value="0"/>
+        <c:if test="${not empty performanceDashboard.originalAvgImpressions.value and performanceDashboard.originalAvgImpressions.value > impMax}">
+            <c:set var="impMax" value="${performanceDashboard.originalAvgImpressions.value}"/>
+        </c:if>
+        <c:if test="${not empty performanceDashboard.repostAvgImpressions.value and performanceDashboard.repostAvgImpressions.value > impMax}">
+            <c:set var="impMax" value="${performanceDashboard.repostAvgImpressions.value}"/>
+        </c:if>
+        <div class="kpi-hbar-chart">
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label">Original</span>
+                <c:choose>
+                    <c:when test="${empty performanceDashboard.originalAvgImpressions.value or impMax == 0}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise><div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-original"
+                        style="width:${performanceDashboard.originalAvgImpressions.value / impMax * 100}%"></div></div></c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value">${kcpc:count(performanceDashboard.originalAvgImpressions.value)}</span>
+            </div>
+            <div class="kpi-hbar-row">
+                <span class="kpi-hbar-label">Repost</span>
+                <c:choose>
+                    <c:when test="${empty performanceDashboard.repostAvgImpressions.value or impMax == 0}"><div class="kpi-hbar-track"></div></c:when>
+                    <c:otherwise><div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-hbar-fill-repost"
+                        style="width:${performanceDashboard.repostAvgImpressions.value / impMax * 100}%"></div></div></c:otherwise>
+                </c:choose>
+                <span class="kpi-hbar-value">${kcpc:count(performanceDashboard.repostAvgImpressions.value)}</span>
+            </div>
+        </div>
+    </div>
+</div>
+<p class="muted kpi-footnote">N/A scorecards are excluded from every average shown here, never treated as zero -
+    a "-" bar means no eligible data, never a genuine zero.</p>
+
+<p class="note-box kpi-dashboard-footnote">Performance scorecards are due 2 days after publication. Ensure timely
+    completion for accurate insights.
+    <a href="${pageContext.request.contextPath}/app/reports/team-kpis">View performance details &rarr;</a></p>

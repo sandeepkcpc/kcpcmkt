@@ -75,6 +75,12 @@ class ActualPublicationEventsDisplayTest {
         TestApiClient pub = new TestApiClient(port);
         pub.login(pubIdEmail[1], "Passw0rd!");
         ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camIdEmail[0] + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"actual publication events display test\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + edIdEmail[0] + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"actual publication events display test\"}");
+        ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubIdEmail[0] + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"actual publication events display test\"}");
 

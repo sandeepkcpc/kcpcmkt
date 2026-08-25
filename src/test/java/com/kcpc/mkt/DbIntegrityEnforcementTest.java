@@ -59,6 +59,9 @@ class DbIntegrityEnforcementTest {
                         + "\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
                         + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"db integrity test fixture\"}");
         String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"db integrity test fixture grant\"}");
         // ENG-043: "Start Shoot" now requires the actively assigned Cameraperson, not CEO native authority.
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");

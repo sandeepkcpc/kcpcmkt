@@ -75,6 +75,12 @@ class PipelinePlatformPopoverTest {
         String pubEmail = "ppt-pub-" + unique + "@kcpcbandhani.local";
         String pubId = createUser(ceo, "Popover Test Publisher", pubEmail, PUBLISHER_ROLE_ID);
         ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"platform popover test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + edId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"platform popover test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"platform popover test publisher grant\"}");
 

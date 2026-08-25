@@ -3,12 +3,17 @@ package com.kcpc.mkt;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.kcpc.mkt.idea.domain.Idea;
 import com.kcpc.mkt.idea.repository.IdeaRepository;
+import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.PlannedOutput;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
+import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
+import com.kcpc.mkt.publishing.domain.PublicationEventType;
+import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.support.TestApiClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,8 +36,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Planning, the exactly-5-day Standard/Urgent boundary (BRS-REQ-093), Hold/Resume blocking a
  * review submission, the Performance Due Date gate (ERD-CON-016: due date = publication + 2
  * days), multiple publication events + Target N/A + reversal + Repost, and Completed-deliverable
- * Reopen for Publishing (regression guard for the ENG-0xx `AdminActionService` target-status fix
- * found earlier this project: {@code PUBLISHING_REOPEN} must land on {@code PUBG}, not {@code RFP}).
+ * Reopen for Publishing (regression guard for the reopened-Publishing/REPOST defect fix:
+ * {@code PUBLISHING_REOPEN} must land on {@code RFP}, the same "Ready for Publishing" state
+ * first-time Publishing uses for Assign Publisher - landing directly on {@code PUBG} instead, as
+ * this codebase did previously, silently skipped the Assign Publisher gate and let a stale
+ * ORIGINAL-cycle assignment execute the repost).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -51,12 +59,17 @@ class WorkflowVariantsE2ETest {
     PerformanceObligationRepository obligationRepository;
     @Autowired
     PublicationTargetNaRecordRepository naRecordRepository;
+    @Autowired
+    ActualPublicationEventRepository eventRepository;
+    @Autowired
+    PublishingAssignmentRepository publishingAssignmentRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
     private static final String TARGET_1 = "01926e3e-000a-7000-8000-000000000001";
     private static final String TARGET_2 = "01926e3e-000a-7000-8000-000000000002";
     private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
+    private static final String MARKETING_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000002";
 
     @Test
     void ideaRejectFlowRequiresReasonAndTerminatesAtRejected() throws Exception {
@@ -109,6 +122,7 @@ class WorkflowVariantsE2ETest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camId = createUser(ceo, "Rework Camera", "e2e-rework-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantShootExecutionPermission(ceo, camId);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Rework Flow " + unique);
         preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
@@ -161,6 +175,7 @@ class WorkflowVariantsE2ETest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-hold-cam-" + unique + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Hold Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        grantShootExecutionPermission(ceo, camId);
         TestApiClient cam = loginNewClient(camEmail);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Hold Flow " + unique);
@@ -203,6 +218,8 @@ class WorkflowVariantsE2ETest {
         TestApiClient cam = loginNewClient(camEmail);
         TestApiClient ed = loginNewClient(edEmail);
         TestApiClient pub = loginNewClient(pubEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
         String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, "Due Date Flow " + unique, camId, edId);
@@ -237,6 +254,8 @@ class WorkflowVariantsE2ETest {
         TestApiClient cam = loginNewClient(camEmail);
         TestApiClient ed = loginNewClient(edEmail);
         TestApiClient pub = loginNewClient(pubEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Multi-Target Flow " + unique);
@@ -325,6 +344,8 @@ class WorkflowVariantsE2ETest {
         TestApiClient cam = loginNewClient(camEmail);
         TestApiClient ed = loginNewClient(edEmail);
         TestApiClient pub = loginNewClient(pubEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Checklist Flow " + unique);
@@ -401,31 +422,219 @@ class WorkflowVariantsE2ETest {
     }
 
     @Test
-    void completedDeliverableReopensForPublishingOntoPubgNotRfp() throws Exception {
+    void completedDeliverableReopensForPublishingOntoRfpRequiringFreshPublisherAssignment() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-reopen-cam-" + unique + "@kcpcbandhani.local";
         String edEmail = "e2e-reopen-ed-" + unique + "@kcpcbandhani.local";
-        String pubEmail = "e2e-reopen-pub-" + unique + "@kcpcbandhani.local";
+        String pubAEmail = "e2e-reopen-puba-" + unique + "@kcpcbandhani.local";
+        String pubBEmail = "e2e-reopen-pubb-" + unique + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Reopen Camera", camEmail, CAMERA_PERSON_ROLE_ID);
         String edId = createUser(ceo, "Reopen Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
-        String pubId = createUser(ceo, "Reopen Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        String pubAId = createUser(ceo, "Reopen Publisher A", pubAEmail, PUBLISHER_ROLE_ID);
+        String pubBId = createUser(ceo, "Reopen Publisher B", pubBEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pubA = loginNewClient(pubAEmail);
+        TestApiClient pubB = loginNewClient(pubBEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
+        grantPublishingPermission(ceo, pubAId);
+        grantPublishingPermission(ceo, pubBId);
+
+        String contentPlanId = driveToCompleted(ceo, cam, ed, pubA, "Reopen Flow " + unique, camId, edId, pubAId);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("COMP");
+        String outputId = findPlannedOutputId(contentPlanId);
+        ContentPlan plan = contentPlanRepository.findById(UUID.fromString(contentPlanId)).orElseThrow();
+        ActualPublicationEvent originalEvent = eventRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
+        String originalEvidenceUrl = originalEvent.getEvidenceUrl();
+        Instant originalTimestamp = originalEvent.getActualPublicationTimestamp();
+
+        // A: CEO reopens for Publishing - RFP (not PUBG, ERD/API-OP-052's own actual intent), no
+        // REPOST event yet, ORIGINAL fully unchanged, and the ORIGINAL cycle's Publisher assignment
+        // is no longer active (a repost cycle must never silently inherit it).
+        HttpResponse<String> reopen = ceo.post("/api/v1/content-plans/" + contentPlanId + "/reopen-publishing",
+                "{\"reason\":\"Reposting karni hai!\"}");
+        assertThat(reopen.statusCode()).isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("RFP");
+        assertThat(eventRepository.findByContentPlan(plan)).hasSize(1);
+        ActualPublicationEvent stillOriginal = eventRepository.findByContentPlan(plan).get(0);
+        assertThat(stillOriginal.getId()).isEqualTo(originalEvent.getId());
+        assertThat(stillOriginal.getEvidenceUrl()).isEqualTo(originalEvidenceUrl);
+        assertThat(stillOriginal.getActualPublicationTimestamp()).isEqualTo(originalTimestamp);
+        assertThat(stillOriginal.getEventType()).isEqualTo(PublicationEventType.ORIGINAL);
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
+
+        // The ORIGINAL cycle's Publisher can no longer execute (no active assignment for THIS cycle)
+        // until management explicitly reassigns - CEO/MM authority never bypasses this gate.
+        HttpResponse<String> startBeforeReassignment =
+                pubA.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
+        assertThat(startBeforeReassignment.statusCode()).isEqualTo(403);
+
+        // B: CEO assigns a fresh Publisher for the repost cycle (deliberately a DIFFERENT person
+        // than the ORIGINAL's Publisher, proving the choice is real, not a rubber stamp).
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
+                "{\"publisherUserId\":\"" + pubBId + "\"}");
+        List<com.kcpc.mkt.publishing.domain.PublishingAssignment> active =
+                publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        assertThat(active).hasSize(1);
+        assertThat(active.get(0).getPublisher().getId().toString()).isEqualTo(pubBId);
+
+        // C: Publisher B's Active Task correctly identifies this as a Repost cycle before even
+        // starting - never a relabelled ORIGINAL.
+        String taskBodyBeforeStart = pubB.get("/app/deliverables/" + contentPlanId).body();
+        assertThat(taskBodyBeforeStart).contains("REPOST").contains("Start Repost").contains("Pending Repost");
+        assertThat(pubB.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "").statusCode())
+                .isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("PUBG");
+
+        // D: Publisher B submits a genuinely NEW Evidence URL through the real MVC form endpoint
+        // (no eventType field at all - PublishingService derives it), never the ORIGINAL's URL.
+        String repostUrl1 = "https://instagram.com/p/reopen-repost1-" + unique;
+        HttpResponse<String> repost1 = pubB.postForm("/app/deliverables/" + contentPlanId + "/publishing/events",
+                Map.of("plannedOutputId", outputId, "publicationTargetId", TARGET_1,
+                        "actualPublicationTimestamp", LocalDate.now().minusDays(3).toString(), "evidenceUrl", repostUrl1));
+        assertThat(repost1.statusCode()).isEqualTo(302);
+
+        List<ActualPublicationEvent> eventsAfterRepost1 = eventRepository.findByContentPlan(plan);
+        assertThat(eventsAfterRepost1).hasSize(2);
+        ActualPublicationEvent original = eventsAfterRepost1.stream()
+                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).findFirst().orElseThrow();
+        ActualPublicationEvent repostEvent1 = eventsAfterRepost1.stream()
+                .filter(e -> e.getEventType() == PublicationEventType.REPOST).findFirst().orElseThrow();
+        assertThat(original.getEvidenceUrl()).isEqualTo(originalEvidenceUrl); // untouched
+        assertThat(repostEvent1.getEvidenceUrl()).isEqualTo(repostUrl1);
+        assertThat(repostEvent1.getId()).isNotEqualTo(original.getId());
+
+        // E: single (output, target) pair -> the repost alone resolves this cycle's scope; the
+        // workflow auto-advances exactly like first-time Publishing does (cycle-aware, not
+        // satisfied by the OLD ORIGINAL that already existed before this cycle started).
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("PP");
+
+        // F: the REPOST gets its OWN Performance obligation/scorecard, never reusing the ORIGINAL's
+        // (already-submitted) one.
+        PerformanceObligation originalObligation = obligationRepository.findByEvent(original).orElseThrow();
+        PerformanceObligation repostObligation = obligationRepository.findByEvent(repostEvent1).orElseThrow();
+        assertThat(repostObligation.getId()).isNotEqualTo(originalObligation.getId());
+        assertThat(originalObligation.isCompleted()).isTrue();
+        assertThat(repostObligation.isCompleted()).isFalse();
+
+        // Drive the repost's own obligation to Completed exactly like driveToCompleted's tail does,
+        // so a SECOND reopen (multiple repost cycles) can be exercised below.
+        ceo.postJson("/api/v1/performance-obligations/" + repostObligation.getId() + "/scorecard/draft",
+                "{\"views3sec\":900,\"plays\":1100,\"averageWatchTimeSeconds\":11.0,\"videoLengthSeconds\":18.0,"
+                        + "\"linkClicks\":0,\"clicksIsNa\":true,\"impressions\":5200}");
+        ceo.post("/api/v1/performance-obligations/" + repostObligation.getId() + "/scorecard/submit", "");
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("COMP");
+
+        // G: reopen a SECOND time - fresh assignment required again (Publisher B's assignment from
+        // the first repost cycle must not carry over either), CEO re-picks Publisher A this time
+        // (any active Publisher is a valid choice, including the original ORIGINAL-cycle person).
+        assertThat(ceo.post("/api/v1/content-plans/" + contentPlanId + "/reopen-publishing",
+                "{\"reason\":\"One more repost - it's still trending!\"}").statusCode()).isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("RFP");
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
+        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
+                "{\"publisherUserId\":\"" + pubAId + "\"}");
+        assertThat(pubA.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "").statusCode())
+                .isEqualTo(200);
+        String repostUrl2 = "https://instagram.com/p/reopen-repost2-" + unique;
+        assertThat(pubA.postForm("/app/deliverables/" + contentPlanId + "/publishing/events",
+                Map.of("plannedOutputId", outputId, "publicationTargetId", TARGET_1,
+                        "actualPublicationTimestamp", LocalDate.now().minusDays(3).toString(), "evidenceUrl", repostUrl2))
+                .statusCode()).isEqualTo(302);
+
+        // H: full immutable history - ORIGINAL, REPOST, REPOST - three distinct rows, none overwritten.
+        List<ActualPublicationEvent> finalEvents = eventRepository.findByContentPlan(plan);
+        assertThat(finalEvents).hasSize(3);
+        assertThat(finalEvents.stream().filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).count()).isEqualTo(1);
+        assertThat(finalEvents.stream().filter(e -> e.getEventType() == PublicationEventType.REPOST).count()).isEqualTo(2);
+        assertThat(finalEvents.stream().map(ActualPublicationEvent::getEvidenceUrl))
+                .containsExactlyInAnyOrder(originalEvidenceUrl, repostUrl1, repostUrl2);
+        assertThat(eventRepository.findById(original.getId()).orElseThrow().getEvidenceUrl()).isEqualTo(originalEvidenceUrl);
+    }
+
+    /** Marketing Manager exercises the identical reopen-for-publishing gate, per existing permissions. */
+    @Test
+    void marketingManagerReopensForPublishingWithSameFreshAssignmentGate() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        createUser(ceo, "Reopen MM", "e2e-reopen-mm-" + unique + "@kcpcbandhani.local", MARKETING_MANAGER_ROLE_ID);
+        TestApiClient mm = loginNewClient("e2e-reopen-mm-" + unique + "@kcpcbandhani.local");
+
+        String camEmail = "e2e-reopen-mm-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-reopen-mm-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-reopen-mm-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Reopen MM Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Reopen MM Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Reopen MM Publisher", pubEmail, PUBLISHER_ROLE_ID);
         TestApiClient cam = loginNewClient(camEmail);
         TestApiClient ed = loginNewClient(edEmail);
         TestApiClient pub = loginNewClient(pubEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = driveToCompleted(ceo, cam, ed, pub, "Reopen Flow " + unique, camId, edId, pubId);
-        JsonNode completed = ceo.getJson("/api/v1/content-plans/" + contentPlanId);
-        assertThat(completed.get("status").asText()).isEqualTo("COMP");
+        String contentPlanId = driveToCompleted(ceo, cam, ed, pub, "Reopen MM Flow " + unique, camId, edId, pubId);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("COMP");
 
-        HttpResponse<String> reopen = ceo.post("/api/v1/content-plans/" + contentPlanId + "/reopen-publishing",
-                "{\"reason\":\"Client requested an additional cross-post\"}");
+        HttpResponse<String> reopen = mm.post("/api/v1/content-plans/" + contentPlanId + "/reopen-publishing",
+                "{\"reason\":\"MM reposting karni hai!\"}");
         assertThat(reopen.statusCode()).isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("RFP");
+        ContentPlan plan = contentPlanRepository.findById(UUID.fromString(contentPlanId)).orElseThrow();
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
 
-        JsonNode reopened = ceo.getJson("/api/v1/content-plans/" + contentPlanId);
-        assertThat(reopened.get("status").asText()).isEqualTo("PUBG");
+        // MM (native authority, same as CEO) can assign a fresh Publisher exactly like CEO can.
+        mm.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
+                "{\"publisherUserId\":\"" + pubId + "\"}");
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).hasSize(1);
+    }
+
+    /**
+     * Convenience shortcut: the Reopen for Publishing action's own form can optionally carry
+     * Publisher(s) to assign in the same request, so CEO/MM don't need a second trip to the
+     * Publishing tab for the common case. Selecting none must keep working exactly as before
+     * (already covered by the other reopen tests above).
+     */
+    @Test
+    void reopenForPublishingCanAssignPublisherInTheSameRequest() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        String camEmail = "e2e-reopen-combo-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "e2e-reopen-combo-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "e2e-reopen-combo-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Reopen Combo Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "Reopen Combo Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "Reopen Combo Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = loginNewClient(camEmail);
+        TestApiClient ed = loginNewClient(edEmail);
+        TestApiClient pub = loginNewClient(pubEmail);
+        grantShootExecutionPermission(ceo, camId);
+        grantEditExecutionPermission(ceo, edId);
+        grantPublishingPermission(ceo, pubId);
+
+        String contentPlanId = driveToCompleted(ceo, cam, ed, pub, "Reopen Combo Flow " + unique, camId, edId, pubId);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("COMP");
+        ContentPlan plan = contentPlanRepository.findById(UUID.fromString(contentPlanId)).orElseThrow();
+
+        // One form submission: reason + the dropdown's chosen publisherUserId together.
+        HttpResponse<String> reopenAndAssign = ceo.postForm("/app/deliverables/" + contentPlanId + "/reopen-publishing",
+                Map.of("reason", "Reposting karni hai!", "publisherUserId", pubId));
+        assertThat(reopenAndAssign.statusCode()).isEqualTo(302);
+
+        assertThat(ceo.getJson("/api/v1/content-plans/" + contentPlanId).get("status").asText()).isEqualTo("RFP");
+        List<com.kcpc.mkt.publishing.domain.PublishingAssignment> active =
+                publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        assertThat(active).hasSize(1);
+        assertThat(active.get(0).getPublisher().getId().toString()).isEqualTo(pubId);
+
+        // The assigned Publisher can immediately Start Publishing - no second, separate assignment step needed.
+        assertThat(pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "").statusCode())
+                .isEqualTo(200);
     }
 
     // --- shared flow helpers -------------------------------------------------------------
@@ -448,6 +657,19 @@ class WorkflowVariantsE2ETest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + publisherUserId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e workflow-variants publisher grant\"}");
+    }
+
+    /** Candidate eligibility/execution is now permission-driven (OperationalEligibilityService). */
+    private void grantShootExecutionPermission(TestApiClient ceo, String camerapersonUserId) throws Exception {
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camerapersonUserId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e workflow-variants cameraperson grant\"}");
+    }
+
+    private void grantEditExecutionPermission(TestApiClient ceo, String editorUserId) throws Exception {
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editorUserId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e workflow-variants editor grant\"}");
     }
 
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {

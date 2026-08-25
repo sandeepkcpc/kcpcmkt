@@ -83,4 +83,48 @@ public class RescheduleRecord extends BaseEntity {
         this.rescheduledBy = rescheduledBy;
         this.actingPermissionGrant = actingPermissionGrant;
     }
+
+    public WorkflowInstance getWorkflowInstance() {
+        return workflowInstance;
+    }
+
+    public StageContext getStageContext() {
+        return stageContext;
+    }
+
+    public LocalDate getPriorPlannedShootDate() {
+        return priorPlannedShootDate;
+    }
+
+    public LocalDate getPriorPlannedEditDate() {
+        return priorPlannedEditDate;
+    }
+
+    public LocalDate getPriorPlannedLiveDate() {
+        return priorPlannedLiveDate;
+    }
+
+    public LocalDate getNewPlannedShootDate() {
+        return newPlannedShootDate;
+    }
+
+    public LocalDate getNewPlannedEditDate() {
+        return newPlannedEditDate;
+    }
+
+    public LocalDate getNewPlannedLiveDate() {
+        return newPlannedLiveDate;
+    }
+
+    public String getMandatoryReason() {
+        return mandatoryReason;
+    }
+
+    public User getRescheduledBy() {
+        return rescheduledBy;
+    }
+
+    public Instant getRescheduledAt() {
+        return rescheduledAt;
+    }
 }

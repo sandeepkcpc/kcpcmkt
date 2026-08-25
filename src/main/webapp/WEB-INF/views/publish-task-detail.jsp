@@ -24,7 +24,10 @@
         </div>
         <div class="shoot-status-card">
             <div class="summary-field-label">Current Status</div>
-            <div class="shoot-status-value"><span class="status-pill ${publishFriendlyStatusCssClass}"><c:out value="${publishFriendlyStatusLabel}"/></span></div>
+            <div class="shoot-status-value">
+                <span class="status-pill ${publishFriendlyStatusCssClass}"><c:out value="${publishFriendlyStatusLabel}"/></span>
+                <c:if test="${isRepostPublishingCycle}"><span class="repost-cycle-badge">REPOST</span></c:if>
+            </div>
             <c:if test="${not empty publishDelayDays}">
                 <p class="shoot-delay-note">Publishing delayed by ${publishDelayDays} day<c:if test="${publishDelayDays != 1}">s</c:if></p>
             </c:if>
@@ -96,6 +99,12 @@
                                     <c:otherwise>&mdash;</c:otherwise>
                                 </c:choose>
                             </span></div>
+                            <%-- Publishers primarily access the approved/final rendered files here. --%>
+                            <c:if test="${not empty driveProvisioning and not empty driveProvisioning.finalContentFolderId}">
+                                <div class="info-row"><span class="summary-field-label">Final Content Folder</span><span class="summary-field-value">
+                                    <a class="drive-link" href="https://drive.google.com/drive/folders/${driveProvisioning.finalContentFolderId}" target="_blank" rel="noopener noreferrer">Open Final Content &#8599;</a>
+                                </span></div>
+                            </c:if>
                         </div>
                     </div>
                 </div>
@@ -114,7 +123,7 @@
                  deliverable-detail.jsp Publishing panel, so the existing publishing-checklist.js
                  keeps working unmodified. --%>
             <div class="panel">
-                <h2>Publication Targets</h2>
+                <h2>Publication Targets <c:if test="${isRepostPublishingCycle}"><span class="repost-cycle-badge">Repost Cycle</span></c:if></h2>
                 <c:choose>
                     <c:when test="${status == 'PUBG' and canPublishingExecute and isPublishActiveAssignee and empty openHold}">
                         <form method="post" id="publishing-checklist-form"
@@ -168,7 +177,9 @@
                                         </td>
                                         <td>
                                             <c:choose>
+                                                <c:when test="${row.completed and isRepostPublishingCycle}"><span class="status-pill status-completed">Reposted</span></c:when>
                                                 <c:when test="${row.completed}"><span class="status-pill status-completed">Completed</span></c:when>
+                                                <c:when test="${isRepostPublishingCycle}"><span class="status-pill status-pending">Pending Repost</span></c:when>
                                                 <c:otherwise><span class="status-pill status-pending">Pending</span></c:otherwise>
                                             </c:choose>
                                         </td>
@@ -180,7 +191,9 @@
                                 </tbody>
                             </table>
                             <div class="review-actions">
-                                <button type="submit" id="publishing-checklist-submit" disabled>Submit Published Tasks</button>
+                                <button type="submit" id="publishing-checklist-submit" disabled>
+                                    <c:choose><c:when test="${isRepostPublishingCycle}">Submit Repost</c:when><c:otherwise>Submit Published Tasks</c:otherwise></c:choose>
+                                </button>
                             </div>
                         </form>
                     </c:when>
@@ -204,7 +217,9 @@
                                     </td>
                                     <td>
                                         <c:choose>
+                                            <c:when test="${row.completed and isRepostPublishingCycle}"><span class="status-pill status-completed">Reposted</span></c:when>
                                             <c:when test="${row.completed}"><span class="status-pill status-completed">Completed</span></c:when>
+                                            <c:when test="${isRepostPublishingCycle}"><span class="status-pill status-pending">Pending Repost</span></c:when>
                                             <c:otherwise><span class="status-pill status-pending">Pending</span></c:otherwise>
                                         </c:choose>
                                     </td>
@@ -291,7 +306,9 @@
                     <c:when test="${status == 'RFP' and isPublishActiveAssignee}">
                         <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/start">
                             <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                            <button type="submit" class="shoot-primary-action">&#9654; Start Publishing</button>
+                            <button type="submit" class="shoot-primary-action">&#9654;
+                                <c:choose><c:when test="${isRepostPublishingCycle}">Start Repost</c:when><c:otherwise>Start Publishing</c:otherwise></c:choose>
+                            </button>
                         </form>
                     </c:when>
                     <c:when test="${status == 'RFP'}">
@@ -307,6 +324,9 @@
                                 <p><strong>Expected Resume Date:</strong> ${openHold.expectedResumeDate}</p>
                             </c:if>
                         </div>
+                    </c:when>
+                    <c:when test="${status == 'PUBG' and isRepostPublishingCycle}">
+                        <p class="shoot-status-compact">Repost in progress &mdash; record events in Publication Targets</p>
                     </c:when>
                     <c:when test="${status == 'PUBG'}">
                         <p class="shoot-status-compact">Publishing in progress &mdash; record events in Publication Targets</p>

@@ -1,0 +1,191 @@
+<%-- KPI Dashboard -> Content & Publishing. Caller sets ${contentPublishing} (ContentPublishingDashboardDto).
+     Every chart below is drawn server-side from these same DTO fields (or a plain sum/max of the
+     already-displayed rows) - no chart library, no client-side or duplicate calculation. --%>
+<c:set var="donutCircumference" value="${2 * 3.14159265 * 52}"/>
+<div class="kpi-cards kpi-cards-5">
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-body"><span class="kpi-card-title">Published Content</span>
+            <span class="kpi-card-count">${contentPublishing.publishedContent}</span></div>
+    </div>
+    <div class="kpi-card kpi-completed">
+        <div class="kpi-card-body"><span class="kpi-card-title">Target Completion %</span>
+            <span class="kpi-card-count"><c:choose><c:when test="${empty contentPublishing.targetCompletion.completionPercent}">-</c:when>
+                <c:otherwise>${contentPublishing.targetCompletion.completionPercent}%</c:otherwise></c:choose></span></div>
+    </div>
+    <div class="kpi-card kpi-active">
+        <div class="kpi-card-body"><span class="kpi-card-title">ORIGINAL</span>
+            <span class="kpi-card-count">${contentPublishing.originalCount}</span></div>
+    </div>
+    <div class="kpi-card kpi-underreview">
+        <div class="kpi-card-body"><span class="kpi-card-title">REPOST</span>
+            <span class="kpi-card-count">${contentPublishing.repostCount}</span></div>
+    </div>
+    <div class="kpi-card kpi-rework">
+        <div class="kpi-card-body"><span class="kpi-card-title">Evidence Correction Records</span>
+            <span class="kpi-card-count">${contentPublishing.evidenceCorrectionCount}</span>
+            <span class="kpi-card-subtitle">correction records<c:if test="${not empty contentPublishing.evidenceCorrectionRatePercent}">
+                &middot; ${contentPublishing.evidenceCorrectionRatePercent}% of publication events affected</c:if></span></div>
+    </div>
+</div>
+
+<%-- ORIGINAL vs REPOST proportion - the exact same two headline counts above, drawn as one
+     segmented bar; their semantics stay separate (this never merges an ORIGINAL event with a
+     REPOST event, it only shows their share of the same total). --%>
+<c:set var="eventTotal" value="${contentPublishing.originalCount + contentPublishing.repostCount}"/>
+<div class="panel">
+    <h2 class="reports-kpi-group-title">ORIGINAL vs REPOST</h2>
+    <c:choose>
+        <c:when test="${eventTotal == 0}">
+            <p class="kpi-chart-empty-note">No data for selected period</p>
+        </c:when>
+        <c:otherwise>
+            <div class="kpi-segbar">
+                <c:if test="${contentPublishing.originalCount > 0}">
+                    <div class="kpi-segbar-segment kpi-hbar-fill-original" style="width:${contentPublishing.originalCount / eventTotal * 100}%">
+                        ORIGINAL ${contentPublishing.originalCount}
+                    </div>
+                </c:if>
+                <c:if test="${contentPublishing.repostCount > 0}">
+                    <div class="kpi-segbar-segment kpi-hbar-fill-repost" style="width:${contentPublishing.repostCount / eventTotal * 100}%">
+                        REPOST ${contentPublishing.repostCount}
+                    </div>
+                </c:if>
+            </div>
+        </c:otherwise>
+    </c:choose>
+</div>
+
+<div class="kpi-overview-grid">
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Planned Output Mix</h2>
+        <p class="muted kpi-footnote">Planned outputs in selected cohort</p>
+        <c:set var="mixTotal" value="0"/>
+        <c:forEach var="row" items="${contentPublishing.contentMix}">
+            <c:set var="mixTotal" value="${mixTotal + row.count}"/>
+        </c:forEach>
+        <c:choose>
+            <c:when test="${mixTotal == 0}">
+                <p class="kpi-chart-empty-note">No outputs in this period.</p>
+            </c:when>
+            <c:otherwise>
+                <div class="kpi-donut-wrap">
+                    <svg class="kpi-donut-svg" width="140" height="140" viewBox="0 0 120 120" role="img" aria-label="Planned Output Mix donut chart">
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="#eef0f3" stroke-width="20"/>
+                        <c:set var="mixCumPct" value="0"/>
+                        <c:forEach var="row" items="${contentPublishing.contentMix}" varStatus="s">
+                            <c:set var="mixSegPct" value="${row.count / mixTotal * 100}"/>
+                            <c:set var="mixSegLen" value="${mixSegPct / 100 * donutCircumference}"/>
+                            <circle cx="60" cy="60" r="52" fill="none" stroke-width="20" class="kpi-donut-color-${s.index % 6}"
+                                    stroke-dasharray="${mixSegLen} ${donutCircumference - mixSegLen}"
+                                    stroke-dashoffset="${-1 * (mixCumPct / 100 * donutCircumference)}"
+                                    transform="rotate(-90 60 60)">
+                                <title>${row.label}: ${row.count} (<fmt:formatNumber value="${mixSegPct}" maxFractionDigits="1"/>%)</title>
+                            </circle>
+                            <c:set var="mixCumPct" value="${mixCumPct + mixSegPct}"/>
+                        </c:forEach>
+                        <text x="60" y="57" text-anchor="middle" class="kpi-donut-center-value">${mixTotal}</text>
+                        <text x="60" y="71" text-anchor="middle" class="kpi-donut-center-label">Total</text>
+                    </svg>
+                    <ul class="kpi-donut-legend">
+                        <c:forEach var="row" items="${contentPublishing.contentMix}" varStatus="s">
+                            <li><span class="kpi-donut-swatch kpi-donut-color-${s.index % 6}"></span>
+                                <span>${row.label}</span>
+                                <span class="kpi-donut-legend-pct"><fmt:formatNumber value="${row.count / mixTotal * 100}" maxFractionDigits="1"/>%</span>
+                                <span class="kpi-donut-legend-count">${row.count}</span>
+                            </li>
+                        </c:forEach>
+                    </ul>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Platform Distribution</h2>
+        <%-- Platforms are whatever the Publishing Catalogue returned in platformDistribution -
+             never a hard-coded list. Bar width is each platform's count relative to the largest
+             platform's count in this same list (a plain max, not a new KPI). --%>
+        <c:set var="platformMax" value="0"/>
+        <c:forEach var="row" items="${contentPublishing.platformDistribution}">
+            <c:if test="${row.count > platformMax}"><c:set var="platformMax" value="${row.count}"/></c:if>
+        </c:forEach>
+        <c:choose>
+            <c:when test="${empty contentPublishing.platformDistribution}">
+                <p class="kpi-chart-empty-note">No publications in this period.</p>
+            </c:when>
+            <c:otherwise>
+                <div class="kpi-hbar-chart">
+                    <c:forEach var="row" items="${contentPublishing.platformDistribution}" varStatus="s">
+                        <div class="kpi-hbar-row">
+                            <span class="kpi-hbar-label">${row.label}</span>
+                            <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-donut-color-${s.index % 6}"
+                                 style="width:${row.count / platformMax * 100}%"></div></div>
+                            <span class="kpi-hbar-value">${row.count}</span>
+                        </div>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Channel Distribution (Top 5)</h2>
+        <c:set var="channelMax" value="0"/>
+        <c:forEach var="row" items="${contentPublishing.channelDistribution}">
+            <c:if test="${row.count > channelMax}"><c:set var="channelMax" value="${row.count}"/></c:if>
+        </c:forEach>
+        <c:choose>
+            <c:when test="${empty contentPublishing.channelDistribution}">
+                <p class="kpi-chart-empty-note">No publications in this period.</p>
+            </c:when>
+            <c:otherwise>
+                <div class="kpi-hbar-chart">
+                    <c:forEach var="row" items="${contentPublishing.channelDistribution}" varStatus="s">
+                        <div class="kpi-hbar-row">
+                            <span class="kpi-hbar-label">${row.label}</span>
+                            <div class="kpi-hbar-track"><div class="kpi-hbar-fill kpi-donut-color-${s.index % 6}"
+                                 style="width:${row.count / channelMax * 100}%"></div></div>
+                            <span class="kpi-hbar-value">${row.count}</span>
+                        </div>
+                    </c:forEach>
+                </div>
+            </c:otherwise>
+        </c:choose>
+    </div>
+
+    <div class="panel">
+        <h2 class="reports-kpi-group-title">Planned vs Published Targets</h2>
+        <%-- Progress ring uses completionPercent exactly as approved (Published / (Published +
+             Pending), N/A excluded) - never recomputed here. N/A is shown as a separate muted,
+             clearly-labeled figure outside the ring, informational only. --%>
+        <div class="kpi-donut-wrap">
+            <c:choose>
+                <c:when test="${empty contentPublishing.targetCompletion.completionPercent}">
+                    <p class="kpi-chart-empty-note">No data for selected period</p>
+                </c:when>
+                <c:otherwise>
+                    <svg class="kpi-donut-svg" width="140" height="140" viewBox="0 0 120 120" role="img" aria-label="Target Completion donut chart">
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="#eef0f3" stroke-width="20"/>
+                        <c:set var="tcLen" value="${contentPublishing.targetCompletion.completionPercent / 100 * donutCircumference}"/>
+                        <circle cx="60" cy="60" r="52" fill="none" stroke-width="20" class="kpi-donut-color-positive"
+                                stroke-dasharray="${tcLen} ${donutCircumference - tcLen}" transform="rotate(-90 60 60)">
+                            <title>Published: ${contentPublishing.targetCompletion.publishedCount} (${contentPublishing.targetCompletion.completionPercent}% of Published+Pending)</title>
+                        </circle>
+                        <text x="60" y="57" text-anchor="middle" class="kpi-donut-center-value">${contentPublishing.targetCompletion.completionPercent}%</text>
+                        <text x="60" y="71" text-anchor="middle" class="kpi-donut-center-label">Complete</text>
+                    </svg>
+                </c:otherwise>
+            </c:choose>
+            <ul class="kpi-donut-legend">
+                <li><span class="kpi-donut-swatch kpi-donut-color-positive"></span><span>Published</span>
+                    <span class="kpi-donut-legend-count">${contentPublishing.targetCompletion.publishedCount}</span></li>
+                <li><span class="kpi-donut-swatch kpi-donut-color-track"></span><span>Pending</span>
+                    <span class="kpi-donut-legend-count">${contentPublishing.targetCompletion.pendingCount}</span></li>
+                <li class="kpi-donut-legend-na"><span class="kpi-donut-swatch kpi-donut-color-na"></span><span>N/A (informational)</span>
+                    <span class="kpi-donut-legend-count">${contentPublishing.targetCompletion.naCount}</span></li>
+            </ul>
+        </div>
+        <p class="muted kpi-footnote">Target Completion % = Published / (Published + Pending). N/A-designated targets are
+            excluded from both the numerator and denominator - never counted as pending or complete.</p>
+    </div>
+</div>

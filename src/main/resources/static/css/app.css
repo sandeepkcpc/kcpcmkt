@@ -63,7 +63,6 @@ button[type="submit"] {
 .app-main button[type="submit"] {
     display: block;
     width: auto;
-    min-width: 160px;
     margin-left: auto;
 }
 
@@ -223,6 +222,29 @@ button[type="submit"] {
 .priority-pill.priority-high { background: #fee2e2; color: #b91c1c; }
 .priority-pill.priority-medium { background: #ffedd5; color: #c2410c; }
 .priority-pill.priority-low { background: #dbeafe; color: #1d4ed8; }
+
+/* Permission-driven My Work: stage badges, independent of the row's own Business Role/executor
+   label - distinguishes SHOOT/EDIT/PUBLISHING/REPOST rows in the combined "All" view. */
+.stage-badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; margin-right: 0.4rem; }
+.stage-badge.stage-shoot { background: #dbeafe; color: #1d4ed8; }
+.stage-badge.stage-edit { background: #ede9fe; color: #6d28d9; }
+.stage-badge.stage-publish { background: #dcfce7; color: #166534; }
+.stage-badge.stage-repost { background: #ffedd5; color: #c2410c; }
+
+.my-work-stage-tabs { display: flex; gap: 0.5rem; margin: 1rem 0; border-bottom: 1px solid #e5e7eb; }
+.my-work-stage-tab { background: none; border: none; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.9rem; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; }
+.my-work-stage-tab.active { color: #111827; border-bottom-color: #2563eb; }
+.my-work-stage-panel.hidden { display: none; }
+
+.execution-blocked-note { display: inline-block; padding: 0.3rem 0.6rem; border-radius: 6px; background: #fee2e2; color: #991b1b; font-size: 0.78rem; font-weight: 600; }
+
+.my-work-mode-tabs { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; border-bottom: 2px solid #e5e7eb; }
+.my-work-mode-tab { background: none; border: none; padding: 0.6rem 1.1rem; font-weight: 700; font-size: 0.95rem; color: #6b7280; cursor: pointer; border-bottom: 3px solid transparent; }
+.my-work-mode-tab.active { color: #111827; border-bottom-color: #2563eb; }
+.my-work-mode-panel.hidden { display: none; }
+.assignment-mgmt-tab { background: none; border: none; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.9rem; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; }
+.assignment-mgmt-tab.active { color: #111827; border-bottom-color: #2563eb; }
+.assignment-mgmt-panel.hidden { display: none; }
 
 .lead-badge {
     display: inline-block;
@@ -494,6 +516,18 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 }
 .alert-error { margin-bottom: 1rem; }
 
+/* Neutral/informational flash (e.g. "retry accepted" - distinct from a success/failure outcome,
+   which is not yet known at the moment the request was accepted). */
+.alert-info {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
 /* ENG-082 (visual polish pass): a full CEO/CEO_OWNER nav can carry 12 links (Content Pipeline
    through Publishing Catalogue) - flex-wrap used to drop the tail end (e.g. "Publishing Catalogue")
    onto a visually broken second row once the window narrowed even slightly. Kept as one compact,
@@ -602,7 +636,7 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 .assign-row button { width: auto; margin-top: 0; }
 .panel h2 { margin-top: 0; font-size: 1.05rem; }
 .panel h3 { font-size: 0.95rem; margin-bottom: 0.4rem; }
-.panel label { display: block; margin-top: 0.75rem; font-weight: 600; font-size: 0.85rem; }
+.panel label { font-weight: 600; font-size: 0.85rem; }
 .panel input, .panel select, .panel textarea {
     width: 100%;
     padding: 0.45rem;
@@ -1876,6 +1910,22 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
    same visual baseline instead of drifting depending on each value type's own natural line-height. */
 .content-detail-summary-value { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; min-height: 1.6rem; line-height: 1.4; }
 
+/* Automatic Drive folder provisioning status - only shown while not yet SUCCEEDED (the normal
+   case, auto-provisioned and working, adds nothing extra here). */
+.drive-provisioning-status { font-size: 0.78rem; }
+.drive-provisioning-failed { color: #b91c1c; }
+.drive-provisioning-in_progress, .drive-provisioning-not_started { color: #9ca3af; }
+.drive-provisioning-retry-form { display: inline; margin: 0; }
+.drive-provisioning-retry-form .link-button { padding: 0.2rem 0.65rem; font-size: 0.76rem; }
+
+/* Folder Link Management (PERM_13) admin override - collapsed by default, matches the
+   .actions-bar details/summary convention used elsewhere in this app. */
+.drive-relink-details {
+    margin: 0 0 1.25rem; border: 1px solid var(--kcpc-border); border-radius: 8px; background: var(--kcpc-surface);
+}
+.drive-relink-details summary { padding: 0.55rem 0.9rem; cursor: pointer; font-size: 0.82rem; font-weight: 600; color: var(--kcpc-accent); }
+.drive-relink-form { padding: 0 0.9rem 0.9rem; }
+
 /* Main:sidebar ratio ~73%/27% (close to the reference's wider sidebar column while staying within
    the 74-76%/24-26% range), sidebar top-aligned with main's tab row via align-items:flex-start so
    Action Center's card top lines up with the Overview tabs, not the summary strip above them. */
@@ -1941,6 +1991,15 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .correction-history-entry { padding: 0.6rem 0; border-bottom: 1px solid var(--kcpc-border); font-size: 0.85rem; }
 .correction-history-entry:last-child { border-bottom: none; }
 .correction-history-entry p { margin: 0.15rem 0; }
+
+/* Reopen-for-Publishing / repost cycle indicator - a compact badge (never a relabel of the
+   original ORIGINAL records), shown next to Assign Publisher, the checklist heading, and the
+   Publisher's own status pill whenever PublishingService#currentPublishingCycleStart is non-null. */
+.repost-cycle-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    color: #9a3412; background: #ffedd5; padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap;
+    margin-left: 0.5rem; vertical-align: middle;
+}
 .content-detail-timeline-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .content-detail-timeline-item {
     display: flex; align-items: flex-start; gap: 0.75rem;
@@ -1973,6 +2032,7 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 
 .content-detail-current-stage { font-size: 0.85rem; color: #6b7280; margin: 0.2rem 0 0.65rem; }
 .content-detail-action-center h4 { font-size: 0.74rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.75rem 0 0.45rem; }
+.content-detail-action-helper { font-size: 0.78rem; color: #9ca3af; margin: -0.25rem 0 0.5rem; }
 .content-detail-action-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 /* Both Primary Actions and Other Actions are clean 2-column grids in the reference (Approve/Reject
    side by side, then Hold/Resume, Reschedule/Reassign, Cancel/Reopen) - every button in either
@@ -2498,6 +2558,14 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .reports-filter-submit svg { width: 14px; height: 14px; }
 .reports-filter-note { flex-basis: 100%; margin: 0.4rem 0 0; font-size: 0.78rem; }
 
+/* KPI Dashboard's date range is the form's only field - a compact single-line toolbar instead of
+   the label-above-input column layout other (multi-field) .reports-filters forms use. Scoped to
+   .kpi-date-toolbar only, so Delayed Deliverables/Admin Actions/Audit History filter bars are
+   unaffected. */
+.kpi-date-toolbar { padding: 0.55rem 0.9rem; align-items: center; }
+.kpi-date-toolbar .kpi-date-field { flex-direction: row; align-items: center; gap: 0.55rem; }
+.kpi-date-toolbar .kpi-date-field label { margin: 0; white-space: nowrap; }
+
 .reports-kpi-group { padding: 1.1rem 1.3rem; }
 .reports-kpi-group-title { margin: 0 0 0.9rem; font-size: 1rem; font-weight: 700; }
 .kpi-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
@@ -2510,6 +2578,124 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .kpi-breakdown-more { margin-top: 0.4rem; font-size: 0.78rem; }
 .kpi-breakdown-more summary { cursor: pointer; color: #1d4ed8; font-weight: 600; }
 .kpi-breakdown-more .kpi-breakdown { border-top: none; padding-top: 0.4rem; }
+
+/* KPI Dashboard (Overview/Workflow & SLA/Content & Publishing/Quality & Reviews/Performance) */
+.kpi-cards.kpi-cards-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) {
+    .kpi-cards.kpi-cards-4 { grid-template-columns: repeat(2, 1fr); }
+}
+.kpi-view-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.kpi-view-tab {
+    padding: 0.5rem 0.95rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem;
+    color: #6b7280; text-decoration: none; background: var(--kcpc-surface); border: 1px solid var(--kcpc-border);
+}
+.kpi-view-tab.active { color: #fff; background: var(--kcpc-accent); border-color: var(--kcpc-accent); }
+.kpi-view-tab:hover:not(.active) { color: var(--kcpc-ink); border-color: #9ca3af; }
+
+.kpi-overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 1100px) {
+    .kpi-overview-grid { grid-template-columns: 1fr; }
+}
+.kpi-overview-grid .panel { padding: 1.1rem 1.3rem; }
+.kpi-overview-grid.kpi-overview-grid-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 700px) {
+    .kpi-overview-grid.kpi-overview-grid-2 { grid-template-columns: 1fr; }
+}
+
+.kpi-attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.kpi-attention-list li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.kpi-attention-icon { color: #ea580c; }
+.kpi-attention-text { flex: 1; }
+.kpi-attention-link { color: var(--kcpc-accent); font-weight: 700; text-decoration: none; }
+
+.kpi-funnel { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+.kpi-funnel-stage {
+    width: 100%; text-align: center; padding: 0.6rem 0.8rem; border-radius: 8px;
+    background: #eff6ff; display: flex; flex-direction: column;
+}
+.kpi-funnel-stage.kpi-funnel-approved { background: #f0fdf4; }
+.kpi-funnel-stage.kpi-funnel-planned { background: #faf5ff; }
+.kpi-funnel-stage.kpi-funnel-published { background: #fff7ed; }
+.kpi-funnel-count { font-size: 1.2rem; font-weight: 800; color: var(--kcpc-ink); }
+.kpi-funnel-label { font-size: 0.76rem; color: #6b7280; }
+.kpi-funnel-arrow { color: #9ca3af; font-size: 0.9rem; }
+.kpi-funnel-branch { display: flex; gap: 1.2rem; font-size: 0.78rem; color: #6b7280; margin: 0.1rem 0; }
+.kpi-funnel-branch-item strong { color: var(--kcpc-ink); margin-left: 0.25rem; }
+.kpi-funnel-note { margin-top: 0.6rem; font-size: 0.78rem; }
+
+.kpi-metric-row { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid var(--kcpc-border); font-size: 0.85rem; }
+.kpi-metric-row:last-of-type { border-bottom: none; }
+.kpi-footnote { margin-top: 0.6rem; font-size: 0.76rem; }
+.kpi-view-link { margin-top: 0.6rem; }
+.kpi-view-link a { color: var(--kcpc-accent); font-weight: 700; text-decoration: none; }
+.kpi-dashboard-footnote { margin-top: 1rem; }
+
+/* ================================================================== KPI Dashboard charts
+   (visual analytics phase). Every value drawn here is rendered server-side in JSTL/EL directly
+   from the same approved DTO fields already shown as text elsewhere on the page - no chart
+   library, no client-side calculation. Bar widths are simple proportional scaling (value/total or
+   value/max) of numbers already displayed as exact text alongside the bar, never a substitute for
+   the real number. Semantic colors are restrained and reuse the existing kpi-card/stage-dot
+   palette (see .kpi-card.kpi-completed/.kpi-delayed/.stage-dot-* above) - never a rainbow. */
+
+.kpi-chart-empty-note { font-size: 0.82rem; color: #9ca3af; font-style: italic; padding: 0.5rem 0; }
+
+/* Horizontal bar chart: one row per category - label | proportional track+fill | exact value.
+   Reused for the Funnel, Within SLA % by Stage, Rework Rate by Stage, Platform/Channel
+   Distribution, CTR rankings, and the ORIGINAL vs REPOST comparison charts. */
+.kpi-hbar-chart { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.6rem 0; }
+.kpi-hbar-row { display: grid; grid-template-columns: minmax(90px, 130px) 1fr auto; align-items: center; gap: 0.6rem; }
+.kpi-hbar-row.kpi-hbar-row-branch { grid-template-columns: minmax(70px, 100px) 1fr auto; margin-left: 1.2rem; }
+.kpi-hbar-label { font-size: 0.8rem; font-weight: 600; color: var(--kcpc-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-hbar-track { position: relative; height: 0.95rem; background: #eef0f3; border-radius: 999px; overflow: hidden; }
+.kpi-hbar-track.kpi-hbar-track-thin { height: 0.6rem; }
+.kpi-hbar-fill { height: 100%; border-radius: 999px; min-width: 2px; }
+.kpi-hbar-value { font-size: 0.78rem; font-weight: 700; color: var(--kcpc-ink); white-space: nowrap; text-align: right; }
+.kpi-hbar-value .kpi-hbar-sub { font-size: 0.68rem; color: #6b7280; font-weight: 500; margin-left: 0.3rem; }
+
+.kpi-hbar-fill-positive { background: #047857; }
+.kpi-hbar-fill-warning { background: #c2410c; }
+.kpi-hbar-fill-danger { background: #b91c1c; }
+.kpi-hbar-fill-neutral { background: #1d4ed8; }
+.kpi-hbar-fill-neutral-2 { background: #6d28d9; }
+.kpi-hbar-fill-original { background: #1d4ed8; }
+.kpi-hbar-fill-repost { background: #a855f7; }
+.kpi-hbar-fill-retained { background: #d97706; }
+.kpi-hbar-fill-rejected { background: #b91c1c; }
+
+/* Donut chart: fixed-size SVG ring + legend list. Reused for Planned Output Mix and Target
+   Completion. Segment colors cycle through a small restrained qualitative palette (never a rainbow). */
+.kpi-donut-wrap { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; }
+.kpi-donut-svg { flex: none; }
+.kpi-donut-center-value { font-size: 15px; font-weight: 700; fill: var(--kcpc-ink); }
+.kpi-donut-center-label { font-size: 8px; fill: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.kpi-donut-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; flex: 1 1 170px; min-width: 160px; }
+.kpi-donut-legend li { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: var(--kcpc-ink); }
+.kpi-donut-legend li.kpi-donut-legend-na { color: #6b7280; }
+.kpi-donut-swatch { width: 0.65rem; height: 0.65rem; border-radius: 3px; flex: none; }
+.kpi-donut-legend-count { margin-left: auto; font-weight: 700; }
+.kpi-donut-legend-pct { color: #6b7280; font-size: 0.72rem; min-width: 3.2rem; text-align: right; }
+
+.kpi-donut-color-0, .kpi-donut-color-positive { stroke: #047857; background: #047857; }
+.kpi-donut-color-1 { stroke: #1d4ed8; background: #1d4ed8; }
+.kpi-donut-color-2 { stroke: #6d28d9; background: #6d28d9; }
+.kpi-donut-color-3 { stroke: #c2410c; background: #c2410c; }
+.kpi-donut-color-4 { stroke: #0f766e; background: #0f766e; }
+.kpi-donut-color-5 { stroke: #be185d; background: #be185d; }
+.kpi-donut-color-track { stroke: #eef0f3; background: #eef0f3; }
+.kpi-donut-color-na { stroke: #9ca3af; background: #9ca3af; }
+
+/* Segmented single-row bar - a whole-bar split into proportional colored segments in place, used
+   for Delay Aging and the ORIGINAL/REPOST proportion bar. */
+.kpi-segbar { display: flex; height: 1.7rem; border-radius: 6px; overflow: hidden; background: #eef0f3; }
+.kpi-segbar-segment { display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: #fff; overflow: hidden; white-space: nowrap; }
+.kpi-segbar-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 0.55rem; font-size: 0.76rem; color: var(--kcpc-ink); }
+.kpi-segbar-legend-item { display: flex; align-items: center; gap: 0.35rem; }
+
+@media (max-width: 700px) {
+    .kpi-hbar-row { grid-template-columns: 90px 1fr auto; }
+    .kpi-donut-wrap { flex-direction: column; align-items: flex-start; }
+}
 
 .reports-table-panel { padding: 1rem 1.2rem; }
 .reports-table-scroll { overflow-x: auto; }
@@ -2695,23 +2881,186 @@ button.btn-outline-success:hover { background: #f0fdf4; }
 @media (max-width: 700px) {
     .catalogue-master-row { grid-template-columns: 1fr; }
 }
-/* Permissions / User Detail three-column workspace (User Detail | Current Granted Permissions |
-   Grant Permission) and the small circular initials avatar used in User Detail. */
-.admin-userdetail-grid { display: grid; grid-template-columns: 1fr 1.4fr 1.1fr; gap: 1.25rem; align-items: start; }
-@media (max-width: 1200px) {
-    .admin-userdetail-grid { grid-template-columns: 1fr; }
+/* User Detail (permission-admin-ui layout revision): User Information + Permission Summary sit
+   side by side on top (roughly 2:1, ~65-70% / 30-35%) as compact header-context cards; the unified
+   Permission Management table is a full-width panel below, so its 9 columns get the whole page
+   width instead of being squeezed into a narrow right column. Both top cards stack single-file
+   below 1100px, matching every other admin workspace's breakpoint in this file. */
+.admin-userdetail-top { display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; align-items: start; margin-bottom: 1.25rem; }
+@media (max-width: 1100px) {
+    .admin-userdetail-top { grid-template-columns: 1fr; }
 }
+.panel-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem; border-radius: 7px; font-size: 0.85rem; vertical-align: middle;
+    margin-right: 0.15rem;
+}
+.panel-icon.panel-icon-blue { background: #eef2ff; color: #3730a3; }
 .admin-avatar {
     display: inline-flex; align-items: center; justify-content: center;
     width: 2.5rem; height: 2.5rem; border-radius: 999px;
     background: #eef2ff; color: #3730a3; font-weight: 700; font-size: 0.9rem;
 }
-.admin-userdetail-identity { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.admin-userdetail-identity { display: flex; align-items: center; gap: 0.75rem; margin: 1rem 0; }
 .admin-userdetail-identity .admin-userdetail-name { font-weight: 700; }
 .admin-userdetail-identity .admin-userdetail-email { color: #6b7280; font-size: 0.82rem; }
-.admin-userdetail-field { display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 0.9rem; }
-.admin-userdetail-field .admin-userdetail-field-label { font-size: 0.78rem; color: #6b7280; font-weight: 600; }
-.admin-userdetail-field .admin-userdetail-field-value { font-size: 0.88rem; }
+
+/* Business Role / Access Class / Account Status / Account Created as a single divided row, not
+   stacked vertical fields - matches the wider card's available horizontal space. */
+.admin-userinfo-fields {
+    display: flex; flex-wrap: wrap; gap: 1.75rem; padding: 0.9rem 0;
+    border-top: 1px solid var(--kcpc-border); border-bottom: 1px solid var(--kcpc-border);
+}
+.admin-userinfo-fields .admin-userdetail-field-label { font-size: 0.78rem; color: #6b7280; font-weight: 600; margin-bottom: 0.2rem; }
+.admin-userinfo-fields .admin-userdetail-field-value { font-size: 0.88rem; font-weight: 600; }
+
+/* Deactivate/Activate + Change Business Role action links - plain icon+text summaries, side by
+   side, that expand in place (native <details>) to reveal the reason field. */
+.admin-userdetail-actions { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 1rem; }
+.admin-action-summary {
+    cursor: pointer; font-weight: 600; font-size: 0.85rem; list-style: none;
+    display: flex; align-items: center; gap: 0.45rem;
+}
+.admin-action-summary::-webkit-details-marker { display: none; }
+.admin-action-summary::marker { content: ""; }
+.admin-action-danger { color: #b91c1c; }
+.admin-action-success { color: #166534; }
+.admin-action-warn { color: #c2410c; }
+
+.info-icon { color: #9ca3af; font-size: 0.8rem; cursor: help; margin-left: 0.2rem; }
+
+/* Permission Summary card - 4 stat tiles (icon over count over label) laid out in a row, dynamically
+   derived (never hardcoded) from the same rows rendered in the table below (permission-admin-ui spec §14). */
+.perm-summary-stats { display: flex; justify-content: space-between; gap: 0.5rem; margin: 1rem 0; }
+.perm-summary-stat { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; flex: 1; text-align: center; }
+.perm-summary-icon {
+    width: 2.3rem; height: 2.3rem; border-radius: 8px; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 1rem; flex: none;
+}
+.perm-summary-icon.perm-icon-total { background: #eef2ff; color: #3730a3; }
+.perm-summary-icon.perm-icon-granted { background: #dcfce7; color: #166534; }
+.perm-summary-icon.perm-icon-restricted { background: #ffedd5; color: #c2410c; }
+.perm-summary-icon.perm-icon-notgranted { background: #fee2e2; color: #b91c1c; }
+.perm-summary-count { font-weight: 700; font-size: 1.4rem; color: var(--kcpc-ink); }
+.perm-summary-label { color: #6b7280; font-size: 0.76rem; }
+.perm-summary-note { font-size: 0.76rem; color: #9ca3af; margin: 0.7rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--kcpc-border); }
+
+/* Unified Permission Management table (permission-admin-ui final redesign) - one table replaces
+   the old separate Grant-checklist / Current-Granted-Permissions tables, Modify flow, "+ Grant
+   More", and advanced custom-scope form entirely. */
+.perm-checklist-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.perm-checklist-lead { color: #6b7280; font-size: 0.85rem; margin: 0.2rem 0 0; max-width: 640px; }
+.perm-checklist-toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.perm-checklist-search { position: relative; }
+.perm-checklist-search input {
+    width: 240px; max-width: 100%; height: 2.3rem; padding: 0 0.7rem 0 2.1rem;
+    border: 1px solid var(--kcpc-border); border-radius: 7px; font-size: 0.85rem;
+}
+.perm-checklist-search .admin-search-icon { color: #9ca3af; }
+/* Checkbox + label rendered as one compact bordered control, height-matched to the search input so
+   the two line up cleanly on the same row instead of the bare checkbox+text floating unaligned. */
+.perm-checklist-filter {
+    display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--kcpc-ink);
+    white-space: nowrap; height: 2.3rem; padding: 0 0.75rem; border: 1px solid var(--kcpc-border);
+    border-radius: 7px; background: var(--kcpc-surface); flex: none;
+}
+.perm-checklist-filter input[type="checkbox"] { margin: 0; width: 1rem; height: 1rem; cursor: pointer; accent-color: var(--kcpc-accent); flex: none; }
+.perm-checklist-empty { padding: 1rem 0; color: #9ca3af; font-size: 0.85rem; text-align: center; }
+
+.perm-mgmt-table th, .perm-mgmt-table td { vertical-align: middle; white-space: nowrap; }
+.perm-mgmt-table { min-width: 920px; } /* forces the .reports-table-scroll wrapper to scroll rather than the page */
+.perm-name-cell { white-space: normal; }
+/* #permChecklistPanel prefix is required specificity to beat the generic ".panel button" rule
+   (filled coral background + margin-top:1rem) that otherwise turns every <button> in this panel -
+   the name link, Update, Manage(N) - into an unreadable filled pill with clipped/invisible text. */
+#permChecklistPanel .perm-name-link {
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+    color: var(--kcpc-ink); font-weight: 700; font-size: 0.85rem; text-align: left; text-decoration: none;
+}
+#permChecklistPanel .perm-name-link:hover { color: #1d4ed8; text-decoration: underline; }
+.perm-code-muted { color: #9ca3af; font-size: 0.7rem; font-family: monospace; margin-top: 0.1rem; }
+
+.perm-checkbox { width: 1.15rem; height: 1.15rem; cursor: pointer; accent-color: var(--kcpc-accent); }
+.perm-checkbox:disabled { cursor: default; accent-color: #166534; opacity: 1; }
+.perm-checkbox.perm-checkbox-multi:disabled { accent-color: #1d4ed8; }
+
+.perm-inline-select, .perm-inline-input {
+    height: 2rem; padding: 0 0.5rem; border: 1px solid var(--kcpc-border); border-radius: 6px;
+    font-size: 0.8rem; background: var(--kcpc-surface); color: var(--kcpc-ink); width: 9.5rem;
+}
+.perm-inline-select.perm-scope-select { width: 11.5rem; } /* must fit "Stage Restricted" without clipping */
+.perm-inline-input.perm-reason-input { width: 8rem; }
+.perm-inline-input.perm-expiry-input { width: 9rem; }
+.perm-inline-select.perm-stage-select[multiple] { height: auto; padding: 0.2rem; width: 11.5rem; }
+.perm-inline-input.perm-item-input { width: 8.5rem; }
+.perm-inline-select:disabled, .perm-inline-input:disabled { background: #f4f5f7; color: #9ca3af; cursor: not-allowed; }
+.perm-dash { color: #9ca3af; }
+
+/* Fixed width so the button occupies identical space in every row (granted/not-granted, wrapped
+   in a <form> or bare) regardless of disabled state or the transient "Updated" flash beside it. */
+#permChecklistPanel .perm-update-form { display: inline-block; margin: 0; vertical-align: middle; }
+#permChecklistPanel .perm-update-btn {
+    margin: 0; width: 5.5rem; height: 2rem; padding: 0 0.5rem; border-radius: 6px; border: 1px solid var(--kcpc-border);
+    background: var(--kcpc-surface); color: var(--kcpc-ink); font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    text-align: center; vertical-align: middle;
+}
+#permChecklistPanel .perm-update-btn:disabled { color: #9ca3af; cursor: not-allowed; background: #f4f5f7; }
+#permChecklistPanel .perm-update-btn:not(:disabled) { border-color: var(--kcpc-accent); color: var(--kcpc-accent); background: var(--kcpc-surface); }
+.perm-update-saved { color: #166534; font-size: 0.76rem; font-weight: 600; margin-left: 0.4rem; }
+#permChecklistPanel .perm-expand-btn {
+    margin: 0 0 0 0.4rem; height: 2rem; padding: 0 0.6rem; border-radius: 6px; border: 1px solid var(--kcpc-border);
+    background: var(--kcpc-surface); color: #1d4ed8; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+
+.perm-status-badge {
+    display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px;
+    font-size: 0.76rem; font-weight: 700; white-space: nowrap;
+}
+.perm-status-badge.perm-status-global { background: #dcfce7; color: #166534; }
+.perm-status-badge.perm-status-restricted { background: #ffedd5; color: #c2410c; }
+.perm-status-badge.perm-status-none { background: #f3f4f6; color: #6b7280; }
+.perm-status-badge.perm-status-multi { background: #dbeafe; color: #1d4ed8; }
+
+/* Multi-active-grant sub-row (permission-admin-ui: never merge/hide/collapse simultaneous active
+   grants into one editable row) - a compact nested table, individually revocable per grant. */
+.perm-multi-subrow > td { padding-top: 0; padding-bottom: 0.9rem; background: #f9fafb; }
+.perm-multi-detail-table { width: 100%; margin-top: 0.4rem; border: 1px solid var(--kcpc-border); border-radius: 8px; overflow: hidden; }
+.perm-multi-detail-table th, .perm-multi-detail-table td { padding: 0.45rem 0.65rem; font-size: 0.78rem; }
+.perm-multi-detail-table thead { background: #f4f5f7; }
+.perm-multi-note { font-size: 0.76rem; color: #6b7280; margin: 0.4rem 0 0; }
+
+/* Permission detail drawer - native <dialog>, no JS modal library needed. */
+#permDetailDialog {
+    position: relative; border: none; border-radius: 12px; padding: 0; width: min(480px, 92vw);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
+#permDetailDialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+.perm-detail-body { padding: 1.4rem 1.5rem; }
+.perm-detail-name { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.perm-detail-code { font-family: monospace; color: #9ca3af; font-size: 0.78rem; margin: 0.2rem 0 1rem; }
+.perm-detail-section-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #6b7280; margin: 1rem 0 0.4rem; }
+.perm-detail-section-title:first-of-type { margin-top: 0; }
+.perm-detail-text { font-size: 0.86rem; color: var(--kcpc-ink); line-height: 1.5; margin: 0; }
+.perm-detail-close { position: absolute; top: 0.9rem; right: 1rem; background: none; border: none; font-size: 1.1rem; color: #9ca3af; cursor: pointer; }
+
+/* Footer under the unified table - just a live row count (search/granted-only filter updates it in
+   JS). No pagination: the permission catalogue (19 rows today) always renders in full on one page;
+   pagination only earns its keep once the catalogue grows past what search/filter can't handle. */
+.perm-mgmt-footer {
+    margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--kcpc-border);
+    font-size: 0.8rem; color: #6b7280;
+}
+
+@media (max-width: 700px) {
+    .perm-checklist-search input { width: 100%; }
+    .perm-checklist-toolbar { width: 100%; }
+}
+
+#permChecklistToast.ajax-error {
+    position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 1000;
+    background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+    padding: 0.6rem 0.9rem; box-shadow: 0 4px 14px rgba(0,0,0,0.12); margin-top: 0;
+}
 
 /* Publishing Catalogue platform icon reused verbatim from the Pipeline dashboard's own local
    full-color SVG set (static/icons/platforms/) - same <img> markup, no new asset pipeline. */

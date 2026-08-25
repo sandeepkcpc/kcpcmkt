@@ -300,7 +300,13 @@ public class PerformanceService {
         boolean allCompleted = !obligations.isEmpty() && obligations.stream().allMatch(PerformanceObligation::isCompleted);
         if (allCompleted) {
             workflowService.transition(workflowInstance, WorkflowStatus.COMP, actor, actingGrant, "COMPLETE_DELIVERABLE", null);
-            workflowInstance.markFirstCompleted(Instant.now());
+            // ERD-CON-005: first_completed_at is a one-time "was this deliverable EVER completed"
+            // marker, immutable once set - never re-stamped on a later completion (e.g. the repost
+            // cycle's own COMP after Reopen for Publishing). Latent bug surfaced by the reopen/
+            // multi-cycle repost fix: this is the first path that legitimately re-reaches COMP.
+            if (!workflowInstance.everCompleted()) {
+                workflowInstance.markFirstCompleted(Instant.now());
+            }
             auditService.record(actor, actingGrant, "PERFORMANCE", "DELIVERABLE_COMPLETED", "content_plans",
                     plan.getId(), null);
         }

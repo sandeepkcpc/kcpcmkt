@@ -121,6 +121,25 @@
             <version>5.3.0</version>
         </dependency>
 
+        <!-- Google Drive folder provisioning (per-Content-ID folder structure). Disabled at
+             runtime unless app.drive.enabled=true with real service-account credentials
+             configured - see DriveProperties/DriveClientConfig. -->
+        <dependency>
+            <groupId>com.google.api-client</groupId>
+            <artifactId>google-api-client</artifactId>
+            <version>2.7.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-drive</artifactId>
+            <version>v3-rev20240914-2.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.auth</groupId>
+            <artifactId>google-auth-library-oauth2-http</artifactId>
+            <version>1.23.0</version>
+        </dependency>
+
         <!-- Boilerplate reduction (compile-time only) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -160,6 +179,18 @@
                          serve live from src/main/webapp via Tomcat/Jasper's own dev-mode
                          recompilation, unaffected by this setting either way. -->
                     <addResources>true</addResources>
+                </configuration>
+            </plugin>
+            <!-- Mockito's inline mock maker (used by GoogleDriveFolderClientTest to mock the
+                 Google API client's concrete Drive/Files/Create/List classes) needs Byte Buddy's
+                 experimental-JDK flag to instrument classes under a JDK newer than Byte Buddy's
+                 latest officially-supported release (currently true for this JDK) - harmless for
+                 every other test, which does no such deep-class mocking. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
         </plugins>

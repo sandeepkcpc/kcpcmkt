@@ -4,19 +4,30 @@
      plus whichever tab-specific attributes that tab's builder method populated before including
      this file. Tab bar lives here (not in reviews.jsp) so its counts/active state refresh on every
      AJAX swap, including right after a decision changes a pending count. --%>
+<%-- Spec §16.3: each tab only renders for a viewer authorized for that specific review permission
+     (CEO/MM always see all four via native authority) - an EMPLOYEE holding only PERM_05, say,
+     never sees Planning/Ideas/Edit tabs here. --%>
 <div class="reviews-tabs">
-    <a class="reviews-tab ${activeTab == 'ideas' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=ideas" data-tab="ideas">
-        Ideas <span class="count-badge">${ideasPendingCount}</span>
-    </a>
-    <a class="reviews-tab ${activeTab == 'planning' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=planning" data-tab="planning">
-        Planning <span class="count-badge">${planningPendingCount}</span>
-    </a>
-    <a class="reviews-tab ${activeTab == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=shoot" data-tab="shoot">
-        Shoot <span class="count-badge">${shootPendingCount}</span>
-    </a>
-    <a class="reviews-tab ${activeTab == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=edit" data-tab="edit">
-        Edit <span class="count-badge">${editPendingCount}</span>
-    </a>
+    <c:if test="${canViewIdeasTab}">
+        <a class="reviews-tab ${activeTab == 'ideas' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=ideas" data-tab="ideas">
+            Ideas <span class="count-badge">${ideasPendingCount}</span>
+        </a>
+    </c:if>
+    <c:if test="${canViewPlanningTab}">
+        <a class="reviews-tab ${activeTab == 'planning' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=planning" data-tab="planning">
+            Planning <span class="count-badge">${planningPendingCount}</span>
+        </a>
+    </c:if>
+    <c:if test="${canViewShootTab}">
+        <a class="reviews-tab ${activeTab == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=shoot" data-tab="shoot">
+            Shoot <span class="count-badge">${shootPendingCount}</span>
+        </a>
+    </c:if>
+    <c:if test="${canViewEditTab}">
+        <a class="reviews-tab ${activeTab == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=edit" data-tab="edit">
+            Edit <span class="count-badge">${editPendingCount}</span>
+        </a>
+    </c:if>
 </div>
 
 <%-- ENG: single CSRF token source for every AJAX decision POST reviews-workspace.js issues (all

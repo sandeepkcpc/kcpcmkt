@@ -4,12 +4,14 @@ import com.kcpc.mkt.audit.service.AuditService;
 import com.kcpc.mkt.common.error.DomainException;
 import com.kcpc.mkt.common.error.ErrorCode;
 import com.kcpc.mkt.common.util.UuidV7;
+import com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
@@ -66,9 +68,11 @@ public class PlanningService {
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
     private final AuditService auditService;
     private final UserRepository userRepository;
     private final ActualPublicationEventRepository actualPublicationEventRepository;
+    private final ContentDriveProvisioningRepository driveProvisioningRepository;
 
     public PlanningService(ContentPlanRepository contentPlanRepository,
                             ContentPlanTalentEntryRepository talentEntryRepository,
@@ -79,8 +83,10 @@ public class PlanningService {
                             ShootingAssignmentRepository shootingAssignmentRepository,
                             ReviewCycleRepository reviewCycleRepository,
                             WorkflowTransitionService workflowService, AuthorizationService authorizationService,
+                            OperationalEligibilityService operationalEligibilityService,
                             AuditService auditService, UserRepository userRepository,
-                            ActualPublicationEventRepository actualPublicationEventRepository) {
+                            ActualPublicationEventRepository actualPublicationEventRepository,
+                            ContentDriveProvisioningRepository driveProvisioningRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -91,9 +97,11 @@ public class PlanningService {
         this.reviewCycleRepository = reviewCycleRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
         this.auditService = auditService;
         this.userRepository = userRepository;
         this.actualPublicationEventRepository = actualPublicationEventRepository;
+        this.driveProvisioningRepository = driveProvisioningRepository;
     }
 
     private ContentPlan requireContentPlan(UUID contentPlanId) {
@@ -126,7 +134,18 @@ public class PlanningService {
         plan.setCategoryText(categoryText);
         plan.setContentPriority(priority);
         plan.setSku(skuReference, skuNotApplicable);
-        plan.setFolderLink(folderLink);
+        // Once structured Drive provisioning has a known root folder, folder_link becomes a
+        // derived/compatibility mirror of that root (DriveProvisioningService keeps it synced) -
+        // an ordinary Planning edit must never silently diverge it from the canonical structured
+        // record. Only the PERM_13 admin relink action may change the root folder mapping (it
+        // updates the structured record first, then resyncs this field). Legacy content with no
+        // structured provisioning record at all is completely unaffected - folder_link there stays
+        // exactly as free-text-editable as it always was.
+        boolean structuredRootKnown = driveProvisioningRepository.findByContentPlan(plan)
+                .map(p -> p.getRootFolderId() != null).orElse(false);
+        if (!structuredRootKnown) {
+            plan.setFolderLink(folderLink);
+        }
         plan.setPreparedBy(user);
 
         talentEntryRepository.deleteByContentPlan(plan);
@@ -417,6 +436,11 @@ public class PlanningService {
         }
         authorizationService.requireAuthority(assigner, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, plan.getWorkflowInstance());
+        // Assignee-side eligibility: evaluated against the SHOOTING stage being executed, not the
+        // PLANNING screen this assignment happens from (PERM_18 never needs to also cover
+        // PLANNING) - frontend candidate filtering is not authorization, so this is re-validated
+        // here regardless of what the picker offered.
+        operationalEligibilityService.requireShootExecutionEligible(cameraperson, plan.getWorkflowInstance());
         Optional<ShootingAssignment> existing =
                 shootingAssignmentRepository.findByContentPlanAndCamerapersonAndActiveTrue(plan, cameraperson);
         if (existing.isPresent()) {
@@ -503,32 +527,6 @@ public class PlanningService {
     }
 
     /**
-     * ENG-045: reconciles EVERY active Cameraperson assignment to exactly the submitted set -
-     * removes (ends) anyone previously active but no longer selected, in addition to adding anyone
-     * newly selected, then sets the Shoot Lead. Unlike {@link #assignShootTeam} (ENG-041,
-     * additive-only, used by the standalone chip-picker's own dedicated add/remove endpoints), this
-     * is what the combined "Submit for Planning Review" flow uses now that Planning has no separate
-     * remove action of its own - unchecking someone in the form IS how you remove them, and it only
-     * takes effect once the whole form is submitted (see {@link #savePlanAssignAndSubmit}).
-     */
-    @Transactional
-    public void reconcileShootTeam(User actor, UUID contentPlanId, List<User> camerapersons, UUID leadUserId) {
-        ContentPlan plan = requireContentPlan(contentPlanId);
-        List<ShootingAssignment> active = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
-        for (ShootingAssignment assignment : active) {
-            boolean stillSelected = camerapersons.stream()
-                    .anyMatch(u -> u.getId().equals(assignment.getCameraperson().getId()));
-            if (!stillSelected) {
-                removeCameraperson(actor, contentPlanId, assignment.getCameraperson().getId());
-            }
-        }
-        for (User cameraperson : camerapersons) {
-            assignCameraperson(actor, contentPlanId, cameraperson);
-        }
-        setShootLead(actor, contentPlanId, leadUserId);
-    }
-
-    /**
      * ENG-046: one Shoot Description shared by the whole Cameraperson team on this plan (not per
      * individual assignee), editable any time by whoever holds PERM_04_SHOOT_ASSIGNMENT (the same
      * authority that governs Shoot Assignment itself) - not restricted to a particular workflow
@@ -591,6 +589,17 @@ public class PlanningService {
                     "Planning parameters are incomplete: Content Priority, Planned Live/Shoot/Edit Dates and "
                             + "Drive Link are all mandatory before Planning Review submission (ERD-CON-026)");
         }
+        // Shoot Assignment now lives exclusively in the Shoot tab (its own dedicated, immediately-
+        // effective endpoints - see assignShootTeam/removeCameraperson/setShootLead) and Planning
+        // submission never creates/removes/overwrites it. This is the fail-fast half of that split:
+        // validate the already-persisted Shoot setup is complete before allowing submission, rather
+        // than letting an unassigned plan reach Planning Review and only fail later at approval
+        // (decidePlanningReview already has the same "at least one Cameraperson" check for defense
+        // in depth once a plan is already under review).
+        if (shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).isEmpty()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "At least one Cameraperson must be assigned in the Shoot tab before Planning Review can be submitted");
+        }
         int cycleNumber = nextCycleNumber(workflowInstance, GateType.PLANNING_REVIEW);
         ReviewCycle cycle = reviewCycleRepository.save(
                 new ReviewCycle(workflowInstance, GateType.PLANNING_REVIEW, cycleNumber, submitter));
@@ -602,41 +611,25 @@ public class PlanningService {
     }
 
     /**
-     * ENG-045: the single "Submit for Planning Review" click also creates/updates/removes Shoot
-     * Assignment now - Planning Details save, Cameraperson(s) reconciliation, Shoot Lead, and the
-     * Planning Review submission itself all happen in ONE transaction. Composed by calling
-     * {@link #savePlan}, {@link #reconcileShootTeam} and {@link #submitPlanningReview} directly
-     * (self-invocation on the same bean bypasses their own {@code @Transactional} proxies, exactly
-     * like {@code assignShootTeam} already does for its own two steps) so if any step fails -
-     * including the submit-readiness check - NOTHING is saved, not even the Planning Details fields.
-     * This replaces the previous two-transaction design, where a submit-readiness failure still left
-     * the save in place ("Plan saved, but not submitted") - the user explicitly asked for full
-     * atomicity instead ("Agar assignment save fail ho, to planning review submit bhi nahi hona
-     * chahiye... sab ek hi transaction me hona chahiye"). ENG-047: Shoot Instructions (the
-     * per-stage shared Description, ENG-046) now also enters here alongside Cameraperson(s)/Shoot
-     * Lead, since the user explicitly asked for it to be set at the same time as the initial
-     * assignment - it remains separately editable later too (see {@link #updateShootDescription}),
-     * this is just an additional entry point writing the same field.
+     * ENG-045 superseded (permission-driven workflow: Shoot Assignment moved to be exclusively
+     * managed from the Shoot tab, via its own dedicated, immediately-effective endpoints -
+     * assignShootTeam/removeCameraperson/setShootLead - so a PERM_04-only delegated employee has a
+     * working entry point, not just a canPlanningExecute+PERM_04 combination). Planning submission
+     * therefore no longer creates, updates, or removes Shoot Assignment from Planning-form request
+     * data - it only saves Planning Details and submits for review; {@link #submitPlanningReview}
+     * validates the already-persisted Shoot setup is complete and rejects submission otherwise. If
+     * Planning Details save fails, nothing is submitted (same atomicity as before for that part);
+     * Shoot Assignment itself is no longer part of this transaction at all, since it is already
+     * durably saved (or not) independently the moment it was made in the Shoot tab.
      */
     @Transactional
     public ReviewCycle savePlanAssignAndSubmit(User submitter, UUID contentPlanId, String categoryText,
                                                 ContentPriority priority, String skuReference, boolean skuNotApplicable,
                                                 List<TalentSelection> talentSelections, String folderLink,
                                                 PlanningMode planningMode, LocalDate plannedLiveDate,
-                                                LocalDate shootDate, LocalDate editDate,
-                                                String urgencyReason, List<User> camerapersons, UUID leadUserId,
-                                                boolean touchShootAssignment, String shootDescription) {
+                                                LocalDate shootDate, LocalDate editDate, String urgencyReason) {
         savePlan(submitter, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentSelections,
                 folderLink, planningMode, plannedLiveDate, shootDate, editDate, urgencyReason);
-        // touchShootAssignment is false when the submitter lacks PERM_04 (the Cameraperson(s)/Shoot
-        // Lead/Shoot Instructions fields never rendered for them) - reconcileShootTeam always calls
-        // setShootLead (and, with an empty list, would remove every existing Cameraperson) which
-        // would otherwise either wrongly wipe assignments or throw a PERM_04 authorization error
-        // for a PERM_02-only preparer who never touched Shoot Assignment at all.
-        if (touchShootAssignment) {
-            reconcileShootTeam(submitter, contentPlanId, camerapersons, leadUserId);
-            updateShootDescription(submitter, contentPlanId, shootDescription);
-        }
         return submitPlanningReview(submitter, contentPlanId);
     }
 

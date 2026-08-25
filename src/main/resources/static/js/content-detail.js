@@ -46,6 +46,17 @@
         });
     }
 
+    // --- Planning tab's "Go to Shoot Setup" (Shoot Assignment moved to the Shoot tab) --------
+    page.querySelectorAll('.content-detail-goto-shoot-tab').forEach(function (link) {
+        link.addEventListener('click', function (event) {
+            event.preventDefault();
+            var shootTab = page.querySelector('.my-work-tab[data-tab="shoot"]');
+            if (shootTab) {
+                shootTab.click();
+            }
+        });
+    });
+
     // --- Action Center ----------------------------------------------------------------------------
     var actionForms = page.querySelectorAll('.content-detail-action-form');
 

@@ -117,6 +117,7 @@ public class DeliverableMvcController {
     private final WorkHoldRecordRepository holdRecordRepository;
     private final UserRepository userRepository;
     private final AuthorizationService authorizationService;
+    private final com.kcpc.mkt.identity.service.OperationalEligibilityService operationalEligibilityService;
     private final ObjectMapper objectMapper;
 
     private final PlanningService planningService;
@@ -125,6 +126,9 @@ public class DeliverableMvcController {
     private final PublishingService publishingService;
     private final PerformanceService performanceService;
     private final AdminActionService adminActionService;
+    private final com.kcpc.mkt.workflow.service.AvailableActionService availableActionService;
+    private final com.kcpc.mkt.drive.service.DriveProvisioningService driveProvisioningService;
+    private final com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository driveProvisioningRepository;
     private final HoldService holdService;
     private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
 
@@ -148,11 +152,17 @@ public class DeliverableMvcController {
                                      ReviewCycleRepository reviewCycleRepository,
                                      WorkflowTransitionHistoryRepository transitionHistoryRepository,
                                      WorkHoldRecordRepository holdRecordRepository, UserRepository userRepository,
-                                     AuthorizationService authorizationService, ObjectMapper objectMapper,
+                                     AuthorizationService authorizationService,
+                                     com.kcpc.mkt.identity.service.OperationalEligibilityService operationalEligibilityService,
+                                     ObjectMapper objectMapper,
                                      PlanningService planningService,
                                      ShootingService shootingService, EditingService editingService,
                                      PublishingService publishingService, PerformanceService performanceService,
-                                     AdminActionService adminActionService, HoldService holdService,
+                                     AdminActionService adminActionService,
+                                     com.kcpc.mkt.workflow.service.AvailableActionService availableActionService,
+                                     com.kcpc.mkt.drive.service.DriveProvisioningService driveProvisioningService,
+                                     com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository driveProvisioningRepository,
+                                     HoldService holdService,
                                      com.kcpc.mkt.discussion.service.StageCommentService stageCommentService) {
         this.contentPlanRepository = contentPlanRepository;
         this.predefinedRoleMarksRepository = predefinedRoleMarksRepository;
@@ -176,6 +186,7 @@ public class DeliverableMvcController {
         this.holdRecordRepository = holdRecordRepository;
         this.userRepository = userRepository;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
         this.objectMapper = objectMapper;
         this.planningService = planningService;
         this.shootingService = shootingService;
@@ -183,6 +194,9 @@ public class DeliverableMvcController {
         this.publishingService = publishingService;
         this.performanceService = performanceService;
         this.adminActionService = adminActionService;
+        this.availableActionService = availableActionService;
+        this.driveProvisioningService = driveProvisioningService;
+        this.driveProvisioningRepository = driveProvisioningRepository;
         this.holdService = holdService;
         this.stageCommentService = stageCommentService;
     }
@@ -202,16 +216,34 @@ public class DeliverableMvcController {
 
     // ------------------------------------------------------------------ GET
 
+    private static final java.util.Set<String> CONTENT_DETAIL_TABS = java.util.Set.of(
+            "overview", "planning", "shoot", "edit", "publishing", "performance", "timeline");
+
     @GetMapping
-    public String view(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
+    public String view(@PathVariable UUID id, @RequestParam(required = false) String tab,
+                        @AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
                         jakarta.servlet.http.HttpServletRequest request) {
         ContentPlan plan = requirePlan(id);
         User user = principal.user();
         WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
         model.addAttribute("plan", plan);
         model.addAttribute("status", status);
+        // Action Center's "Current Stage" - the one canonical Status->Stage resolver (never a
+        // second, parallel mapping), so "Shoot Review" reads as "Shoot", not its raw status name.
+        model.addAttribute("currentStage",
+                com.kcpc.mkt.workflow.domain.ContentCanonicalStage.forStatus(status));
+        // Structured Drive provisioning (may be absent for legacy content created before this
+        // feature existed - plan.folderLink alone still works for those, untouched). Folder Link
+        // Management (PERM_13) governs manual retry/relink; never PERM_02 alone.
+        model.addAttribute("driveProvisioning", driveProvisioningRepository.findByContentPlan(plan).orElse(null));
+        model.addAttribute("canManageDriveFolders",
+                allowed(user, OperationalPermission.PERM_13_FOLDER_LINK_MANAGE, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("user", user);
         model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
+        // Lets a link (e.g. the My Work -> Assignment Management queue's "Set Up Shoot Team")
+        // land the viewer directly on a specific tab (?tab=shoot) instead of always Overview -
+        // purely which tab starts active, never a visibility/authorization decision.
+        model.addAttribute("activeTab", tab != null && CONTENT_DETAIL_TABS.contains(tab) ? tab : "overview");
 
         predefinedRoleMarksRepository.findByContentPlan(plan).ifPresent(m -> model.addAttribute("marks", m));
         List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
@@ -260,16 +292,27 @@ public class DeliverableMvcController {
                         e -> e.getValue().stream().anyMatch(m -> publishedMappingIds.contains(m.getId())))));
         model.addAttribute("outputNaRecords", outputs.stream().collect(
                 java.util.stream.Collectors.toMap(PlannedOutput::getId, naRecordRepository::findByPlannedOutput)));
-        model.addAttribute("publishingChecklist", buildPublishingChecklist(outputs));
+        // Repost cycle: non-null exactly when this deliverable has been Reopened for Publishing at
+        // least once, in which case we're either mid-repost or have completed one before (see
+        // PublishingService#currentPublishingCycleStart - the single source of truth also used to
+        // decide Publishing Scope resolution, so the checklist and the workflow auto-advance rule
+        // can never disagree about which cycle is active).
+        Instant publishingCycleStart = publishingService.currentPublishingCycleStart(plan.getWorkflowInstance());
+        boolean isRepostPublishingCycle = publishingCycleStart != null;
+        model.addAttribute("isRepostPublishingCycle", isRepostPublishingCycle);
+        model.addAttribute("publishingChecklist", buildPublishingChecklist(outputs, publishingCycleStart));
         model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
         model.addAttribute("modelUsers",
                 userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model"));
+        // Permission-driven candidate eligibility (PERM_18/19/08), not Business-Role name - see
+        // OperationalEligibilityService. Business Role is still shown alongside each candidate's
+        // name in the picker (organizational context only, never the eligibility rule).
         model.addAttribute("camerapersonUsers",
-                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Camera Person"));
+                operationalEligibilityService.shootExecutionCandidates(plan.getWorkflowInstance()));
         model.addAttribute("videoEditorUsers",
-                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Video Editor"));
+                operationalEligibilityService.editExecutionCandidates(plan.getWorkflowInstance()));
         model.addAttribute("publisherUsers",
-                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Publisher"));
+                operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance()));
         model.addAttribute("publishingAssignments", publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
         List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
         model.addAttribute("activePublicationTargets", activeTargets);
@@ -438,8 +481,11 @@ public class DeliverableMvcController {
         model.addAttribute("publishingComments", stageCommentService.listComments(id, LifecycleStage.PUBLISHING));
 
         model.addAttribute("stageContexts", StageContext.values());
-        model.addAttribute("taskStages", TaskStage.values());
-        model.addAttribute("eventTypes", PublicationEventType.values());
+        // Reassign's Task Stage dropdown only ever offers a stage actually eligible right now
+        // (AvailableActionService#eligibleReassignTaskStages) - never the unconditional full
+        // TaskStage.values() - so a visible option always means submitting it is expected to
+        // succeed, same contract as the Action Center's Reassign button itself.
+        model.addAttribute("taskStages", availableActionService.eligibleReassignTaskStages(plan));
 
         // ENG-064: a Camera Person viewing their own Shoot task gets a dedicated, redesigned,
         // read-mostly detail page instead of the full CEO/MM-oriented multi-stage shell - same
@@ -497,6 +543,67 @@ public class DeliverableMvcController {
         model.addAttribute("actualLiveDate", originalEventsForPlan.stream()
                 .map(ActualPublicationEvent::getActualPublicationTimestamp).min(Comparator.naturalOrder())
                 .map(ts -> LocalDate.ofInstant(ts, BUSINESS_ZONE)).orElse(null));
+
+        // Permission-scoped tab visibility: only the tabs actually relevant to this viewer's real
+        // authority/participation on THIS plan - never the full Overview..Timeline set for every
+        // viewer regardless of what they can do. The lifecycle stepper (always full, read-only
+        // orientation) is deliberately untouched by this - it never gates on any of these flags.
+        boolean canSeePlanningTab = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_02_PLANNING_EXECUTION, LifecycleStage.PLANNING, plan)
+                || allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan);
+        boolean canSeeShootTab = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan)
+                || allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan)
+                || allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, plan)
+                || allowed(user, OperationalPermission.PERM_18_SHOOT_EXECUTION, LifecycleStage.SHOOTING, plan)
+                || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                        .anyMatch(a -> a.getCameraperson().getId().equals(user.getId()));
+        boolean canSeeEditTab = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan)
+                || allowed(user, OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, plan)
+                || allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, plan)
+                || allowed(user, OperationalPermission.PERM_19_EDIT_EXECUTION, LifecycleStage.EDITING, plan)
+                || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                        .anyMatch(a -> a.getEditor().getId().equals(user.getId()));
+        boolean canSeePublishingTab = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan)
+                || publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                        .anyMatch(a -> a.getPublisher().getId().equals(user.getId()));
+        boolean canSeePerformanceTab = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_09_PERFORMANCE_UPDATE, LifecycleStage.PERFORMANCE, plan);
+        // Timeline is full workflow/audit history, not an operational-stage tab - gated by the
+        // audit-history permission (or native authority), same as the Audit/Logs module elsewhere,
+        // never implied just because the viewer can see some other stage tab.
+        boolean canSeeTimeline = nativeAuthority
+                || allowed(user, OperationalPermission.PERM_16_AUDIT_HISTORY_VIEW, LifecycleStage.ADMINISTRATIVE, plan);
+        model.addAttribute("canSeePlanningTab", canSeePlanningTab);
+        model.addAttribute("canSeeShootTab", canSeeShootTab);
+        model.addAttribute("canSeeEditTab", canSeeEditTab);
+        model.addAttribute("canSeePublishingTab", canSeePublishingTab);
+        model.addAttribute("canSeePerformanceTab", canSeePerformanceTab);
+        model.addAttribute("canSeeTimeline", canSeeTimeline);
+        // Requested tab falls back to Overview (always visible) if this viewer can't actually see it -
+        // e.g. a stale/direct ?tab=planning link for an HR employee with no Planning authority.
+        String requestedTab = (String) model.getAttribute("activeTab");
+        boolean requestedTabVisible = switch (requestedTab) {
+            case "planning" -> canSeePlanningTab;
+            case "shoot" -> canSeeShootTab;
+            case "edit" -> canSeeEditTab;
+            case "publishing" -> canSeePublishingTab;
+            case "performance" -> canSeePerformanceTab;
+            case "timeline" -> canSeeTimeline;
+            default -> true;
+        };
+        if (!requestedTabVisible) {
+            model.addAttribute("activeTab", "overview");
+        }
+
+        // Back navigation is caller-aware: only a viewer who can actually reach the Content
+        // Pipeline (native authority) gets "Back to Pipeline" - everyone else (a delegated employee
+        // reaching this page from My Work / Assignment Management) gets "Back to My Work" instead,
+        // never a link to a module they cannot open.
+        model.addAttribute("canSeePipeline", nativeAuthority);
+
         return "deliverable-detail";
     }
 
@@ -685,17 +792,20 @@ public class DeliverableMvcController {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_PLANNING_REVIEW", "Request Rework", "danger", "primary", true));
         }
 
-        // Other actions - same permission flags the old admin-actions bar used, PLUS the exact same
-        // "not closed" status gate AdminActionService#requireNotClosed already enforces server-side
-        // for Reschedule/Reassign/Cancel (rejects at CAN/COMP/RJ) - the old bar never checked this,
-        // showing e.g. a "Cancel" button on an already-Cancelled plan; reusing the real backend rule
-        // here (not a new one) is what spec section 15 explicitly asks for ("Cancel only if actual
-        // workflow supports cancellation from that state").
-        boolean notClosed = status != WorkflowStatus.CAN && status != WorkflowStatus.COMP && status != WorkflowStatus.RJ;
-        if (notClosed && Boolean.TRUE.equals(attrs.get("canReschedule"))) {
+        // Other actions - permission flags the old admin-actions bar used, ANDed with the actual
+        // AvailableActionService eligibility rule for each action (never permission alone) - the
+        // single source of truth also enforced server-side by AdminActionService, so a button shown
+        // here always means the backend expects the click to succeed (permission-admin-ui / Action
+        // Center spec §1/§10/§12).
+        if (availableActionService.isReschedulable(plan.getWorkflowInstance())
+                && Boolean.TRUE.equals(attrs.get("canReschedule"))) {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESCHEDULE", "Reschedule", "secondary", "other", true));
         }
-        if (notClosed && Boolean.TRUE.equals(attrs.get("canReassign"))) {
+        // Reassign: shown only when at least one taskStage is actually eligible right now (a valid
+        // canonical stage window for that task stage AND an active assignment to reassign) - never
+        // merely because PERM_11 is held. The Reassign form's own Task Stage dropdown is separately
+        // filtered to the same eligible set (see the "taskStages" model attribute above).
+        if (availableActionService.isAnyReassignEligible(plan) && Boolean.TRUE.equals(attrs.get("canReassign"))) {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REASSIGN", "Reassign", "secondary", "other", true));
         }
         if (nativeAuthority && (status == WorkflowStatus.SIP || status == WorkflowStatus.ED || status == WorkflowStatus.PUBG)) {
@@ -705,13 +815,10 @@ public class DeliverableMvcController {
                 actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("RESUME", "Resume Work", "secondary", "other", false));
             }
         }
-        // AdminActionService#cancel is stricter still - blocked once the plan has EVER reached
-        // Completed (ERD-CON-006), not just "not currently Completed" (a Reopened-from-Completed
-        // plan stays uncancellable even mid-Publishing again).
-        if (notClosed && !plan.getWorkflowInstance().everCompleted() && Boolean.TRUE.equals(attrs.get("canCancel"))) {
+        if (availableActionService.isCancellable(plan) && Boolean.TRUE.equals(attrs.get("canCancel"))) {
             actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("CANCEL", "Cancel", "danger", "other", true));
         }
-        if (status == WorkflowStatus.COMP) {
+        if (availableActionService.isReopenEligible(plan.getWorkflowInstance())) {
             if (Boolean.TRUE.equals(attrs.get("canPublishingExecute"))) {
                 actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REOPEN_PUBLISHING", "Reopen for Publishing", "secondary", "other", true));
             }
@@ -1068,17 +1175,15 @@ public class DeliverableMvcController {
     }
 
     /**
-     * ENG-045: Planning Workspace UI has one form and one button. Planning Details is
+     * Planning Workspace UI has one form and one button: Planning Details is
      * {@code <form id="planning-details-form">} with no submit button of its own; the single
      * "Submit for Planning Review" button at the bottom of the page references it via the HTML5
-     * {@code form="..."} attribute, and now ALSO carries the Cameraperson(s)/Shoot Lead fields (no
-     * separate "Assign Cameraperson(s)" button anymore - see the Shoot Assignment section, which
-     * moved into this same form). One click saves Planning Details, creates/updates the Shoot
-     * Assignment, and submits for review, all in ONE transaction
-     * ({@link PlanningService#savePlanAssignAndSubmit}) - if any step fails (including the
-     * submit-readiness check), nothing is saved at all, not even the Planning Details fields. This
-     * replaces the previous two-transaction design (save always persisted even when the
-     * submit-readiness check failed) per the user's explicit request for full atomicity.
+     * {@code form="..."} attribute. Shoot Assignment is no longer part of this form or this request
+     * at all - it is managed exclusively (and takes effect immediately) from the Shoot tab's own
+     * dedicated endpoints, so a PERM_04-only delegated employee has a working entry point too, not
+     * just a canPlanningExecute+PERM_04 combination. This endpoint only saves Planning Details and
+     * submits for review; {@link PlanningService#submitPlanningReview} rejects the submission (with
+     * a clear message pointing back to the Shoot tab) if Shoot setup isn't already complete.
      */
     /**
      * ENG-051: AJAX-aware so a validation failure (e.g. Urgency Reason missing for an Urgent plan)
@@ -1097,31 +1202,14 @@ public class DeliverableMvcController {
                                      @RequestParam(required = false) LocalDate shootDate,
                                      @RequestParam(required = false) LocalDate editDate,
                                      @RequestParam(required = false) String urgencyReason,
-                                     @RequestParam(required = false) List<UUID> cameramanUserIds,
-                                     @RequestParam(required = false) String leadUserId,
-                                     @RequestParam(required = false) String shootDescription,
                                      @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
                                      jakarta.servlet.http.HttpServletRequest request) {
         List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
         try {
-            ContentPlan plan = requirePlan(id);
-            boolean touchShootAssignment = allowed(principal.user(), OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
-                    LifecycleStage.PLANNING, plan);
-            List<User> camerapersons = new ArrayList<>();
-            UUID leadId = null;
-            if (touchShootAssignment) {
-                leadId = parseOptionalUuid(leadUserId);
-                if (cameramanUserIds != null) {
-                    for (UUID uid : cameramanUserIds) {
-                        camerapersons.add(userRepository.findById(uid)
-                                .orElseThrow(() -> DomainException.notFound("User not found")));
-                    }
-                }
-            }
             planningService.savePlanAssignAndSubmit(principal.user(), id, categoryText, contentPriority, skuReference,
                     isSkuBlank(skuReference), talentSelections, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
-                    urgencyReason, camerapersons, leadId, touchShootAssignment, shootDescription);
+                    urgencyReason);
             if (isAjax(requestedWith)) {
                 return ResponseEntity.ok().build();
             }
@@ -1148,6 +1236,53 @@ public class DeliverableMvcController {
             planningService.updateParameters(principal.user(), id, categoryText, contentPriority, skuReference,
                     isSkuBlank(skuReference), talentSelections, folderLink);
             ra.addFlashAttribute("successMessage", "Planning parameters saved.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Authorized manual retry (PERM_13_FOLDER_LINK_MANAGE) of automatic Drive folder provisioning -
+     * the same idempotent DriveProvisioningService#provision logic runs after every Content ID
+     * creation, so retry can never create duplicate folders even after a partial prior failure. */
+    @PostMapping("/drive/retry")
+    public String retryDriveProvisioning(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                          RedirectAttributes ra) {
+        try {
+            authorizationService.requireAuthority(principal.user(), OperationalPermission.PERM_13_FOLDER_LINK_MANAGE,
+                    LifecycleStage.ADMINISTRATIVE, requirePlan(id).getWorkflowInstance());
+            if (!driveProvisioningService.isDriveIntegrationEnabled()) {
+                ra.addFlashAttribute("infoMessage",
+                        "Drive integration is not enabled on this server (app.drive.enabled=false) - nothing was attempted.");
+                return redirect(id);
+            }
+            // "Accepted" is not the same as "succeeded" - retry() completes synchronously, so its
+            // returned row's actual resulting status decides the flash outcome, never a blanket
+            // "success" that would be shown identically whether Drive was reached at all.
+            com.kcpc.mkt.drive.domain.ContentDriveProvisioning row = driveProvisioningService.retry(principal.user(), id);
+            switch (row.getStatus()) {
+                case SUCCEEDED -> ra.addFlashAttribute("successMessage", "Drive folders provisioned successfully.");
+                case FAILED -> ra.addFlashAttribute("errorMessage", "Drive provisioning failed.");
+                default -> ra.addFlashAttribute("infoMessage", "Drive provisioning retry started.");
+            }
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Manual admin repair/relink (PERM_13_FOLDER_LINK_MANAGE): points the structured Drive record
+     * at an admin-supplied folder (pasted URL or raw id) - the fallback path for when automatic
+     * provisioning cannot be used or needs correcting. Updates the structured record first, then
+     * resyncs the display folder_link - never the reverse. */
+    @PostMapping("/drive/relink")
+    public String relinkDriveFolder(@PathVariable UUID id, @RequestParam String rootFolderIdOrUrl,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            authorizationService.requireAuthority(principal.user(), OperationalPermission.PERM_13_FOLDER_LINK_MANAGE,
+                    LifecycleStage.ADMINISTRATIVE, requirePlan(id).getWorkflowInstance());
+            driveProvisioningService.relinkRootFolder(principal.user(), id, rootFolderIdOrUrl);
+            ra.addFlashAttribute("successMessage", "Drive root folder relinked.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
@@ -1903,15 +2038,22 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
+    /**
+     * ORIGINAL vs REPOST is derived by {@link PublishingService}, never accepted from this form -
+     * a raw "Event Type" dropdown here would let a Publisher record a Repost as another ORIGINAL
+     * (or vice versa) by picking wrong, and a reopened/repost cycle must never depend on a human
+     * correctly remembering to select REPOST (see PublishingService#recordActualPublication's
+     * no-eventType overload javadoc).
+     */
     @PostMapping("/publishing/events")
     public String recordEvent(@PathVariable UUID id, @RequestParam UUID plannedOutputId,
-                               @RequestParam UUID publicationTargetId, @RequestParam PublicationEventType eventType,
+                               @RequestParam UUID publicationTargetId,
                                @RequestParam String actualPublicationTimestamp, @RequestParam String evidenceUrl,
                                @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
             Instant ts = LocalDate.parse(actualPublicationTimestamp).atStartOfDay(java.time.ZoneId.of("Asia/Kolkata")).toInstant();
             publishingService.recordActualPublication(principal.user(), id, plannedOutputId, publicationTargetId,
-                    eventType, ts, evidenceUrl);
+                    ts, evidenceUrl);
             ra.addFlashAttribute("successMessage", "Actual publication recorded.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
@@ -1951,8 +2093,12 @@ public class DeliverableMvcController {
         List<String> failures = new ArrayList<>();
         for (int i = 0; i < plannedOutputIds.size(); i++) {
             try {
+                // Derived (ORIGINAL first time, REPOST once a live post already exists for this
+                // pair - e.g. a reopened cycle) - never hardcoded, so this same bulk "Submit"
+                // correctly records reposts too once buildPublishingChecklist's cycle-aware rows
+                // make a reopened cycle's pending pairs selectable again.
                 publishingService.recordActualPublication(principal.user(), id, plannedOutputIds.get(i),
-                        publicationTargetIds.get(i), PublicationEventType.ORIGINAL, ts, evidenceUrls.get(i));
+                        publicationTargetIds.get(i), ts, evidenceUrls.get(i));
                 succeeded++;
             } catch (DomainException e) {
                 failures.add(e.getMessage());
@@ -2198,12 +2344,28 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
+    /**
+     * Publisher selection here is optional - reopening still works with none selected, exactly as
+     * before, and Assign Publisher(s) remains fully available afterward from the Publishing tab
+     * (the fresh-assignment gate from {@link AdminActionService#reopenCompleted} still applies
+     * either way). Selecting one here just lets CEO/MM do both steps in one action instead of a
+     * second trip to the Publishing tab. A plain String (not UUID) because the dropdown's blank
+     * "no selection" option submits as an empty string, not an absent parameter.
+     */
     @PostMapping("/reopen-publishing")
     public String reopenPublishing(@PathVariable UUID id, @RequestParam String reason,
+                                    @RequestParam(required = false) String publisherUserId,
                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
             adminActionService.reopenForPublishing(principal.user(), id, reason);
-            ra.addFlashAttribute("successMessage", "Reopened for Publishing.");
+            if (publisherUserId != null && !publisherUserId.isBlank()) {
+                User publisher = userRepository.findById(UUID.fromString(publisherUserId))
+                        .orElseThrow(() -> DomainException.notFound("User not found: " + publisherUserId));
+                publishingService.assignPublisher(principal.user(), id, publisher);
+                ra.addFlashAttribute("successMessage", "Reopened for Publishing and Publisher assigned.");
+            } else {
+                ra.addFlashAttribute("successMessage", "Reopened for Publishing.");
+            }
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
@@ -2232,8 +2394,16 @@ public class DeliverableMvcController {
      * - it's excluded from "what's left to publish", not merely unchecked. A pair with a live
      * ORIGINAL event already recorded is included but marked completed (its evidence/date shown
      * read-only, no checkbox) so it can never be resubmitted from this screen.
+     *
+     * <p>Cycle-aware ({@code cycleStart} from {@link PublishingService#currentPublishingCycleStart}
+     * - null for the very first, never-reopened cycle): once this deliverable has been Reopened for
+     * Publishing, "completed" for a pair means an event recorded on-or-after the CURRENT cycle
+     * started, not merely "an ORIGINAL exists somewhere in history" - otherwise every row would show
+     * permanently Completed from the very first cycle onward and the checklist could never be used
+     * to record the repost it exists to capture. First-time Publishing (cycleStart null) keeps the
+     * exact original ORIGINAL-only rule, unchanged.
      */
-    private List<PublishingChecklistRow> buildPublishingChecklist(List<PlannedOutput> outputs) {
+    private List<PublishingChecklistRow> buildPublishingChecklist(List<PlannedOutput> outputs, Instant cycleStart) {
         List<PublishingChecklistRow> rows = new ArrayList<>();
         for (PlannedOutput output : outputs) {
             for (var mapping : mappingRepository.findByPlannedOutput(output)) {
@@ -2246,10 +2416,18 @@ public class DeliverableMvcController {
                 if (isNa) {
                     continue;
                 }
-                ActualPublicationEvent liveEvent = eventRepository
-                        .findByPlannedOutputAndEventType(output, PublicationEventType.ORIGINAL).stream()
-                        .filter(e -> e.getPublicationTarget().getId().equals(target.getId()))
-                        .findFirst().orElse(null);
+                ActualPublicationEvent liveEvent;
+                if (cycleStart == null) {
+                    liveEvent = eventRepository.findByPlannedOutputAndEventType(output, PublicationEventType.ORIGINAL).stream()
+                            .filter(e -> e.getPublicationTarget().getId().equals(target.getId()))
+                            .findFirst().orElse(null);
+                } else {
+                    liveEvent = eventRepository.findByPlannedOutput(output).stream()
+                            .filter(e -> e.getPublicationTarget().getId().equals(target.getId()))
+                            .filter(e -> !e.getRecordedAt().isBefore(cycleStart))
+                            .max(Comparator.comparing(ActualPublicationEvent::getRecordedAt))
+                            .orElse(null);
+                }
                 rows.add(new PublishingChecklistRow(output, target, liveEvent));
             }
         }

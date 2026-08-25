@@ -143,24 +143,48 @@ public class TeamWorkloadService {
 
         List<AssigneeLoadRow> rows = new ArrayList<>();
         boolean wantsRole = businessRole != null && !businessRole.isBlank() && !"ALL".equalsIgnoreCase(businessRole);
-        if ((wantsAllStages || "Shoot".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Camera Person".equals(businessRole))) {
-            for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Camera Person")) {
-                rows.add(rowFromAssignments(u, "Camera Person", shootByUser.get(u.getId()), ShootingAssignment::getContentPlan,
+        // Permission-driven multi-function workflow: population is now assignment-based (every real
+        // active assignee, whatever their Business Role) - Business Role remains available only as
+        // a post-hoc display/filter dimension on the resulting rows, never a gate on which real
+        // assignees are even considered (an HR Manager with a real active ShootingAssignment now
+        // correctly appears here, matching KPI-006/legacy teamWorkload()'s existing role-agnostic
+        // behavior instead of silently diverging from it - spec §21).
+        if (wantsAllStages || "Shoot".equalsIgnoreCase(stageFilter)) {
+            for (var entry : shootByUser.entrySet()) {
+                User u = entry.getValue().get(0).getCameraperson();
+                String roleName = displayRoleName(u);
+                if (wantsRole && !businessRole.equals(roleName)) {
+                    continue;
+                }
+                rows.add(rowFromAssignments(u, roleName, entry.getValue(), ShootingAssignment::getContentPlan,
                         SHOOT_WINDOW, ContentPlan::getPlannedShootDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if ((wantsAllStages || "Edit".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Video Editor".equals(businessRole))) {
-            for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Video Editor")) {
-                rows.add(rowFromAssignments(u, "Video Editor", editByUser.get(u.getId()), EditingAssignment::getContentPlan,
+        if (wantsAllStages || "Edit".equalsIgnoreCase(stageFilter)) {
+            for (var entry : editByUser.entrySet()) {
+                User u = entry.getValue().get(0).getEditor();
+                String roleName = displayRoleName(u);
+                if (wantsRole && !businessRole.equals(roleName)) {
+                    continue;
+                }
+                rows.add(rowFromAssignments(u, roleName, entry.getValue(), EditingAssignment::getContentPlan,
                         EDIT_WINDOW, ContentPlan::getPlannedEditDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if ((wantsAllStages || "Publishing".equalsIgnoreCase(stageFilter)) && (!wantsRole || "Publisher".equals(businessRole))) {
-            for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Publisher")) {
-                rows.add(rowFromAssignments(u, "Publisher", publishByUser.get(u.getId()), PublishingAssignment::getContentPlan,
+        if (wantsAllStages || "Publishing".equalsIgnoreCase(stageFilter)) {
+            for (var entry : publishByUser.entrySet()) {
+                User u = entry.getValue().get(0).getPublisher();
+                String roleName = displayRoleName(u);
+                if (wantsRole && !businessRole.equals(roleName)) {
+                    continue;
+                }
+                rows.add(rowFromAssignments(u, roleName, entry.getValue(), PublishingAssignment::getContentPlan,
                         PUBLISHING_WINDOW, ContentPlan::getPlannedLiveDate, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
+        // Model remains talent scheduling, deliberately NOT converted to the permission-driven
+        // executor model (spec §8.4/§18 - "do not merge Model talent scheduling with executor
+        // assignments") - still Business-Role-name filtered, unchanged.
         if (wantsAllStages && (!wantsRole || "Model".equals(businessRole))) {
             for (User u : userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")) {
                 rows.add(modelRow(u, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
@@ -183,6 +207,11 @@ public class TeamWorkloadService {
 
         return new TeamWorkloadResult(stageCounts, totalActiveByStage, rows, totalActive, totalDelayed, totalOnHold,
                 Instant.now());
+    }
+
+    /** Display-only Business Role label for an Assignee Load row - never an eligibility filter. */
+    private static String displayRoleName(User u) {
+        return u.getBusinessRole() == null ? null : u.getBusinessRole().getRoleName();
     }
 
     private static boolean isActiveStatus(WorkflowStatus status) {

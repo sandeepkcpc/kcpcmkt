@@ -9,6 +9,7 @@ import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.RoleType;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
@@ -16,6 +17,8 @@ import com.kcpc.mkt.production.domain.EditingAssignment;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
+import com.kcpc.mkt.publishing.domain.PublishingAssignment;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.workflow.domain.AssigneeSide;
 import com.kcpc.mkt.workflow.domain.CancellationRecord;
 import com.kcpc.mkt.workflow.domain.ReassignmentAssignee;
@@ -53,7 +56,10 @@ public class AdminActionService {
     private final ReassignmentAssigneeRepository reassignmentAssigneeRepository;
     private final CancellationRecordRepository cancellationRecordRepository;
     private final ReopenRecordRepository reopenRecordRepository;
+    private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
+    private final AvailableActionService availableActionService;
     private final AuditService auditService;
     private final WorkflowTransitionService workflowService;
     private final UserRepository userRepository;
@@ -66,7 +72,10 @@ public class AdminActionService {
                                ReassignmentAssigneeRepository reassignmentAssigneeRepository,
                                CancellationRecordRepository cancellationRecordRepository,
                                ReopenRecordRepository reopenRecordRepository,
-                               AuthorizationService authorizationService, AuditService auditService,
+                               PublishingAssignmentRepository publishingAssignmentRepository,
+                               AuthorizationService authorizationService,
+                               OperationalEligibilityService operationalEligibilityService,
+                               AvailableActionService availableActionService, AuditService auditService,
                                WorkflowTransitionService workflowService, UserRepository userRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
@@ -76,7 +85,10 @@ public class AdminActionService {
         this.reassignmentAssigneeRepository = reassignmentAssigneeRepository;
         this.cancellationRecordRepository = cancellationRecordRepository;
         this.reopenRecordRepository = reopenRecordRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
+        this.availableActionService = availableActionService;
         this.auditService = auditService;
         this.workflowService = workflowService;
         this.userRepository = userRepository;
@@ -88,8 +100,7 @@ public class AdminActionService {
     }
 
     private void requireNotClosed(WorkflowInstance workflowInstance, String action) {
-        WorkflowStatus status = workflowInstance.getCurrentStatusCode();
-        if (status == WorkflowStatus.CAN || status == WorkflowStatus.COMP || status == WorkflowStatus.RJ) {
+        if (!availableActionService.isNotClosed(workflowInstance)) {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
                     action + " is not valid once the deliverable is Cancelled, Completed, or Rejected");
         }
@@ -124,21 +135,6 @@ public class AdminActionService {
         return record;
     }
 
-    /**
-     * ENG-054: a new assignee's Business Role must match the Task Stage being reassigned - the
-     * Reassign UI only ever offers Camera Person users for SHOOTING/Video Editor users for EDITING
-     * (same Business-Role-filtered picker every other assignment control in this app already uses),
-     * but that was UI-only; nothing on the server stopped a direct API call from reassigning any
-     * active user regardless of role. Enforced here so the constraint holds regardless of caller.
-     */
-    private void requireBusinessRole(User user, String expectedRoleName) {
-        String actualRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
-        if (!expectedRoleName.equals(actualRoleName)) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    user.getFullName() + " does not hold the " + expectedRoleName + " Business Role");
-        }
-    }
-
     @Transactional
     public ReassignmentRecord reassign(User actor, UUID contentPlanId, TaskStage taskStage,
                                         List<UUID> newAssigneeUserIds, String reason) {
@@ -151,6 +147,15 @@ public class AdminActionService {
         ContentPlan plan = requirePlan(contentPlanId);
         WorkflowInstance workflowInstance = plan.getWorkflowInstance();
         requireNotClosed(workflowInstance, "Reassign");
+        // Same eligibility rule Content Detail's Action Center uses to decide whether to show the
+        // Reassign button at all (AvailableActionService#isReassignEligible) - enforced here too so
+        // a request can never succeed in a stage/assignment state the UI would never have offered:
+        // SHOOTING only while still Planning/Shoot with an active ShootingAssignment to reassign;
+        // EDITING only while in Edit with an active EditingAssignment to reassign.
+        if (!availableActionService.isReassignEligible(plan, taskStage)) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Reassign is not valid for " + taskStage + " in the current workflow stage, or there is no active assignment to reassign");
+        }
         Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(actor,
                 OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, workflowInstance);
 
@@ -168,7 +173,9 @@ public class AdminActionService {
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
                         .orElseThrow(() -> DomainException.notFound("User not found: " + newUserId));
-                requireBusinessRole(newUser, "Camera Person");
+                // Same permission-driven eligibility rule as initial assignment (PERM_18, scoped
+                // to SHOOTING) - reassignment and initial assignment must never diverge (spec §10).
+                operationalEligibilityService.requireShootExecutionEligible(newUser, workflowInstance);
                 shootingAssignmentRepository.save(new ShootingAssignment(plan, newUser, actor));
                 reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.CAMERAPERSON,
                         AssigneeSide.NEW));
@@ -184,7 +191,9 @@ public class AdminActionService {
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
                         .orElseThrow(() -> DomainException.notFound("User not found: " + newUserId));
-                requireBusinessRole(newUser, "Video Editor");
+                // Same permission-driven eligibility rule as initial assignment (PERM_19, scoped
+                // to EDITING) - reassignment and initial assignment must never diverge (spec §10).
+                operationalEligibilityService.requireEditExecutionEligible(newUser, workflowInstance);
                 editingAssignmentRepository.save(new EditingAssignment(plan, newUser, actor));
                 reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.EDITOR,
                         AssigneeSide.NEW));
@@ -221,17 +230,27 @@ public class AdminActionService {
     /** Permission #8 (Publishing reopen: COMP-&gt;RFP) or #9 (Metric correction reopen: COMP-&gt;PFUP). */
     @Transactional
     public ReopenRecord reopenCompleted(User actor, UUID contentPlanId, ReopenPurpose purpose, String reason) {
-        WorkflowStatus target = purpose == ReopenPurpose.METRIC_CORRECTION_REOPEN ? WorkflowStatus.PFUP : WorkflowStatus.PUBG;
+        WorkflowStatus target = purpose == ReopenPurpose.METRIC_CORRECTION_REOPEN ? WorkflowStatus.PFUP : WorkflowStatus.RFP;
         OperationalPermission permission = purpose == ReopenPurpose.METRIC_CORRECTION_REOPEN
                 ? OperationalPermission.PERM_09_PERFORMANCE_UPDATE : OperationalPermission.PERM_08_PUBLISHING_EXECUTION;
         return reopenCompleted(actor, contentPlanId, purpose, permission, target, reason);
     }
 
-    /** API-OP-052: Reopen Completed Deliverable for Publishing (Permission #8), COMP -&gt; PUBG. */
+    /**
+     * API-OP-052: Reopen Completed Deliverable for Publishing (Permission #8), COMP -&gt; RFP - the
+     * same "Ready for Publishing" state first-time Publishing already uses for Publisher
+     * assignment, not directly into PUBG. Reopening into PUBG would skip the Assign Publisher gate
+     * entirely (the "Assign Publisher(s) & Verify Publishing Scope" UI/endpoints are RFP-only) and
+     * let whichever Publisher happened to still hold an active assignment from the ORIGINAL cycle
+     * silently execute the repost - the person who reposts viral content is not necessarily the
+     * person who did the original publish, so management must explicitly re-confirm/re-pick a
+     * Publisher for this cycle. See {@link #reopenCompleted} below for the assignment-ending side
+     * effect that enforces this.
+     */
     @Transactional
     public ReopenRecord reopenForPublishing(User actor, UUID contentPlanId, String reason) {
         return reopenCompleted(actor, contentPlanId, ReopenPurpose.PUBLISHING_REOPEN,
-                OperationalPermission.PERM_08_PUBLISHING_EXECUTION, WorkflowStatus.PUBG, reason);
+                OperationalPermission.PERM_08_PUBLISHING_EXECUTION, WorkflowStatus.RFP, reason);
     }
 
     /** API-OP-053: Reopen Completed Deliverable for Metric Correction (Permission #9), COMP -&gt; PFUP. */
@@ -258,6 +277,18 @@ public class AdminActionService {
 
         workflowService.transition(workflowInstance, target, actor, actingGrant,
                 "REOPEN_COMPLETED", reason);
+        // A repost cycle must require a fresh Publisher assignment, never silently inherit whoever
+        // was assigned for the ORIGINAL cycle - end every currently-active assignment so the new
+        // RFP window starts exactly like first-time Publishing (empty, gated on Assign Publisher).
+        // Folded into this single Reopen audit record, not a separate PUBLISHER_UNASSIGNED entry
+        // per assignment - this is a mechanical side effect of the one Reopen action, not an
+        // independent management decision to unassign anyone.
+        if (purpose == ReopenPurpose.PUBLISHING_REOPEN) {
+            for (PublishingAssignment assignment : publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)) {
+                assignment.end();
+                publishingAssignmentRepository.save(assignment);
+            }
+        }
         ReopenRecord record = reopenRecordRepository.save(new ReopenRecord(workflowInstance, WorkflowStatus.COMP, target,
                 purpose, reason, actor, actingGrant.orElse(null)));
         auditService.record(actor, actingGrant, "ADMIN_ACTION", "DELIVERABLE_REOPENED", "content_plans", plan.getId(), reason);

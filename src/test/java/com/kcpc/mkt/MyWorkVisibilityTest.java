@@ -49,6 +49,7 @@ class MyWorkVisibilityTest {
                 "{\"fullName\":\"MyWork Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String camId = camUser.get("userId").asText();
+        grantShootExecution(ceo, camId);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Visibility " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -95,6 +96,7 @@ class MyWorkVisibilityTest {
                 "{\"fullName\":\"MyWork History Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String camId = camUser.get("userId").asText();
+        grantShootExecution(ceo, camId);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork History " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -138,7 +140,10 @@ class MyWorkVisibilityTest {
 
     private String activeShootTasksTableRegion(String body) {
         int start = body.indexOf("Active Shoot Tasks");
-        int end = body.indexOf("data-tab-panel=\"history\"");
+        // Permission-driven My Work redesign: stage-prefixed data-tab-panel values (was
+        // "history", now "shoot-history") so Shoot/Edit/Publishing's own Active/History/Marks
+        // sub-tabs never collide when multiple stage panels co-exist in the DOM.
+        int end = body.indexOf("data-tab-panel=\"shoot-history\"");
         assertThat(start).isPositive();
         assertThat(end).isGreaterThan(start);
         return body.substring(start, end);
@@ -162,6 +167,7 @@ class MyWorkVisibilityTest {
                 "{\"fullName\":\"MyWork Rework Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String camId = camUser.get("userId").asText();
+        grantShootExecution(ceo, camId);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Rework " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -210,6 +216,13 @@ class MyWorkVisibilityTest {
         String detailAfterApproval = cam.get("/app/deliverables/" + planId).body();
         assertThat(detailAfterApproval).contains("Latest Reviewer Feedback").contains("APPROVED");
         assertThat(detailAfterApproval).contains("View Feedback History").contains(reworkReason);
+    }
+
+    /** Candidate eligibility/execution is now permission-driven (OperationalEligibilityService). */
+    private void grantShootExecution(TestApiClient ceo, String userId) throws Exception {
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
     }
 
     private String[] splitOnHistoryHeader(String body) {

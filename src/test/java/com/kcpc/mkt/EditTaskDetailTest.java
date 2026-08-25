@@ -51,11 +51,17 @@ class EditTaskDetailTest {
                 "{\"fullName\":\"Edit Detail Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
         String editorEmail = "e2e-edit-detail-editor-" + unique + "@kcpcbandhani.local";
         JsonNode editorUser = ceo.postJson("/api/v1/admin/users",
                 "{\"fullName\":\"Edit Detail Editor\",\"email\":\"" + editorEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + VIDEO_EDITOR_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String editorId = editorUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editorId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Edit Detail Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();

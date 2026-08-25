@@ -25,7 +25,7 @@
         <h2>All Active Operational Permissions <span class="muted" style="font-weight:400;font-size:0.8rem;">(Read-only)</span></h2>
         <table class="data-table admin-table">
             <thead>
-                <tr><th>User</th><th>Email</th><th>Permission</th><th>Scope</th><th>Granted By</th>
+                <tr><th>User</th><th>Email</th><th>Permission</th><th>What it means</th><th>Scope</th><th>Granted By</th>
                     <th>Effective From (IST)</th><th>Expires (IST)</th></tr>
             </thead>
             <tbody>
@@ -34,13 +34,14 @@
                     <td><a href="${pageContext.request.contextPath}/app/admin/users/${g.granteeUserId}">${g.granteeName}</a></td>
                     <td class="admin-email-cell muted">${g.granteeEmail}</td>
                     <td>${g.permission}</td>
+                    <td class="muted" style="font-size:0.8rem;max-width:22rem;"><c:out value="${permissionDescriptions[g.permission]}"/></td>
                     <td title="${g.scopeDetail}">${g.scopeType}</td>
                     <td>${g.grantorName}</td>
                     <td>${kcpc:ist(g.effectiveFrom)}</td>
                     <td>${empty g.effectiveUntil ? '-' : kcpc:ist(g.effectiveUntil)}</td>
                 </tr>
             </c:forEach>
-            <c:if test="${empty grants}"><tr><td colspan="7" class="muted">No active permission grants.</td></tr></c:if>
+            <c:if test="${empty grants}"><tr><td colspan="8" class="muted">No active permission grants.</td></tr></c:if>
             </tbody>
         </table>
     </div>

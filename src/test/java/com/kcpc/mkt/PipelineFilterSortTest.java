@@ -181,6 +181,9 @@ class PipelineFilterSortTest {
     private String createDelayedPlan(TestApiClient ceo, String ideaTitle, String sku) throws Exception {
         String camEmail = "pfs-cam-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Filter Sort Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
 
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()

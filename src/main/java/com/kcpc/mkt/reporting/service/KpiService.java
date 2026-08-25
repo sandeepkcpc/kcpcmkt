@@ -39,25 +39,12 @@ public class KpiService {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     /** BR-039: each active deliverable's "Current Approved Planned Date" is stage-context - the
-     * date it is currently working towards, not a fixed single column. */
-    private static final String STAGE_PLANNED_DATE_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV','PLAP','SA','SIP','SRV') THEN cp.planned_shoot_date "
-                    + "WHEN wi.current_status_code IN ('SAP','EA','ED','ERV') THEN cp.planned_edit_date "
-                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG','PP','PFUP') THEN cp.planned_live_date "
-                    + "ELSE NULL END";
+     * date it is currently working towards, not a fixed single column. Shared with
+     * {@link AdminReportingService} and {@link KpiDashboardService} via {@link StageSqlFragments}
+     * so all three reporting surfaces can never disagree about stage boundaries. */
+    private static final String STAGE_PLANNED_DATE_CASE = StageSqlFragments.STAGE_PLANNED_DATE_CASE;
 
-    /** Defect fix: Planning-phase codes (PL/PLRV/PLAP) were previously bucketed into 'Shoot' here.
-     * Boundaries now match the already-shipped, already-correct Content Detail stepper
-     * (deliverable-detail.jsp's cdStageIndex 0..4: Planning/Shoot/Edit/Publishing/Performance) so
-     * the two screens never disagree about which stage a status belongs to - PLAP/SAP stay grouped
-     * with Shoot there (shoot-side approval gates), not Planning/Edit. */
-    private static final String STAGE_LABEL_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV') THEN 'Planning' "
-                    + "WHEN wi.current_status_code IN ('PLAP','SA','SIP','SRV','SAP') THEN 'Shoot' "
-                    + "WHEN wi.current_status_code IN ('EA','ED','ERV') THEN 'Edit' "
-                    + "WHEN wi.current_status_code IN ('EAP','RFP','PUBG') THEN 'Publishing' "
-                    + "WHEN wi.current_status_code IN ('PP','PFUP') THEN 'Performance' "
-                    + "ELSE 'Other' END";
+    private static final String STAGE_LABEL_CASE = StageSqlFragments.STAGE_LABEL_CASE;
 
     @PersistenceContext
     private EntityManager entityManager;

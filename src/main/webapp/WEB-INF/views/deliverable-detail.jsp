@@ -36,8 +36,19 @@
     <div class="content-detail-topbar">
         <div class="content-detail-topbar-row">
             <div class="content-detail-topbar-text">
-                <a class="content-detail-back-link" id="contentDetailBackLink"
-                   href="${pageContext.request.contextPath}/app/pipeline" data-default-href="${pageContext.request.contextPath}/app/pipeline">&larr; Back to Pipeline</a>
+                <%-- Caller-aware: only a viewer who can actually reach the Content Pipeline (native
+                     authority) gets sent back there - a delegated employee (reaching this page from
+                     My Work / Assignment Management) never gets a link to a module she can't open. --%>
+                <c:choose>
+                    <c:when test="${canSeePipeline}">
+                        <a class="content-detail-back-link" id="contentDetailBackLink"
+                           href="${pageContext.request.contextPath}/app/pipeline" data-default-href="${pageContext.request.contextPath}/app/pipeline">&larr; Back to Pipeline</a>
+                    </c:when>
+                    <c:otherwise>
+                        <a class="content-detail-back-link" id="contentDetailBackLink"
+                           href="${pageContext.request.contextPath}/app/my-work" data-default-href="${pageContext.request.contextPath}/app/my-work">&larr; Back to My Work</a>
+                    </c:otherwise>
+                </c:choose>
                 <h1>Content Detail</h1>
                 <div class="content-detail-title-row">
                     <span class="content-detail-id"><c:out value="${plan.contentId}"/></span>
@@ -114,6 +125,7 @@
     </div>
 
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
+    <c:if test="${not empty infoMessage}"><div class="alert-info">${infoMessage}</div></c:if>
     <c:if test="${not empty errorMessage}"><div class="alert-error">${errorMessage}</div></c:if>
 
     <%-- ENG-082: top summary bar - high-value fields only, no duplication of the full Overview tab. --%>
@@ -148,6 +160,30 @@
                     <c:when test="${not empty plan.folderLink}"><a class="drive-link" href="${plan.folderLink}" target="_blank" rel="noopener noreferrer">Open &#8599;</a></c:when>
                     <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
                 </c:choose>
+                <%-- Automatic Drive folder provisioning status - only rendered once a structured
+                     provisioning record exists (legacy content with just a manually-pasted
+                     folder_link and no record is untouched) and only when it isn't already
+                     SUCCEEDED, so the normal case (auto-provisioned, working) adds nothing here. --%>
+                <c:if test="${not empty driveProvisioning and driveProvisioning.status != 'SUCCEEDED'}">
+                    <span class="drive-provisioning-status drive-provisioning-${fn:toLowerCase(driveProvisioning.status)}">
+                        <%-- Explicit status literal shown first (NOT_STARTED/IN_PROGRESS/FAILED) so
+                             an admin can tell at a glance whether provisioning was ever actually
+                             attempted, rather than inferring it from paraphrased text alone. --%>
+                        Status: <c:out value="${driveProvisioning.status}"/> &mdash;
+                        <c:choose>
+                            <c:when test="${driveProvisioning.status == 'FAILED'}">Drive provisioning failed<c:if test="${not empty driveProvisioning.lastError}">: <c:out value="${driveProvisioning.lastError}"/></c:if></c:when>
+                            <c:when test="${driveProvisioning.status == 'IN_PROGRESS'}">Drive provisioning in progress&hellip;</c:when>
+                            <c:otherwise>Drive folders not yet provisioned</c:otherwise>
+                        </c:choose>
+                    </span>
+                    <c:if test="${canManageDriveFolders and driveProvisioning.status != 'IN_PROGRESS'}">
+                        <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/drive/retry"
+                              class="drive-provisioning-retry-form">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                            <button type="submit" class="link-button">Retry Provisioning</button>
+                        </form>
+                    </c:if>
+                </c:if>
             </span>
         </div>
         <div class="content-detail-summary-cell">
@@ -181,20 +217,39 @@
         </div>
     </div>
 
+    <%-- Folder Link Management (PERM_13) admin override - manual repair/relink/recovery only;
+         normal content creation never requires this. Works for legacy content with no structured
+         provisioning record too (brings it under structured tracking for the first time). --%>
+    <c:if test="${canManageDriveFolders}">
+        <details class="drive-relink-details">
+            <summary>Folder Link Management: relink Drive root folder</summary>
+            <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/drive/relink" class="drive-relink-form">
+                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                <label>Drive Folder ID or URL <input type="text" name="rootFolderIdOrUrl" placeholder="https://drive.google.com/drive/folders/..." required></label>
+                <p class="muted">Updates the structured Drive record first, then resyncs the Drive Link shown above. If the 3 subfolders aren't already known under this folder, they can be created afterward via Retry Provisioning.</p>
+                <button type="submit">Relink</button>
+            </form>
+        </details>
+    </c:if>
+
     <div class="content-detail-body">
     <div class="content-detail-main">
+    <%-- Permission-scoped: only the tabs actually relevant to this viewer's real authority/
+         participation on THIS plan (canSeeXTab, computed in DeliverableMvcController#view) - never
+         the full Overview..Timeline set for every viewer regardless of what they can do. Overview
+         always shows; the lifecycle stepper above stays full/read-only regardless of these flags. --%>
     <div class="my-work-tabs content-detail-tabs">
-        <button type="button" class="my-work-tab active" data-tab="overview">Overview</button>
-        <button type="button" class="my-work-tab" data-tab="planning">Planning</button>
-        <button type="button" class="my-work-tab" data-tab="shoot">Shoot</button>
-        <button type="button" class="my-work-tab" data-tab="edit">Edit</button>
-        <button type="button" class="my-work-tab" data-tab="publishing">Publishing</button>
-        <button type="button" class="my-work-tab" data-tab="performance">Performance</button>
-        <button type="button" class="my-work-tab" data-tab="timeline">Timeline</button>
+        <button type="button" class="my-work-tab ${activeTab == 'overview' ? 'active' : ''}" data-tab="overview">Overview</button>
+        <c:if test="${canSeePlanningTab}"><button type="button" class="my-work-tab ${activeTab == 'planning' ? 'active' : ''}" data-tab="planning">Planning</button></c:if>
+        <c:if test="${canSeeShootTab}"><button type="button" class="my-work-tab ${activeTab == 'shoot' ? 'active' : ''}" data-tab="shoot">Shoot</button></c:if>
+        <c:if test="${canSeeEditTab}"><button type="button" class="my-work-tab ${activeTab == 'edit' ? 'active' : ''}" data-tab="edit">Edit</button></c:if>
+        <c:if test="${canSeePublishingTab}"><button type="button" class="my-work-tab ${activeTab == 'publishing' ? 'active' : ''}" data-tab="publishing">Publishing</button></c:if>
+        <c:if test="${canSeePerformanceTab}"><button type="button" class="my-work-tab ${activeTab == 'performance' ? 'active' : ''}" data-tab="performance">Performance</button></c:if>
+        <c:if test="${canSeeTimeline}"><button type="button" class="my-work-tab ${activeTab == 'timeline' ? 'active' : ''}" data-tab="timeline">Timeline</button></c:if>
     </div>
 
     <%-- ============================ OVERVIEW ============================ --%>
-    <div class="my-work-tab-panel" data-tab-panel="overview">
+    <div class="my-work-tab-panel ${activeTab == 'overview' ? '' : 'hidden'}" data-tab-panel="overview">
         <div class="panel content-detail-overview-card">
             <h3 class="content-detail-card-title">Overview</h3>
             <div class="content-detail-overview-grid">
@@ -389,7 +444,8 @@
     </div>
 
     <%-- ============================ PLANNING ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="planning">
+    <c:if test="${canSeePlanningTab}">
+    <div class="my-work-tab-panel ${activeTab == 'planning' ? '' : 'hidden'}" data-tab-panel="planning">
         <div class="panel">
             <h2>${status == 'PLRV' ? 'Planning Review' : 'Planning'}</h2>
             <c:choose>
@@ -431,7 +487,17 @@
                                             </c:forEach>
                                         </div>
                                     </div>
-                                    <label>Drive Link <input type="text" name="folderLink" value="${plan.folderLink}"></label>
+                                    <%-- Once structured Drive provisioning knows the root folder, this field becomes a
+                                         read-only mirror - relinking then only happens through Folder Link Management
+                                         (PERM_13), never a silent overwrite from an ordinary Planning save. Legacy
+                                         content with no provisioning record at all stays fully free-text editable. --%>
+                                    <label>Drive Link
+                                        <input type="text" name="folderLink" value="${plan.folderLink}"
+                                               ${not empty driveProvisioning and not empty driveProvisioning.rootFolderId ? 'readonly' : ''}>
+                                    </label>
+                                    <c:if test="${not empty driveProvisioning and not empty driveProvisioning.rootFolderId}">
+                                        <p class="muted">Managed automatically by Drive provisioning - use Folder Link Management (admin) to relink.</p>
+                                    </c:if>
                                     <label>Planning Mode
                                         <select name="planningMode">
                                             <option value="STANDARD" ${plan.planningMode == 'STANDARD' ? 'selected' : ''}>Standard</option>
@@ -617,45 +683,13 @@
                         </c:otherwise>
                     </c:choose>
 
-                    <c:if test="${canAssignCameraperson and status == 'PL'}">
-                        <div class="kcpc-model-picker planning-shoot-picker">
-                            <div class="assignment-picker-grid">
-                                <div class="assignment-picker-field">
-                                    <label>Cameraperson(s)</label>
-                                    <div class="kcpc-model-input">
-                                        <div class="kcpc-model-chips"></div>
-                                        <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
-                                    </div>
-                                </div>
-                                <div class="assignment-picker-field">
-                                    <label>Shoot Lead
-                                        <select name="leadUserId" form="planning-details-form" class="kcpc-lead-select"
-                                                ${empty shootingAssignments ? 'disabled' : ''}>
-                                            <option value="">&mdash; None &mdash;</option>
-                                            <c:forEach var="a" items="${shootingAssignments}">
-                                                <option value="${a.cameraperson.id}" ${a.lead ? 'selected' : ''}>${a.cameraperson.fullName}</option>
-                                            </c:forEach>
-                                        </select>
-                                    </label>
-                                </div>
-                                <div class="kcpc-model-checklist">
-                                    <c:forEach var="u" items="${camerapersonUsers}">
-                                        <c:set var="isAssigned" value="false"/>
-                                        <c:forEach var="a" items="${shootingAssignments}">
-                                            <c:if test="${a.cameraperson.id == u.id}"><c:set var="isAssigned" value="true"/></c:if>
-                                        </c:forEach>
-                                        <label class="model-check-item">
-                                            <input type="checkbox" name="cameramanUserIds" form="planning-details-form" value="${u.id}"
-                                                   data-name="${u.fullName}" ${isAssigned ? 'checked' : ''}> ${u.fullName}
-                                        </label>
-                                    </c:forEach>
-                                </div>
-                            </div>
-                            <label>Shoot Instructions
-                                <textarea name="shootDescription" form="planning-details-form" class="planning-shoot-instructions" rows="3"
-                                          placeholder="Instructions for the Cameraperson team..."><c:out value="${plan.shootDescription}"/></textarea>
-                            </label>
-                        </div>
+                    <%-- Shoot Assignment now lives exclusively in the Shoot tab (its own dedicated,
+                         immediately-effective endpoints) - Planning submission validates it's already
+                         complete rather than collecting it here. --%>
+                    <c:if test="${empty shootingAssignments}">
+                        <p class="note-box">Shoot team not yet set up - at least one Cameraperson must be assigned
+                            before this plan can be submitted for Planning Review.
+                            <a href="#" class="content-detail-goto-shoot-tab">Go to Shoot Setup</a></p>
                     </c:if>
 
                     <c:if test="${status == 'PL' and canPlanningExecute}">
@@ -739,11 +773,108 @@
         </div>
     </div>
 
+    </c:if>
+
     <%-- ============================ SHOOT ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="shoot">
+    <c:if test="${canSeeShootTab}">
+    <div class="my-work-tab-panel ${activeTab == 'shoot' ? '' : 'hidden'}" data-tab-panel="shoot">
         <div class="panel">
             <h2>Shoot</h2>
             <c:choose>
+                <c:when test="${status == 'PL'}">
+                    <%-- Shoot Assignment Management: the single canonical UI for Shoot team setup,
+                         for CEO/MM and delegated PERM_04 employees alike - a self-contained,
+                         immediately-effective chip-picker (identical pattern to the Edit tab's own
+                         Editor picker), never bundled into the Planning Details form/submission. --%>
+                    <c:choose>
+                        <c:when test="${canAssignCameraperson}">
+                            <h3 class="stage-block-heading">Shoot Assignment Management</h3>
+                            <p class="muted">Set up the Shoot team before this plan can be submitted for Planning Review.</p>
+                            <div class="kcpc-assignment-picker"
+                                 data-add-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments/team"
+                                 data-remove-action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments/remove"
+                                 data-param-name="cameramanUserId">
+                                <div class="assignment-picker-grid">
+                                    <div class="assignment-picker-field">
+                                        <label>Shoot Assignee(s)</label>
+                                        <div class="kcpc-model-input">
+                                            <div class="kcpc-model-chips">
+                                                <c:forEach var="a" items="${shootingAssignments}">
+                                                    <form class="chip-remove-form" method="post"
+                                                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments/remove">
+                                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                        <input type="hidden" name="cameramanUserId" value="${a.cameraperson.id}"/>
+                                                        <span class="model-chip" data-user-id="${a.cameraperson.id}" data-name="${a.cameraperson.fullName}">
+                                                            ${a.cameraperson.fullName}
+                                                            <button type="submit" class="chip-remove" title="Remove ${a.cameraperson.fullName}">&times;</button>
+                                                        </span>
+                                                    </form>
+                                                </c:forEach>
+                                            </div>
+                                            <input type="text" class="kcpc-model-search" placeholder="Search eligible shoot assignee...">
+                                        </div>
+                                    </div>
+                                    <form class="assignment-add-form" method="post"
+                                          action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting-assignments/team">
+                                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                        <div class="assignment-picker-field">
+                                            <label>Shoot Lead
+                                                <select name="leadUserId" class="kcpc-lead-select" ${empty shootingAssignments ? 'disabled' : ''}>
+                                                    <option value="">&mdash; None &mdash;</option>
+                                                    <c:forEach var="a" items="${shootingAssignments}">
+                                                        <option value="${a.cameraperson.id}" ${a.lead ? 'selected' : ''}>${a.cameraperson.fullName}</option>
+                                                    </c:forEach>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <div class="kcpc-model-checklist">
+                                            <c:forEach var="u" items="${camerapersonUsers}">
+                                                <c:set var="isAssigned" value="false"/>
+                                                <c:forEach var="a" items="${shootingAssignments}">
+                                                    <c:if test="${a.cameraperson.id == u.id}"><c:set var="isAssigned" value="true"/></c:if>
+                                                </c:forEach>
+                                                <c:if test="${!isAssigned}">
+                                                    <label class="model-check-item">
+                                                        <input type="checkbox" name="cameramanUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                                    </label>
+                                                </c:if>
+                                            </c:forEach>
+                                        </div>
+                                        <button type="submit" class="assignment-add-submit">Assign Shoot Team</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <div class="stage-description" data-empty-text="No instructions yet.">
+                                <c:choose>
+                                    <c:when test="${canEditShootDescription}">
+                                        <div class="stage-description-header">
+                                            <h3 class="stage-block-heading">Shoot Instructions</h3>
+                                            <button type="button" class="stage-description-edit-btn">&#9998; Edit</button>
+                                        </div>
+                                        <p class="stage-description-text stage-description-view"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                                        <form class="action-form stage-description-form hidden" method="post"
+                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/description">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <textarea name="description" rows="3"
+                                                      placeholder="Instructions for the Cameraperson team..."><c:out value="${plan.shootDescription}"/></textarea>
+                                            <div class="review-actions">
+                                                <button type="button" class="stage-description-cancel-btn">Cancel</button>
+                                                <button type="submit">Save</button>
+                                            </div>
+                                        </form>
+                                    </c:when>
+                                    <c:otherwise>
+                                        <h3 class="stage-block-heading">Shoot Instructions</h3>
+                                        <p class="stage-description-text ${empty plan.shootDescription ? 'muted' : ''}"><c:out value="${empty plan.shootDescription ? 'No instructions yet.' : plan.shootDescription}"/></p>
+                                    </c:otherwise>
+                                </c:choose>
+                            </div>
+                        </c:when>
+                        <c:otherwise>
+                            <p class="muted">Shoot has not started yet.</p>
+                        </c:otherwise>
+                    </c:choose>
+                </c:when>
                 <c:when test="${cdStageIndex < 1}">
                     <p class="muted">Shoot has not started yet.</p>
                 </c:when>
@@ -900,8 +1031,11 @@
         </c:if>
     </div>
 
+    </c:if>
+
     <%-- ============================ EDIT ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="edit">
+    <c:if test="${canSeeEditTab}">
+    <div class="my-work-tab-panel ${activeTab == 'edit' ? '' : 'hidden'}" data-tab-panel="edit">
         <div class="panel">
             <h2>Edit</h2>
             <c:choose>
@@ -1086,8 +1220,11 @@
         </c:if>
     </div>
 
+    </c:if>
+
     <%-- ============================ PUBLISHING ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="publishing">
+    <c:if test="${canSeePublishingTab}">
+    <div class="my-work-tab-panel ${activeTab == 'publishing' ? '' : 'hidden'}" data-tab-panel="publishing">
         <div class="panel">
             <h2>Publishing</h2>
 
@@ -1161,6 +1298,7 @@
                 </c:when>
                 <c:otherwise>
                     <c:if test="${status == 'RFP'}">
+                        <c:if test="${isRepostPublishingCycle}"><span class="repost-cycle-badge">Repost Cycle</span></c:if>
                         <c:if test="${canAssignPublisher}">
                             <button type="button" id="publishingAssignmentModalOpen" class="content-detail-action-btn content-detail-action-primary">
                                 <c:choose>
@@ -1172,7 +1310,9 @@
                             <div class="kcpc-modal-overlay hidden" id="publishingAssignmentModalOverlay">
                                 <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="publishingAssignmentModalTitle">
                                     <div class="kcpc-modal-header">
-                                        <h3 id="publishingAssignmentModalTitle">Assign Publisher &amp; Verify Publishing Scope</h3>
+                                        <h3 id="publishingAssignmentModalTitle">Assign Publisher &amp; Verify Publishing Scope
+                                            <c:if test="${isRepostPublishingCycle}"><span class="repost-cycle-badge">Repost Cycle</span></c:if>
+                                        </h3>
                                         <button type="button" class="kcpc-modal-close" id="publishingAssignmentModalClose" aria-label="Close">&times;</button>
                                     </div>
                                     <div class="kcpc-modal-body">
@@ -1323,13 +1463,13 @@
                             <p class="muted">Status: Ready for Publishing</p>
                             <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/start">
                                 <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                <button type="submit">Start Publishing</button>
+                                <button type="submit"><c:choose><c:when test="${isRepostPublishingCycle}">Start Repost</c:when><c:otherwise>Start Publishing</c:otherwise></c:choose></button>
                             </form>
                         </c:if>
                     </c:if>
                     <c:if test="${(status == 'PUBG' or status == 'PP') and canPublishingExecute}">
                         <c:if test="${isPublishActiveAssignee}">
-                            <h3>Record Actual Publication Event</h3>
+                            <h3>Record Actual Publication Event <c:if test="${isRepostPublishingCycle}"><span class="repost-cycle-badge">Repost Cycle</span></c:if></h3>
                             <form method="post" id="publishing-checklist-form"
                                   action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events/bulk">
                                 <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
@@ -1381,7 +1521,9 @@
                                             </td>
                                             <td>
                                                 <c:choose>
+                                                    <c:when test="${row.completed and isRepostPublishingCycle}"><span class="status-pill status-completed">Reposted</span></c:when>
                                                     <c:when test="${row.completed}"><span class="status-pill status-completed">Completed</span></c:when>
+                                                    <c:when test="${isRepostPublishingCycle}"><span class="status-pill status-pending">Pending Repost</span></c:when>
                                                     <c:otherwise><span class="status-pill status-pending">Pending</span></c:otherwise>
                                                 </c:choose>
                                             </td>
@@ -1393,12 +1535,18 @@
                                     </tbody>
                                 </table>
                                 <div class="review-actions">
-                                    <button type="submit" id="publishing-checklist-submit" disabled>Submit Published Tasks</button>
+                                    <button type="submit" id="publishing-checklist-submit" disabled>
+                                        <c:choose><c:when test="${isRepostPublishingCycle}">Submit Repost</c:when><c:otherwise>Submit Published Tasks</c:otherwise></c:choose>
+                                    </button>
                                 </div>
                             </form>
 
                             <details>
                                 <summary>Record a Repost / Manual Entry</summary>
+                                <%-- Event Type is never a user choice - PublishingService derives ORIGINAL vs
+                                     REPOST itself from whether a live post already exists for this exact
+                                     (Planned Output, Publication Target) pair, so a Publisher can never
+                                     mis-record a repost as another ORIGINAL (or vice versa) by picking wrong. --%>
                                 <form class="action-form" method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/publishing/events">
                                     <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                                     <label>Planned Output
@@ -1411,11 +1559,6 @@
                                             <c:forEach var="pt" items="${activePublicationTargets}">
                                                 <option value="${pt.id}">${pt.platform.platformName} / ${pt.channel.channelHandle}</option>
                                             </c:forEach>
-                                        </select>
-                                    </label>
-                                    <label>Event Type
-                                        <select name="eventType">
-                                            <c:forEach var="et" items="${eventTypes}"><option value="${et}">${et}</option></c:forEach>
                                         </select>
                                     </label>
                                     <label>Actual Publication Date * <input type="date" name="actualPublicationTimestamp" required></label>
@@ -1576,8 +1719,11 @@
         </c:if>
     </div>
 
+    </c:if>
+
     <%-- ============================ PERFORMANCE ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="performance">
+    <c:if test="${canSeePerformanceTab}">
+    <div class="my-work-tab-panel ${activeTab == 'performance' ? '' : 'hidden'}" data-tab-panel="performance">
         <h2 id="performance">Performance</h2>
         <c:choose>
             <c:when test="${cdStageIndex < 4}">
@@ -1764,8 +1910,11 @@
         </c:choose>
     </div>
 
+    </c:if>
+
     <%-- ============================ TIMELINE ============================ --%>
-    <div class="my-work-tab-panel hidden" data-tab-panel="timeline">
+    <c:if test="${canSeeTimeline}">
+    <div class="my-work-tab-panel ${activeTab == 'timeline' ? '' : 'hidden'}" data-tab-panel="timeline">
         <div class="panel">
             <h2>Timeline</h2>
             <ul class="timeline">
@@ -1779,6 +1928,7 @@
             </ul>
         </div>
     </div>
+    </c:if>
 
     </div>
 
@@ -1786,7 +1936,7 @@
     <aside class="content-detail-sidebar">
         <div class="panel content-detail-action-center">
             <h3 class="content-detail-card-title">Action Center</h3>
-            <p class="content-detail-current-stage">Current Stage: <span class="status-badge"><c:out value="${status.statusName}"/></span></p>
+            <p class="content-detail-current-stage">Current Stage: <span class="status-badge"><c:out value="${currentStage.label}"/></span></p>
             <c:set var="cdHasPrimary" value="false"/>
             <c:forEach var="a" items="${availableActions}"><c:if test="${a.group == 'primary'}"><c:set var="cdHasPrimary" value="true"/></c:if></c:forEach>
             <c:if test="${cdHasPrimary}">
@@ -1803,7 +1953,8 @@
             <c:set var="cdHasOther" value="false"/>
             <c:forEach var="a" items="${availableActions}"><c:if test="${a.group == 'other'}"><c:set var="cdHasOther" value="true"/></c:if></c:forEach>
             <c:if test="${cdHasOther}">
-                <h4>Other Actions (As per Workflow &amp; Permissions)</h4>
+                <h4>Available Actions</h4>
+                <p class="content-detail-action-helper">Actions available for the current workflow stage and your permissions.</p>
                 <div class="content-detail-action-row content-detail-action-row-grid">
                     <c:forEach var="a" items="${availableActions}">
                         <c:if test="${a.group == 'other'}">
@@ -1813,7 +1964,7 @@
                     </c:forEach>
                 </div>
             </c:if>
-            <c:if test="${empty availableActions}"><p class="muted">No governed actions available to you at this stage.</p></c:if>
+            <c:if test="${!cdHasOther}"><p class="muted">No administrative actions available at this stage.</p></c:if>
 
             <%-- Hidden action forms - one per possible actionKey, revealed by content-detail.js when
                  its matching button is clicked. Same endpoints/fields as before, just relocated here. --%>
@@ -1929,6 +2080,15 @@
                   action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/reopen-publishing">
                 <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                 <label>Reason * <input type="text" name="reason" required></label>
+                <label>Assign Publisher now (optional)
+                    <select name="publisherUserId">
+                        <option value="">&mdash; Select Publisher &mdash;</option>
+                        <c:forEach var="u" items="${publisherUsers}">
+                            <option value="${u.id}"><c:out value="${u.fullName}"/></option>
+                        </c:forEach>
+                    </select>
+                </label>
+                <p class="muted">Leave unselected to assign a Publisher later from the Publishing tab instead.</p>
                 <button type="submit">Confirm Reopen</button>
             </form>
             <form class="content-detail-action-form hidden" data-action-key="REOPEN_PERFORMANCE" method="post"

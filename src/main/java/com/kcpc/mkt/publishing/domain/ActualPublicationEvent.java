@@ -92,4 +92,15 @@ public class ActualPublicationEvent extends BaseEntity {
     public String getEvidenceUrl() {
         return evidenceUrl;
     }
+
+    /**
+     * System-assigned insertion time - immutable and never user-suppliable (unlike
+     * {@link #getActualPublicationTimestamp()}, which the recorder freely enters). Used to
+     * determine which Publishing cycle an event belongs to (a repost cycle only counts events
+     * recorded on-or-after that cycle's own Reopen record), since the business timestamp could in
+     * principle be backdated.
+     */
+    public Instant getRecordedAt() {
+        return recordedAt;
+    }
 }

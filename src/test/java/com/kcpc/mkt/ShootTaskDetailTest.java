@@ -48,6 +48,9 @@ class ShootTaskDetailTest {
                 "{\"fullName\":\"Shoot Detail Cam\",\"email\":\"" + camEmail + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
         String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Shoot Detail Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();

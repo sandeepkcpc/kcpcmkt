@@ -24,17 +24,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Planning Workspace UI: there is no standalone "Save Plan" button. Planning Details
  * (Category/Priority/SKU/Talent/Drive-Link/Schedule) is one {@code <form id="planning-details-form">}
  * with no submit button of its own; the single "Submit for Planning Review" button sits at the
- * very bottom of the page (after Planned Outputs, Publication Scope and Shoot Assignment) and
- * references that form via the HTML5 {@code form="planning-details-form"} button attribute
- * (`POST /app/deliverables/{id}/plan-submit`). Planned Outputs / Publication Scope remain their
- * own independent steps in between, each with its own action, unaffected by this. Cameraperson(s)/
- * Shoot Lead (ENG-045) are different: their checkboxes/select live outside the form's DOM but
- * carry {@code form="planning-details-form"} so they submit together with it too - no separate
- * "Assign Cameraperson(s)" button anymore. One click now saves Planning Details, reconciles Shoot
- * Assignment to exactly what's checked (adds newly-checked, removes newly-unchecked), sets the
- * Shoot Lead, and submits for review, ALL in one transaction - if any step fails, nothing is
- * saved at all, not even the Planning Details fields (a deliberate reversal of the previous
- * two-transaction design, where a submit-readiness failure still left the save in place).
+ * bottom of the Planning tab and references that form via the HTML5 {@code form="planning-details-form"}
+ * button attribute (`POST /app/deliverables/{id}/plan-submit`). Planned Outputs / Publication Scope
+ * remain their own independent steps in between, each with its own action, unaffected by this.
+ * <p>
+ * Permission-driven workflow (superseding ENG-045): Shoot Assignment is no longer part of this
+ * form or this request at all - it is managed exclusively, and takes effect immediately, from the
+ * Shoot tab's own dedicated endpoints ({@code /shooting-assignments}, {@code /shooting-assignments/
+ * team}, {@code /shooting-assignments/remove}), so a PERM_04-only delegated employee (who may never
+ * hold Planning Execution/PERM_02) has a working entry point too. {@code plan-submit} only saves
+ * Planning Details and submits for review; {@link com.kcpc.mkt.planning.service.PlanningService
+ * #submitPlanningReview} rejects the submission if the already-persisted Shoot setup is incomplete
+ * (at least one active Cameraperson), independently of whatever the Planning form itself carried.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -83,6 +84,13 @@ class PlanningSingleFormTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        // Shoot Assignment happens first, from its own dedicated Shoot-tab endpoint - no longer
+        // bundled into the plan-submit request.
+        String cam = createCameraperson(ceo);
+        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam)).statusCode())
+                .isEqualTo(302);
+        ceo.get(base); // drain that step's own flash message before the assertion below
+
         String liveDate = LocalDate.now().plusDays(10).toString();
         HttpResponse<String> response = ceo.postForm(base + "/plan-submit", Map.of(
                 "categoryText", "Reels", "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/sas",
@@ -98,9 +106,9 @@ class PlanningSingleFormTest {
     }
 
     /**
-     * ENG-045 reversed the previous two-transaction design: a submit-readiness failure now rolls
-     * back the save too, not just the submit - "sab ek hi transaction me hona chahiye" was the
-     * user's explicit ask, precisely so a failed submit never leaves a half-applied state behind.
+     * A submit-readiness failure (missing Content Priority/Drive Link) still rolls back the
+     * Planning Details save too, not just the submit step - unrelated to, and unchanged by, the
+     * Shoot Assignment split.
      */
     @Test
     void combinedSubmitRollsBackEverythingWhenSubmissionIsRejected() throws Exception {
@@ -111,7 +119,7 @@ class PlanningSingleFormTest {
 
         String liveDate = LocalDate.now().plusDays(10).toString();
         // No contentPriority and no folderLink - isReadyForPlanningReview() rejects the submit
-        // step, and now the whole transaction (including the save) rolls back with it.
+        // step, and the whole transaction (including the save) rolls back with it.
         HttpResponse<String> response = ceo.postForm(base + "/plan-submit", Map.of(
                 "categoryText", "Sarees", "planningMode", "STANDARD", "plannedLiveDate", liveDate));
         assertThat(response.statusCode()).isEqualTo(302);
@@ -123,6 +131,38 @@ class PlanningSingleFormTest {
 
         HttpResponse<String> page = ceo.get(base);
         assertThat(page.body()).contains("Nothing was saved:");
+    }
+
+    /**
+     * The new Shoot-setup readiness gate: Planning parameters can be fully complete, but submission
+     * is still rejected while zero Camerapersons are actively assigned - the plan is left in
+     * Planning (unsubmitted) with a clear message, and the Planning tab renders a "Go to Shoot
+     * Setup" link back to the Shoot tab (the single canonical UI for Shoot Assignment now).
+     */
+    @Test
+    void combinedSubmitRejectedWhenNoShootAssignmentExistsYet() throws Exception {
+        ContentPlan plan = approvedPlan("No Shoot Setup Yet");
+        String base = "/app/deliverables/" + plan.getId();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+
+        String liveDate = LocalDate.now().plusDays(10).toString();
+        // Planning parameters are fully ready, but no Cameraperson has ever been assigned.
+        HttpResponse<String> response = ceo.postForm(base + "/plan-submit", Map.of(
+                "categoryText", "Sarees", "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/no-shoot",
+                "planningMode", "STANDARD", "plannedLiveDate", liveDate));
+        assertThat(response.statusCode()).isEqualTo(302);
+
+        ContentPlan reloaded = contentPlanRepository.findById(plan.getId()).orElseThrow();
+        assertThat(reloaded.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("PL"); // never submitted
+        assertThat(shootingAssignmentRepository.findByContentPlanAndActiveTrue(reloaded)).isEmpty();
+
+        HttpResponse<String> page = ceo.get(base);
+        assertThat(page.body())
+                .contains("Nothing was saved:")
+                .contains("At least one Cameraperson must be assigned in the Shoot tab before Planning Review can be submitted")
+                .contains("content-detail-goto-shoot-tab")
+                .contains("Go to Shoot Setup");
     }
 
     @Test
@@ -148,10 +188,12 @@ class PlanningSingleFormTest {
         assertThat(body).doesNotContain(">Save Plan<");
         assertThat(body).contains("form=\"planning-details-form\">Submit for Planning Review</button>");
         // Section headings were removed from the UI on user request - assert the same underlying
-        // order (Planning Details, then Planned Outputs, then Shoot Assignment, then the single
-        // final submit) via each section's own stable markup instead.
+        // order (Planning Details, then Planned Outputs, then the single final submit, then the
+        // Shoot tab's own assignment picker further down the page) via each section's own stable
+        // markup instead. Shoot Assignment now renders in the Shoot tab panel, which is DOM-after
+        // the Planning tab panel (and its Submit button), not before it as when it lived inline.
         assertThat(body).containsSubsequence("id=\"planning-details-form\"", "id=\"planned-outputs-table\"",
-                "planning-shoot-picker", "form=\"planning-details-form\">Submit for Planning Review</button>");
+                "form=\"planning-details-form\">Submit for Planning Review</button>", "kcpc-assignment-picker");
     }
 
     /**
@@ -169,14 +211,15 @@ class PlanningSingleFormTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
         var camerapersonId = createCameraperson(ceo);
+        // Shoot Assignment happens from its own dedicated Shoot-tab endpoint, independently of the
+        // Planning Details submission below.
+        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", camerapersonId))
+                .statusCode()).isEqualTo(302);
 
-        // ENG-045: Cameraperson(s) submit together with the rest of Planning Details in this same
-        // POST now - a separate prior /shooting-assignments call would just get reconciled away
-        // (removed) by this one, since it only reflects the currently-checked set, not a delta.
         String liveDate = LocalDate.now().plusDays(10).toString();
         assertThat(ceo.postForm(base + "/plan-submit", Map.of(
                 "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/native-self-review",
-                "planningMode", "STANDARD", "plannedLiveDate", liveDate, "cameramanUserIds", camerapersonId))
+                "planningMode", "STANDARD", "plannedLiveDate", liveDate))
                 .statusCode()).isEqualTo(302);
 
         HttpResponse<String> page = ceo.get(base);
@@ -193,57 +236,66 @@ class PlanningSingleFormTest {
     }
 
     /**
-     * ENG-045's core new capability: unchecking a previously-assigned Cameraperson and resubmitting
-     * removes them, not just adds whoever's newly checked - "Submit for Planning Review" reconciles
-     * the active Shoot Assignment set to exactly what's checked, since there's no separate remove
-     * action anymore (the standalone {@code /shooting-assignments} endpoint used here to seed the
-     * stale assignment still works independently, unaffected - only the combined submit's own
-     * reconcile behavior is what's under test).
+     * Regression coverage for the permission-driven Shoot Assignment split: {@code plan-submit} no
+     * longer accepts (or acts on) Cameraperson/Shoot Lead fields at all, so stale/forged
+     * Planning-form request data can never recreate, remove, or overwrite the Shoot Assignment
+     * already saved independently through the Shoot tab's own endpoints. This directly replaces the
+     * old {@code combinedSubmitReconcilesCamerapersonsToExactlyWhatsChecked} test, which asserted
+     * the OPPOSITE (that plan-submit's own cameramanUserIds reconciled/overwrote the active team) -
+     * that behavior has been deliberately removed.
      */
     @Test
-    void combinedSubmitReconcilesCamerapersonsToExactlyWhatsChecked() throws Exception {
-        ContentPlan plan = approvedPlan("Reconcile Shoot Team");
+    void staleCameramanUserIdsInPlanSubmitRequestCannotOverwriteAssignmentsSavedThroughShootTab() throws Exception {
+        ContentPlan plan = approvedPlan("Stale Plan Submit Data");
         String base = "/app/deliverables/" + plan.getId();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        String staleCam = createCameraperson(ceo);
-        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", staleCam)).statusCode())
+        String realCam = createCameraperson(ceo);
+        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", realCam)).statusCode())
                 .isEqualTo(302);
-        String freshCam = createCameraperson(ceo);
+        String staleCam = createCameraperson(ceo); // never actually assigned - only referenced below
 
         String liveDate = LocalDate.now().plusDays(10).toString();
+        // A stale/forged client still sends cameramanUserIds - plan-submit must silently ignore it
+        // (the controller no longer even binds this parameter) rather than reconciling/overwriting.
         HttpResponse<String> response = ceo.postForm(base + "/plan-submit", Map.of(
-                "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/reconcile",
-                "planningMode", "STANDARD", "plannedLiveDate", liveDate, "cameramanUserIds", freshCam));
+                "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/stale-data",
+                "planningMode", "STANDARD", "plannedLiveDate", liveDate, "cameramanUserIds", staleCam));
         assertThat(response.statusCode()).isEqualTo(302);
 
         ContentPlan reloaded = contentPlanRepository.findById(plan.getId()).orElseThrow();
         assertThat(reloaded.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("PLRV");
 
         var active = shootingAssignmentRepository.findByContentPlanAndActiveTrue(reloaded);
-        assertThat(active).hasSize(1);
-        assertThat(active.get(0).getCameraperson().getId().toString()).isEqualTo(freshCam);
+        assertThat(active).as("The real Shoot-tab assignment must survive untouched - the stale form field is a no-op")
+                .hasSize(1);
+        assertThat(active.get(0).getCameraperson().getId().toString()).isEqualTo(realCam);
     }
 
     /**
-     * ENG-047: Shoot Instructions (the shared per-stage Description, ENG-046) now enters alongside
-     * Cameraperson(s)/Shoot Lead in this same combined submit - "Assignment save hote hi description
-     * bhi us stage assignment ke saath save ho."
+     * Shoot Instructions (the shared per-stage Description) is now set exclusively through its own
+     * dedicated endpoint ({@code /shooting/description}, available from the Shoot tab), independent
+     * of Planning submission - plan-submit no longer accepts or touches this field at all.
      */
     @Test
-    void combinedSubmitAlsoSavesShootInstructions() throws Exception {
+    void shootInstructionsAreSetIndependentlyOfPlanSubmit() throws Exception {
         ContentPlan plan = approvedPlan("Shoot Instructions");
         String base = "/app/deliverables/" + plan.getId();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createCameraperson(ceo);
+        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam)).statusCode())
+                .isEqualTo(302);
+
+        assertThat(ceo.postForm(base + "/shooting/description",
+                Map.of("description", "Front, back aur close-up shots lena. Gota work clearly visible ho."))
+                .statusCode()).isEqualTo(302);
 
         String liveDate = LocalDate.now().plusDays(10).toString();
         HttpResponse<String> response = ceo.postForm(base + "/plan-submit", Map.of(
                 "contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/instructions",
-                "planningMode", "STANDARD", "plannedLiveDate", liveDate, "cameramanUserIds", cam,
-                "shootDescription", "Front, back aur close-up shots lena. Gota work clearly visible ho."));
+                "planningMode", "STANDARD", "plannedLiveDate", liveDate));
         assertThat(response.statusCode()).isEqualTo(302);
 
         ContentPlan reloaded = contentPlanRepository.findById(plan.getId()).orElseThrow();
@@ -260,7 +312,12 @@ class PlanningSingleFormTest {
                 "{\"fullName\":\"Staged Flow Camera\",\"email\":\"staged-cam-" + unique + "@kcpcbandhani.local\","
                         + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000004\","
                         + "\"creationReason\":\"staged planning flow test fixture\"}");
-        return response.get("userId").asText();
+        String userId = response.get("userId").asText();
+        // Candidate eligibility/execution is now permission-driven (OperationalEligibilityService).
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"staged planning flow test fixture grant\"}");
+        return userId;
     }
 
     private ContentPlan approvedPlan(String title) throws Exception {

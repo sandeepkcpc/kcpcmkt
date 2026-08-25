@@ -117,6 +117,17 @@
                                     <c:otherwise>&mdash;</c:otherwise>
                                 </c:choose>
                             </span></div>
+                            <%-- Editors use Raw Shoot as source material and Edit for working files/drafts. --%>
+                            <c:if test="${not empty driveProvisioning and not empty driveProvisioning.rawShootFolderId}">
+                                <div class="info-row"><span class="summary-field-label">Raw Shoot Folder</span><span class="summary-field-value">
+                                    <a class="drive-link" href="https://drive.google.com/drive/folders/${driveProvisioning.rawShootFolderId}" target="_blank" rel="noopener noreferrer">Open Raw Shoot &#8599;</a>
+                                </span></div>
+                            </c:if>
+                            <c:if test="${not empty driveProvisioning and not empty driveProvisioning.editFolderId}">
+                                <div class="info-row"><span class="summary-field-label">Edit Folder</span><span class="summary-field-value">
+                                    <a class="drive-link" href="https://drive.google.com/drive/folders/${driveProvisioning.editFolderId}" target="_blank" rel="noopener noreferrer">Open Edit Folder &#8599;</a>
+                                </span></div>
+                            </c:if>
                         </div>
                     </div>
                 </div>

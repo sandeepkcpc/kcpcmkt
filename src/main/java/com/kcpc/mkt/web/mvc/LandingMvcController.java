@@ -1,9 +1,11 @@
 package com.kcpc.mkt.web.mvc;
 
 import com.kcpc.mkt.identity.domain.AccessClass;
+import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.repository.PersonalMarkAttributionRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
@@ -76,6 +78,8 @@ public class LandingMvcController {
     private final PipelineDashboardService pipelineDashboardService;
     private final PublishingService publishingService;
     private final AuthorizationService authorizationService;
+    private final OperationalEligibilityService operationalEligibilityService;
+    private final com.kcpc.mkt.workflow.service.AssignmentManagementQueueService assignmentManagementQueueService;
 
     private static final Set<WorkflowStatus> SHOOT_ACTIVE_WINDOW =
             EnumSet.of(WorkflowStatus.SA, WorkflowStatus.SIP, WorkflowStatus.SRV);
@@ -117,7 +121,9 @@ public class LandingMvcController {
                                  UserRepository userRepository,
                                  PipelineDashboardService pipelineDashboardService,
                                  PublishingService publishingService,
-                                 AuthorizationService authorizationService) {
+                                 AuthorizationService authorizationService,
+                                 OperationalEligibilityService operationalEligibilityService,
+                                 com.kcpc.mkt.workflow.service.AssignmentManagementQueueService assignmentManagementQueueService) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -131,6 +137,8 @@ public class LandingMvcController {
         this.pipelineDashboardService = pipelineDashboardService;
         this.publishingService = publishingService;
         this.authorizationService = authorizationService;
+        this.operationalEligibilityService = operationalEligibilityService;
+        this.assignmentManagementQueueService = assignmentManagementQueueService;
     }
 
     /** Role-appropriate dispatch, kept as the shared post-login redirect target. */
@@ -240,13 +248,18 @@ public class LandingMvcController {
                         ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedShootDate(), today)
                         : null;
                 boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
+                // Permission-driven workflow: the assignment is real (this loop only reaches
+                // active-assignee rows), but Start/Continue/Submit itself additionally requires a
+                // live PERM_18 grant covering this stage/item - if that has been revoked, the task
+                // stays visible (never hidden) with execution suppressed instead.
+                boolean shootBlocked = !operationalEligibilityService.isShootExecutionEligible(user, plan.getWorkflowInstance());
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Cameraperson",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedShootDate(), lead == null ? null : lead.getCameraperson().getFullName(), isLead,
                         modelsByPlan.get(plan.getId()), statusLabel, statusCssClass(statusLabel), delayDays,
-                        onHold ? null : actionLabel(statusLabel, delayDays != null, "Cameraperson"),
-                        plan.getFolderLink(), null, onHold));
+                        (onHold || shootBlocked) ? null : actionLabel(statusLabel, delayDays != null, "Cameraperson"),
+                        plan.getFolderLink(), null, onHold, "SHOOT", false, shootBlocked));
             } else {
                 completedWork.add(completedItem(plan, t.getId(), "SHOOT", GateType.SHOOT_REVIEW, SHOOT_ACTIVE_WINDOW,
                         plan.getPlannedShootDate(), modelsByPlan.get(plan.getId()), transitionsByInstance, reviewCyclesByInstance));
@@ -273,13 +286,14 @@ public class LandingMvcController {
                         ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedEditDate(), today)
                         : null;
                 boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
+                boolean editBlocked = !operationalEligibilityService.isEditExecutionEligible(user, plan.getWorkflowInstance());
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Editor",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedEditDate(), lead == null ? null : lead.getEditor().getFullName(), isLead,
                         editorNames, statusLabel, statusCssClass(statusLabel), delayDays,
-                        onHold ? null : actionLabel(statusLabel, delayDays != null, "Editor"),
-                        plan.getFolderLink(), null, onHold));
+                        (onHold || editBlocked) ? null : actionLabel(statusLabel, delayDays != null, "Editor"),
+                        plan.getFolderLink(), null, onHold, "EDIT", false, editBlocked));
             } else {
                 completedWork.add(completedItem(plan, t.getId(), "EDIT", GateType.EDIT_REVIEW, EDIT_ACTIVE_WINDOW,
                         plan.getPlannedEditDate(), null, transitionsByInstance, reviewCyclesByInstance));
@@ -295,12 +309,14 @@ public class LandingMvcController {
                 pendingTargetsTotal += targets.totalCount() - targets.resolvedCount();
                 String statusLabel = activeStatusLabel(s, null, plan.getWorkflowInstance().getId(), reviewCyclesByInstance);
                 boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
+                boolean publishBlocked = !operationalEligibilityService.isPublishingExecutionEligible(user, plan.getWorkflowInstance());
+                boolean repost = publishingService.currentPublishingCycleStart(plan.getWorkflowInstance()) != null;
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Publisher",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
                         plan.getPlannedLiveDate(), null, false, publisherNames, statusLabel, statusCssClass(statusLabel), null,
-                        onHold ? null : actionLabel(statusLabel, false, "Publisher"), plan.getFolderLink(),
-                        targets.resolvedCount() + " / " + targets.totalCount(), onHold));
+                        (onHold || publishBlocked) ? null : actionLabel(statusLabel, false, "Publisher"), plan.getFolderLink(),
+                        targets.resolvedCount() + " / " + targets.totalCount(), onHold, "PUBLISH", repost, publishBlocked));
             } else {
                 // No review/decision gate exists for Publishing - Final Result stays blank.
                 completedWork.add(completedItem(plan, t.getId(), "PUBLISH", null, PUBLISH_ACTIVE_WINDOW,
@@ -318,11 +334,13 @@ public class LandingMvcController {
         model.addAttribute("editLeadDisplayName", editLeadDisplayName);
         model.addAttribute("today", today);
 
-        // ENG-058: Cameraperson-focused dashboard (KPI cards + tabs + Shoot-flavored tables) shows
-        // whenever this employee's Business Role is Camera Person; every other Business Role keeps
-        // the ENG-057 generic Active/Completed Work layout unchanged. Both the KPI counts and the
-        // Shoot-specific tables read from the exact same activeWork/completedWork lists already
-        // built above (filtered by roleLabel/stageWorked) - never a separate count query - so a
+        // Permission-driven multi-function My Work: Shoot/Edit/Publishing are now stage tabs
+        // (never a single Business-Role-picked dashboard flavor), each shown when the employee
+        // holds the matching live execution permission OR has real current/history assignment data
+        // for that stage - so a permission holder with no assignment yet still sees their
+        // (empty) tab, and someone with historical-only involvement still sees their history. The
+        // KPI counts and tables both read from the exact same activeWork/completedWork lists built
+        // above (filtered by roleLabel/stageWorked) - never a separate count query - so a
         // count/table mismatch is structurally impossible.
         List<ActiveWorkItem> shootActiveWork = activeWork.stream()
                 .filter(item -> "Cameraperson".equals(item.getRoleLabel())).toList();
@@ -335,10 +353,12 @@ public class LandingMvcController {
                 shootActiveWork.stream().filter(item -> "Rework Required".equals(item.getStatusLabel())).count());
         model.addAttribute("delayedShootsCount", shootActiveWork.stream().filter(ActiveWorkItem::isDelayed).count());
         model.addAttribute("completedShootsCount", shootCompletedWork.size());
+        boolean hasShootExecutionPermission =
+                authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_18_SHOOT_EXECUTION);
+        model.addAttribute("hasShootExecutionPermission", hasShootExecutionPermission);
+        model.addAttribute("showShootTab",
+                hasShootExecutionPermission || !shootActiveWork.isEmpty() || !shootCompletedWork.isEmpty());
 
-        // ENG-066: Editor-focused dashboard (KPI cards + tabs + Edit-flavored tables) - identical
-        // pattern to the Cameraperson dashboard above, same activeWork/completedWork lists filtered
-        // by roleLabel/stageWorked instead of a separate query, same count/table consistency guarantee.
         List<ActiveWorkItem> editActiveWork = activeWork.stream()
                 .filter(item -> "Editor".equals(item.getRoleLabel())).toList();
         List<CompletedWorkItem> editCompletedWork = completedWork.stream()
@@ -350,14 +370,17 @@ public class LandingMvcController {
                 editActiveWork.stream().filter(item -> "Rework Required".equals(item.getStatusLabel())).count());
         model.addAttribute("editDelayedCount", editActiveWork.stream().filter(ActiveWorkItem::isDelayed).count());
         model.addAttribute("editCompletedCount", editCompletedWork.size());
+        boolean hasEditExecutionPermission =
+                authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_19_EDIT_EXECUTION);
+        model.addAttribute("hasEditExecutionPermission", hasEditExecutionPermission);
+        model.addAttribute("showEditTab",
+                hasEditExecutionPermission || !editActiveWork.isEmpty() || !editCompletedWork.isEmpty());
 
-        // ENG-068: Publisher-focused dashboard - same pattern again, but only 2 KPI cards worth of
-        // grouping concepts apply here (no Rework/Delayed - Publishing has no review gate and no
-        // per-row delay tracking was requested); "Pending Targets" is a genuinely different kind of
-        // count from the other two roles' KPIs - a sum of unresolved (Planned Output, Publication
-        // Target) pairs across every active row, not a row count - accumulated once above in the
-        // same loop that builds each row's own "resolved / total" Targets column, so the KPI number
-        // and the table's per-row figures can never drift apart.
+        // "Pending Targets" is a genuinely different kind of count from the other two stages' KPIs -
+        // a sum of unresolved (Planned Output, Publication Target) pairs across every active row,
+        // not a row count - accumulated once above in the same loop that builds each row's own
+        // "resolved / total" Targets column, so the KPI number and the table's per-row figures can
+        // never drift apart.
         List<ActiveWorkItem> publishActiveWork = activeWork.stream()
                 .filter(item -> "Publisher".equals(item.getRoleLabel())).toList();
         List<CompletedWorkItem> publishCompletedWork = completedWork.stream()
@@ -367,8 +390,32 @@ public class LandingMvcController {
         model.addAttribute("activePublishingCount", publishActiveWork.size());
         model.addAttribute("pendingTargetsCount", pendingTargetsTotal);
         model.addAttribute("publishCompletedCount", publishCompletedWork.size());
+        boolean hasPublishingExecutionPermission =
+                authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION);
+        model.addAttribute("hasPublishingExecutionPermission", hasPublishingExecutionPermission);
+        model.addAttribute("showPublishTab",
+                hasPublishingExecutionPermission || !publishActiveWork.isEmpty() || !publishCompletedWork.isEmpty());
 
-        model.addAttribute("myMarks", markAttributionRepository.findByRecipient(user));
+        List<com.kcpc.mkt.marks.domain.PersonalMarkAttribution> allMarks = markAttributionRepository.findByRecipient(user);
+        model.addAttribute("myMarks", allMarks);
+        model.addAttribute("shootMarks", allMarks.stream()
+                .filter(m -> m.getRoleType() == com.kcpc.mkt.marks.domain.RoleType.CAMERAPERSON).toList());
+        model.addAttribute("editMarks", allMarks.stream()
+                .filter(m -> m.getRoleType() == com.kcpc.mkt.marks.domain.RoleType.EDITOR).toList());
+
+        // Assignment Management (PERM_04/06/11 - assignment authority, distinct from execution) -
+        // a delegated, actionable queue, never a historical/broader list (see
+        // AssignmentManagementQueueService). Shown as a separate "Execution | Assignment
+        // Management" tab tier only when the user actually holds one of these permissions -
+        // otherwise the tier itself stays hidden, not just empty.
+        boolean hasAssignmentManagementPermission = authorizationService.hasAnyActiveGrant(user,
+                OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, OperationalPermission.PERM_06_EDIT_ASSIGNMENT,
+                OperationalPermission.PERM_11_REASSIGN);
+        model.addAttribute("showAssignmentManagementTier", hasAssignmentManagementPermission);
+        if (hasAssignmentManagementPermission) {
+            model.addAttribute("shootAssignmentQueue", assignmentManagementQueueService.shootQueue(user));
+            model.addAttribute("editAssignmentQueue", assignmentManagementQueueService.editQueue(user));
+        }
 
         return "my-work";
     }

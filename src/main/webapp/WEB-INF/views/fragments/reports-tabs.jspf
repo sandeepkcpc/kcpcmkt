@@ -8,10 +8,23 @@
      under .reports-asof, so Team and Reports look like the same product without coupling the two
      features' CSS together. The "Data as of" badge is rendered per-screen (next to that screen's
      own H1), not here - see reports-asof-badge.jspf. --%>
+<%-- Spec section 16.5: each tab only renders for a viewer who can actually reach it - an EMPLOYEE
+     holding only one report permission (e.g. PERM_15) must never see the other, management-only
+     tabs merely because they reached this shared shell. --%>
 <div class="reports-tabs">
-    <a class="reports-tab ${activeReportTab == 'kpis' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/kpis">KPI Dashboard</a>
-    <a class="reports-tab ${activeReportTab == 'delayed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/delayed">Delayed Deliverables</a>
-    <a class="reports-tab ${activeReportTab == 'admin-actions' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/admin-actions">Administrative Actions</a>
-    <a class="reports-tab ${activeReportTab == 'audit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/audit">Logs</a>
-    <a class="reports-tab ${activeReportTab == 'export' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/export">Export</a>
+    <c:if test="${canViewKpiTab}">
+        <a class="reports-tab ${activeReportTab == 'kpis' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/kpis">KPI Dashboard</a>
+    </c:if>
+    <c:if test="${canViewDelayedTab}">
+        <a class="reports-tab ${activeReportTab == 'delayed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/delayed">Delayed Deliverables</a>
+    </c:if>
+    <c:if test="${canViewAdminActionsTab}">
+        <a class="reports-tab ${activeReportTab == 'admin-actions' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reports/admin-actions">Administrative Actions</a>
+    </c:if>
+    <c:if test="${canViewLogsTab}">
+        <a class="reports-tab ${activeReportTab == 'audit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/audit">Logs</a>
+    </c:if>
+    <c:if test="${canViewExportTab}">
+        <a class="reports-tab ${activeReportTab == 'export' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/export">Export</a>
+    </c:if>
 </div>

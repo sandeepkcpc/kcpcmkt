@@ -77,6 +77,12 @@ class MvcScreenSmokeTest {
         TestApiClient pub = new TestApiClient(port);
         pub.login(pubEmail, "Passw0rd!");
         ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"mvc smoke test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + edId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"mvc smoke test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"mvc smoke test publisher grant\"}");
 
