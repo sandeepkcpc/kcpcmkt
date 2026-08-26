@@ -483,6 +483,7 @@
                                                 <label class="model-check-item">
                                                     <input type="checkbox" name="modelUserIds" value="${mu.id}"
                                                            data-name="${mu.fullName}" ${isSelected ? 'checked' : ''}> ${mu.fullName}
+                                                    <span class="muted assignee-task-count">(<c:out value="${mu.activeTaskLabel}"/>)</span>
                                                 </label>
                                             </c:forEach>
                                         </div>
@@ -836,6 +837,7 @@
                                                 <c:if test="${!isAssigned}">
                                                     <label class="model-check-item">
                                                         <input type="checkbox" name="cameramanUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                                        <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                                                     </label>
                                                 </c:if>
                                             </c:forEach>
@@ -1094,6 +1096,7 @@
                                             <c:if test="${!isAssigned}">
                                                 <label class="model-check-item">
                                                     <input type="checkbox" name="editorUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                                    <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                                                 </label>
                                             </c:if>
                                         </c:forEach>
@@ -1350,6 +1353,7 @@
                                                         <c:if test="${!isAssigned}">
                                                             <label class="model-check-item">
                                                                 <input type="checkbox" name="publisherUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                                                             </label>
                                                         </c:if>
                                                     </c:forEach>
@@ -1774,123 +1778,236 @@
                             <div class="performance-obligation-due">Performance Due ${ob.performanceDueDate} (non-reschedulable)${ob.completed ? ' — COMPLETED' : ''}</div>
                         </div>
                         <c:set var="sc" value="${scorecardsByObligation[ob.id]}"/>
+                        <%-- V26: Performance tracking is Meta-only (Instagram/Facebook - both platforms
+                             already guaranteed by the controller's eligibility filter, so every ${ob} here
+                             is eligible by construction) with 4 direct-entry metrics from Meta Ads Manager,
+                             replacing the old 6-field/derived-Hook-Hold-CTR model. A scorecard created
+                             before this change (sc.usesMetaMetricModel == false) keeps rendering through
+                             its ORIGINAL form/summary/correction blocks below (unchanged) so historical data
+                             stays fully readable and correctable - every scorecard created from now on is
+                             the new model by construction (PerformanceService#saveDraft only ever calls
+                             CreativePerformanceScorecard#updateMetaDraft), so "no scorecard yet" always
+                             means the new draft form. --%>
                         <c:choose>
                             <c:when test="${not empty sc and sc.submitted}">
-                                <%-- Hook/Hold/CTR read from effectiveMetricsByObligation (latest per-metric
-                                     correction applied), never the raw sc.*RatePercent frozen at submission -
-                                     otherwise a correction would never visibly change the summary. --%>
-                                <c:set var="effMetrics" value="${effectiveMetricsByObligation[ob.id]}"/>
-                                <p>Hook Rate: <c:out value="${effMetrics.hookRatePercent}" default="N/A"/>% &middot;
-                                   Hold Rate: <c:out value="${effMetrics.holdRatePercent}" default="N/A"/>% &middot;
-                                   CTR: <c:out value="${effMetrics.ctrPercent}" default="N/A"/>%</p>
-                                <c:if test="${canPerformanceUpdate}">
-                                    <details>
-                                        <summary>Correct a metric</summary>
-                                        <%-- Only metrics not marked N/A on THIS scorecard are offered - never a
-                                             blind universal list (a metric legitimately N/A for this
-                                             Platform/Output was never really "part of" this scorecard). --%>
-                                        <form class="action-form performance-correction-form" method="post"
-                                              action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/scorecards/${sc.id}/corrections">
-                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                            <label>Metric to correct
-                                                <select class="metric-correction-select" required>
-                                                    <option value="" disabled selected>Select metric&hellip;</option>
-                                                    <c:if test="${not effMetrics.views3secIsNa}">
-                                                        <option value="views3sec">3-sec Views</option>
-                                                    </c:if>
-                                                    <option value="plays">Plays</option>
-                                                    <c:if test="${not effMetrics.watchTimeIsNa}">
-                                                        <option value="watchTime">Avg Watch</option>
-                                                    </c:if>
-                                                    <c:if test="${not effMetrics.videoLengthIsNa}">
-                                                        <option value="videoLength">Video Length</option>
-                                                    </c:if>
-                                                    <c:if test="${not effMetrics.clicksIsNa}">
-                                                        <option value="linkClicks">Link Clicks</option>
-                                                    </c:if>
-                                                    <option value="impressions">Impressions</option>
-                                                </select>
-                                            </label>
-                                            <div class="performance-metric-correction-field hidden" data-metric="views3sec">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.views3sec}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" min="0" name="correctedViews3sec"></label>
-                                            </div>
-                                            <div class="performance-metric-correction-field hidden" data-metric="plays">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.plays}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" min="0" name="correctedPlays"></label>
-                                            </div>
-                                            <div class="performance-metric-correction-field hidden" data-metric="watchTime">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.averageWatchTimeSeconds}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedWatchTimeSeconds"></label>
-                                            </div>
-                                            <div class="performance-metric-correction-field hidden" data-metric="videoLength">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.videoLengthSeconds}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedVideoLengthSeconds"></label>
-                                            </div>
-                                            <div class="performance-metric-correction-field hidden" data-metric="linkClicks">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.linkClicks}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" min="0" name="correctedLinkClicks"></label>
-                                            </div>
-                                            <div class="performance-metric-correction-field hidden" data-metric="impressions">
-                                                <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.impressions}" default="N/A"/></p>
-                                                <label>Corrected Value <input type="number" min="0" name="correctedImpressions"></label>
-                                            </div>
-                                            <label>Reason * <input type="text" name="correctionReason" required></label>
-                                            <button type="submit">Save Correction</button>
-                                        </form>
-                                    </details>
-                                    <details>
-                                        <summary>Correction History</summary>
-                                        <%-- Per-scorecard history, distinct from the company-wide Reports -> Logs
-                                             audit trail (that stays untouched - see PERFORMANCE_METRIC_CORRECTED
-                                             audit record still written by PerformanceService#correctMetrics). --%>
-                                        <c:forEach var="corr" items="${correctionsByObligation[ob.id]}">
-                                            <div class="correction-history-entry">
-                                                <c:if test="${not empty corr.newViews3sec}">
-                                                    <p>3-sec Views: <c:out value="${corr.priorViews3sec}" default="N/A"/> &rarr; ${corr.newViews3sec}</p>
-                                                </c:if>
-                                                <c:if test="${not empty corr.newPlays}">
-                                                    <p>Plays: <c:out value="${corr.priorPlays}" default="N/A"/> &rarr; ${corr.newPlays}</p>
-                                                </c:if>
-                                                <c:if test="${not empty corr.newWatchTime}">
-                                                    <p>Avg Watch: <c:out value="${corr.priorWatchTime}" default="N/A"/> &rarr; ${corr.newWatchTime}</p>
-                                                </c:if>
-                                                <c:if test="${not empty corr.newVideoLength}">
-                                                    <p>Video Length: <c:out value="${corr.priorVideoLength}" default="N/A"/> &rarr; ${corr.newVideoLength}</p>
-                                                </c:if>
-                                                <c:if test="${not empty corr.newClicks}">
-                                                    <p>Link Clicks: <c:out value="${corr.priorClicks}" default="N/A"/> &rarr; ${corr.newClicks}</p>
-                                                </c:if>
-                                                <c:if test="${not empty corr.newImpressions}">
-                                                    <p>Impressions: <c:out value="${corr.priorImpressions}" default="N/A"/> &rarr; ${corr.newImpressions}</p>
-                                                </c:if>
-                                                <p class="muted">Reason: <c:out value="${corr.mandatoryReason}"/> &middot;
-                                                   By <c:out value="${corr.correctedBy.fullName}"/> &middot; ${kcpc:ist(corr.correctedAt)}</p>
-                                            </div>
-                                        </c:forEach>
-                                        <c:if test="${empty correctionsByObligation[ob.id]}"><p class="muted">No corrections yet.</p></c:if>
-                                    </details>
-                                </c:if>
+                                <c:choose>
+                                    <c:when test="${sc.usesMetaMetricModel}">
+                                        <%-- Effective (correction-resolved) values, never the raw scorecard
+                                             frozen at submission - otherwise a correction would never
+                                             visibly change the summary. --%>
+                                        <c:set var="effMetrics" value="${effectiveMetricsByObligation[ob.id]}"/>
+                                        <p>Hook Rate: <c:choose><c:when test="${effMetrics.hookRateIsNa}">N/A</c:when><c:otherwise><c:out value="${effMetrics.hookRatePercent}" default="N/A"/>%</c:otherwise></c:choose> &middot;
+                                           Hold Rate: <c:choose><c:when test="${effMetrics.holdRateIsNa}">N/A</c:when><c:otherwise><c:out value="${effMetrics.holdRatePercent}" default="N/A"/>%</c:otherwise></c:choose> &middot;
+                                           Views: ${kcpc:count(effMetrics.views)} &middot;
+                                           Average View Duration: <c:choose><c:when test="${effMetrics.avgViewDurationIsNa}">N/A</c:when><c:otherwise><c:out value="${effMetrics.averageViewDurationSeconds}" default="N/A"/>s</c:otherwise></c:choose></p>
+                                        <c:if test="${canPerformanceUpdate}">
+                                            <details>
+                                                <summary>Correct a metric</summary>
+                                                <%-- Only metrics not marked N/A on THIS scorecard are offered - Views
+                                                     has no N/A concept (always required for an eligible Meta record). --%>
+                                                <form class="action-form performance-correction-form" method="post"
+                                                      action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/scorecards/${sc.id}/corrections">
+                                                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                    <label>Metric to correct
+                                                        <select class="metric-correction-select" required>
+                                                            <option value="" disabled selected>Select metric&hellip;</option>
+                                                            <c:if test="${not effMetrics.hookRateIsNa}">
+                                                                <option value="hookRate">Hook Rate</option>
+                                                            </c:if>
+                                                            <c:if test="${not effMetrics.holdRateIsNa}">
+                                                                <option value="holdRate">Hold Rate</option>
+                                                            </c:if>
+                                                            <option value="views">Views</option>
+                                                            <c:if test="${not effMetrics.avgViewDurationIsNa}">
+                                                                <option value="avgViewDuration">Average View Duration</option>
+                                                            </c:if>
+                                                        </select>
+                                                    </label>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="hookRate">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.hookRatePercent}" default="N/A"/>%</p>
+                                                        <label>Corrected Value (%) <input type="number" step="0.01" min="0" max="100" name="correctedHookRatePercent"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="holdRate">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.holdRatePercent}" default="N/A"/>%</p>
+                                                        <label>Corrected Value (%) <input type="number" step="0.01" min="0" max="100" name="correctedHoldRatePercent"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="views">
+                                                        <p class="performance-metric-correction-current">Current Value: ${kcpc:count(effMetrics.views)}</p>
+                                                        <label>Corrected Value <input type="number" min="0" step="1" name="correctedViews"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="avgViewDuration">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${effMetrics.averageViewDurationSeconds}" default="N/A"/>s</p>
+                                                        <label>Corrected Value (s) <input type="number" step="0.1" min="0" name="correctedAverageViewDurationSeconds"></label>
+                                                    </div>
+                                                    <label>Reason * <input type="text" name="correctionReason" required></label>
+                                                    <button type="submit">Save Correction</button>
+                                                </form>
+                                            </details>
+                                            <details>
+                                                <summary>Correction History</summary>
+                                                <%-- Per-scorecard history, distinct from the company-wide Reports -> Logs
+                                                     audit trail (that stays untouched - see PERFORMANCE_METRIC_CORRECTED
+                                                     audit record still written by PerformanceService#correctMetrics). --%>
+                                                <c:forEach var="corr" items="${correctionsByObligation[ob.id]}">
+                                                    <div class="correction-history-entry">
+                                                        <c:if test="${not empty corr.newMetaHookRate}">
+                                                            <p>Hook Rate: <c:out value="${corr.priorMetaHookRate}" default="N/A"/>% &rarr; ${corr.newMetaHookRate}%</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newMetaHoldRate}">
+                                                            <p>Hold Rate: <c:out value="${corr.priorMetaHoldRate}" default="N/A"/>% &rarr; ${corr.newMetaHoldRate}%</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newMetaViews}">
+                                                            <p>Views: ${kcpc:count(corr.priorMetaViews)} &rarr; ${kcpc:count(corr.newMetaViews)}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newMetaAvgViewDuration}">
+                                                            <p>Average View Duration: <c:out value="${corr.priorMetaAvgViewDuration}" default="N/A"/>s &rarr; ${corr.newMetaAvgViewDuration}s</p>
+                                                        </c:if>
+                                                        <p class="muted">Reason: <c:out value="${corr.mandatoryReason}"/> &middot;
+                                                           By <c:out value="${corr.correctedBy.fullName}"/> &middot; ${kcpc:ist(corr.correctedAt)}</p>
+                                                    </div>
+                                                </c:forEach>
+                                                <c:if test="${empty correctionsByObligation[ob.id]}"><p class="muted">No corrections yet.</p></c:if>
+                                            </details>
+                                        </c:if>
+                                    </c:when>
+                                    <c:otherwise>
+                                        <%-- Pre-V26 scorecard - original 6-field model, unchanged, so historical
+                                             data stays fully readable and correctable. --%>
+                                        <c:set var="legacyMetrics" value="${legacyEffectiveMetricsByObligation[ob.id]}"/>
+                                        <p class="muted note-box">This scorecard was recorded before Performance
+                                            tracking moved to the Meta-only model - shown in its original format.</p>
+                                        <p>Hook Rate: <c:out value="${legacyMetrics.hookRatePercent}" default="N/A"/>% &middot;
+                                           Hold Rate: <c:out value="${legacyMetrics.holdRatePercent}" default="N/A"/>% &middot;
+                                           CTR: <c:out value="${legacyMetrics.ctrPercent}" default="N/A"/>%</p>
+                                        <c:if test="${canPerformanceUpdate}">
+                                            <details>
+                                                <summary>Correct a metric</summary>
+                                                <form class="action-form performance-correction-form" method="post"
+                                                      action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/scorecards/${sc.id}/corrections">
+                                                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                                    <label>Metric to correct
+                                                        <select class="metric-correction-select" required>
+                                                            <option value="" disabled selected>Select metric&hellip;</option>
+                                                            <c:if test="${not legacyMetrics.views3secIsNa}">
+                                                                <option value="views3sec">3-sec Views</option>
+                                                            </c:if>
+                                                            <option value="plays">Plays</option>
+                                                            <c:if test="${not legacyMetrics.watchTimeIsNa}">
+                                                                <option value="watchTime">Avg Watch</option>
+                                                            </c:if>
+                                                            <c:if test="${not legacyMetrics.videoLengthIsNa}">
+                                                                <option value="videoLength">Video Length</option>
+                                                            </c:if>
+                                                            <c:if test="${not legacyMetrics.clicksIsNa}">
+                                                                <option value="linkClicks">Link Clicks</option>
+                                                            </c:if>
+                                                            <option value="impressions">Impressions</option>
+                                                        </select>
+                                                    </label>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="views3sec">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.views3sec}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" min="0" name="correctedViews3sec"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="plays">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.plays}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" min="0" name="correctedPlays"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="watchTime">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.averageWatchTimeSeconds}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedWatchTimeSeconds"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="videoLength">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.videoLengthSeconds}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" step="0.01" min="0" name="correctedVideoLengthSeconds"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="linkClicks">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.linkClicks}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" min="0" name="correctedLinkClicks"></label>
+                                                    </div>
+                                                    <div class="performance-metric-correction-field hidden" data-metric="impressions">
+                                                        <p class="performance-metric-correction-current">Current Value: <c:out value="${legacyMetrics.impressions}" default="N/A"/></p>
+                                                        <label>Corrected Value <input type="number" min="0" name="correctedImpressions"></label>
+                                                    </div>
+                                                    <label>Reason * <input type="text" name="correctionReason" required></label>
+                                                    <button type="submit">Save Correction</button>
+                                                </form>
+                                            </details>
+                                            <details>
+                                                <summary>Correction History</summary>
+                                                <c:forEach var="corr" items="${correctionsByObligation[ob.id]}">
+                                                    <div class="correction-history-entry">
+                                                        <c:if test="${not empty corr.newViews3sec}">
+                                                            <p>3-sec Views: <c:out value="${corr.priorViews3sec}" default="N/A"/> &rarr; ${corr.newViews3sec}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newPlays}">
+                                                            <p>Plays: <c:out value="${corr.priorPlays}" default="N/A"/> &rarr; ${corr.newPlays}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newWatchTime}">
+                                                            <p>Avg Watch: <c:out value="${corr.priorWatchTime}" default="N/A"/> &rarr; ${corr.newWatchTime}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newVideoLength}">
+                                                            <p>Video Length: <c:out value="${corr.priorVideoLength}" default="N/A"/> &rarr; ${corr.newVideoLength}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newClicks}">
+                                                            <p>Link Clicks: <c:out value="${corr.priorClicks}" default="N/A"/> &rarr; ${corr.newClicks}</p>
+                                                        </c:if>
+                                                        <c:if test="${not empty corr.newImpressions}">
+                                                            <p>Impressions: <c:out value="${corr.priorImpressions}" default="N/A"/> &rarr; ${corr.newImpressions}</p>
+                                                        </c:if>
+                                                        <p class="muted">Reason: <c:out value="${corr.mandatoryReason}"/> &middot;
+                                                           By <c:out value="${corr.correctedBy.fullName}"/> &middot; ${kcpc:ist(corr.correctedAt)}</p>
+                                                    </div>
+                                                </c:forEach>
+                                                <c:if test="${empty correctionsByObligation[ob.id]}"><p class="muted">No corrections yet.</p></c:if>
+                                            </details>
+                                        </c:if>
+                                    </c:otherwise>
+                                </c:choose>
                             </c:when>
                             <c:when test="${canPerformanceUpdate}">
-                                <c:if test="${not empty sc}"><p class="performance-draft-status">Draft saved</p></c:if>
-                                <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/draft">
-                                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-                                    <div class="field-row">
-                                        <div><label>3-sec Views <input type="number" min="0" name="views3sec" value="${sc.views3sec}"></label></div>
-                                        <div><label>Plays <input type="number" min="0" name="plays" value="${sc.plays}"></label></div>
-                                    </div>
-                                    <div class="field-row">
-                                        <div><label>Avg Watch (s) <input type="number" step="0.01" min="0" name="averageWatchTimeSeconds" value="${sc.averageWatchTimeSeconds}"></label></div>
-                                        <div><label>Video Length (s) <input type="number" step="0.01" min="0" name="videoLengthSeconds" value="${sc.videoLengthSeconds}"></label></div>
-                                    </div>
-                                    <div class="field-row">
-                                        <div><label>Link Clicks <input type="number" min="0" name="linkClicks" value="${sc.linkClicks}"></label></div>
-                                        <div><label>Impressions <input type="number" min="0" name="impressions" value="${sc.impressions}"></label></div>
-                                    </div>
-                                    <p class="note-box">Any field may be left blank while a draft. Metrics not applicable to this platform/output should be handled via N/A (server-side default false here; use the correction path once submitted).</p>
-                                    <button type="submit">Save Draft</button>
-                                </form>
+                                <c:choose>
+                                    <c:when test="${empty sc or sc.usesMetaMetricModel}">
+                                        <c:if test="${not empty sc}"><p class="performance-draft-status">Draft saved</p></c:if>
+                                        <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/draft">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <div class="field-row">
+                                                <div><label>Hook Rate (%) <input type="number" step="0.01" min="0" max="100" name="hookRatePercent" value="${sc.metaHookRatePercent}"></label></div>
+                                                <div><label>Hold Rate (%) <input type="number" step="0.01" min="0" max="100" name="holdRatePercent" value="${sc.metaHoldRatePercent}"></label></div>
+                                            </div>
+                                            <div class="field-row">
+                                                <div><label>Views <input type="number" min="0" step="1" name="views" value="${sc.metaViews}"></label></div>
+                                                <div><label>Average View Duration (s) <input type="number" step="0.1" min="0" name="averageViewDurationSeconds" value="${sc.metaAverageViewDurationSeconds}"></label></div>
+                                            </div>
+                                            <p class="note-box">Enter values exactly as reported by Meta Ads Manager. Any field may be
+                                                left blank while a draft. Hook Rate / Hold Rate / Average View Duration are video-specific -
+                                                use the N/A option for a static photo output (not shown on this quick form; use the
+                                                correction path after submission, or leave blank and mark N/A there). Views is always
+                                                required for an eligible Instagram/Facebook record.</p>
+                                            <button type="submit">Save Draft</button>
+                                        </form>
+                                    </c:when>
+                                    <c:otherwise>
+                                        <%-- Pre-V26 draft still in progress - original 6-field draft form, unchanged. --%>
+                                        <c:if test="${not empty sc}"><p class="performance-draft-status">Draft saved</p></c:if>
+                                        <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/draft">
+                                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                            <div class="field-row">
+                                                <div><label>3-sec Views <input type="number" min="0" name="views3sec" value="${sc.views3sec}"></label></div>
+                                                <div><label>Plays <input type="number" min="0" name="plays" value="${sc.plays}"></label></div>
+                                            </div>
+                                            <div class="field-row">
+                                                <div><label>Avg Watch (s) <input type="number" step="0.01" min="0" name="averageWatchTimeSeconds" value="${sc.averageWatchTimeSeconds}"></label></div>
+                                                <div><label>Video Length (s) <input type="number" step="0.01" min="0" name="videoLengthSeconds" value="${sc.videoLengthSeconds}"></label></div>
+                                            </div>
+                                            <div class="field-row">
+                                                <div><label>Link Clicks <input type="number" min="0" name="linkClicks" value="${sc.linkClicks}"></label></div>
+                                                <div><label>Impressions <input type="number" min="0" name="impressions" value="${sc.impressions}"></label></div>
+                                            </div>
+                                            <p class="note-box">Any field may be left blank while a draft. Metrics not applicable to this platform/output should be handled via N/A (server-side default false here; use the correction path once submitted).</p>
+                                            <button type="submit">Save Draft</button>
+                                        </form>
+                                    </c:otherwise>
+                                </c:choose>
                                 <c:choose>
                                     <c:when test="${not empty sc}">
                                         <form method="post" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/performance/${ob.id}/submit">
@@ -2028,6 +2145,7 @@
                             <label class="model-check-item">
                                 <input type="checkbox" name="newAssigneeUserIds" value="${u.id}"
                                        data-name="${u.fullName}" ${isCurrentAssignee ? 'checked' : ''}> ${u.fullName}
+                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                             </label>
                         </c:forEach>
                     </div>
@@ -2047,6 +2165,7 @@
                             <label class="model-check-item">
                                 <input type="checkbox" name="newAssigneeUserIds" value="${u.id}"
                                        data-name="${u.fullName}" ${isCurrentAssignee ? 'checked' : ''}> ${u.fullName}
+                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                             </label>
                         </c:forEach>
                     </div>
@@ -2084,7 +2203,7 @@
                     <select name="publisherUserId">
                         <option value="">&mdash; Select Publisher &mdash;</option>
                         <c:forEach var="u" items="${publisherUsers}">
-                            <option value="${u.id}"><c:out value="${u.fullName}"/></option>
+                            <option value="${u.id}"><c:out value="${u.fullName}"/> (<c:out value="${u.activeTaskLabel}"/>)</option>
                         </c:forEach>
                     </select>
                 </label>

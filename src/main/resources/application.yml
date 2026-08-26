@@ -39,6 +39,21 @@ springdoc:
     path: /api/v1/docs
     enabled: true
 
+# Deployment healthcheck only - /actuator/health is the sole exposed actuator endpoint, and it
+# only ever reports the aggregate UP/DOWN status (never per-component details, which could leak
+# datasource/internal info to an unauthenticated caller). The DB-connectivity check comes for
+# free from Spring Boot's auto-configured DataSource health indicator being folded into that
+# aggregate status - no custom indicator code needed.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
 app:
   security:
     jwt:
@@ -126,12 +141,26 @@ spring:
   # restricted kcpc_app role - no UPDATE/DELETE/TRUNCATE on append-only tables (enforced both by
   # Postgres GRANTs and by DB trigger; see V13__db_privilege_split_and_truncate_guards.sql).
   datasource:
-    url: jdbc:postgresql://${DB_HOST:db}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
     username: ${DB_USER:kcpc_app}
     password: ${DB_PASSWORD:}
   # Flyway runs schema DDL as the schema-owning kcpc_migrator role - a separate, higher-privilege
   # connection used only at startup, never by request-serving code.
   flyway:
-    url: jdbc:postgresql://${DB_HOST:db}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:kcpc_prod}
     user: ${FLYWAY_DB_USER:kcpc_migrator}
     password: ${FLYWAY_DB_PASSWORD:}
+# NOT overriding spring.flyway.locations here - inherits the base profile's
+# "classpath:db/migration" unchanged. db/migration-demo is only ever added under the dev profile
+# below; this is asserted by DockerFlywayProfileConfigurationTest.
+server:
+  servlet:
+    session:
+      cookie:
+        # See docker-compose.yml's COOKIE_SECURE comment: false by default because this compose
+        # stack terminates plain HTTP locally; set true once real HTTPS terminates in front of it.
+        secure: ${COOKIE_SECURE:false}
+app:
+  security:
+    jwt:
+      cookie-secure: ${COOKIE_SECURE:false}

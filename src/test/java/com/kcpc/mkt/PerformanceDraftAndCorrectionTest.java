@@ -18,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.math.BigDecimal;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -28,15 +29,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Regression coverage for two Content Detail -&gt; Performance defects:
- * (1) Save Draft did not reappear on reload because the draft form never carried {@code value="..."}
- * attributes back from the already-persisted {@code CreativePerformanceScorecard} row (the row itself
- * was always saved and readable - {@code DeliverableMvcController} already loaded it into
- * {@code scorecardsByObligation} - deliverable-detail.jsp simply never read it back into the inputs).
- * (2) Correct a metric only ever exposed Corrected Link Clicks because
- * {@code DeliverableMvcController#correctMetric} hard-wired every other {@code PerformanceService
- * #correctMetrics} parameter to {@code null}, even though the service/entity/DTO already supported
- * every metric (API-OP-046).
+ * V26: Performance Draft/Correction coverage for the Meta-only direct-entry model (Hook Rate /
+ * Hold Rate / Views / Average View Duration), driven through the real HTTP form path exactly like
+ * a Publisher would use it - never fabricated/mocked. Originally written for the pre-V26 6-field
+ * model; the workflow-building helper below is unchanged (getting a Content Plan to Performance
+ * stage has nothing to do with which metric model is in effect), only the actual metric
+ * assertions were rewritten for the new fields.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -70,7 +68,8 @@ class PerformanceDraftAndCorrectionTest {
         return response.get("userId").asText() + "|" + email;
     }
 
-    /** Builds a Content Plan with {@code reelTypes.length} REEL outputs, each its own obligation, all -> Instagram. */
+    /** Builds a Content Plan with {@code reelTypes.length} REEL outputs, each its own obligation, all -> Instagram
+     * (Meta-eligible, so an obligation is created for each - V26). */
     private String buildPlanReachingPerformance(TestApiClient ceo, long unique, String... reelTypes) throws Exception {
         String[] camIdEmail = createUser(ceo, "cam", CAMERA_PERSON_ROLE_ID, unique).split("\\|");
         String[] edIdEmail = createUser(ceo, "editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
@@ -177,51 +176,52 @@ class PerformanceDraftAndCorrectionTest {
         assertThat(initialBody).contains("Save a draft first");
 
         // A: enter metrics on obligation 1 only, save draft, reload -> exact same values prefilled.
-        Map<String, String> ob1Draft = Map.of("views3sec", "1200", "plays", "1500",
-                "averageWatchTimeSeconds", "8.40", "videoLengthSeconds", "15.00", "linkClicks", "90", "impressions", "6000");
+        Map<String, String> ob1Draft = Map.of("hookRatePercent", "42.50", "holdRatePercent", "28.75",
+                "views", "125430", "averageViewDurationSeconds", "6.80");
         HttpResponse<String> save1 = ceo.postForm(base + "/performance/" + ob1 + "/draft", ob1Draft);
         assertThat(save1.statusCode()).isEqualTo(302);
 
         String afterSave1 = ceo.get(base).body();
         String ob1Window = cardWindow(afterSave1, ob1);
-        assertThat(ob1Window).contains("name=\"views3sec\" value=\"1200\"");
-        assertThat(ob1Window).contains("name=\"plays\" value=\"1500\"");
-        assertThat(ob1Window).contains("name=\"averageWatchTimeSeconds\" value=\"8.40\"");
-        assertThat(ob1Window).contains("name=\"videoLengthSeconds\" value=\"15.00\"");
-        assertThat(ob1Window).contains("name=\"linkClicks\" value=\"90\"");
-        assertThat(ob1Window).contains("name=\"impressions\" value=\"6000\"");
+        assertThat(ob1Window).contains("name=\"hookRatePercent\" value=\"42.50\"");
+        assertThat(ob1Window).contains("name=\"holdRatePercent\" value=\"28.75\"");
+        assertThat(ob1Window).contains("name=\"views\" value=\"125430\"");
+        assertThat(ob1Window).contains("name=\"averageViewDurationSeconds\" value=\"6.80\"");
         assertThat(ob1Window).contains("Draft saved");
+        // The removed 6-field legacy model must never be requested in a new (post-V26) draft form.
+        assertThat(ob1Window).doesNotContain("name=\"views3sec\"").doesNotContain("name=\"plays\"")
+                .doesNotContain("name=\"averageWatchTimeSeconds\"").doesNotContain("name=\"videoLengthSeconds\"")
+                .doesNotContain("name=\"linkClicks\"").doesNotContain("name=\"impressions\"");
 
         // C: obligation isolation - obligation 2's card must show none of obligation 1's values,
         // and must still be in the untouched "no draft" state.
         String ob2WindowBefore = cardWindow(afterSave1, ob2);
-        assertThat(ob2WindowBefore).doesNotContain("value=\"1200\"").doesNotContain("value=\"1500\"")
-                .doesNotContain("value=\"90\"");
+        assertThat(ob2WindowBefore).doesNotContain("value=\"42.50\"").doesNotContain("value=\"28.75\"")
+                .doesNotContain("value=\"125430\"");
         assertThat(ob2WindowBefore).doesNotContain("Draft saved");
         assertThat(ob2WindowBefore).contains("Save a draft first");
 
         // Save a different draft on obligation 2 and confirm obligation 1's own values are untouched.
-        // Every value deliberately distinct from obligation 1's, including impressions - a
-        // whole-page "doesNotContain" check below would otherwise (falsely) trip on a coincidental
-        // shared number, e.g. impressions=1500 colliding with obligation 1's plays=1500.
-        Map<String, String> ob2Draft = Map.of("views3sec", "400", "plays", "600",
-                "averageWatchTimeSeconds", "3.10", "videoLengthSeconds", "9.00", "linkClicks", "20", "impressions", "1700");
+        // Every value deliberately distinct from obligation 1's - a whole-page "doesNotContain"
+        // check below would otherwise (falsely) trip on a coincidental shared number.
+        Map<String, String> ob2Draft = Map.of("hookRatePercent", "15.10", "holdRatePercent", "9.40",
+                "views", "3200", "averageViewDurationSeconds", "2.10");
         assertThat(ceo.postForm(base + "/performance/" + ob2 + "/draft", ob2Draft).statusCode()).isEqualTo(302);
         String afterSave2 = ceo.get(base).body();
-        assertThat(cardWindow(afterSave2, ob1)).contains("name=\"plays\" value=\"1500\""); // unaffected by ob2's save
-        assertThat(cardWindow(afterSave2, ob2)).contains("name=\"plays\" value=\"600\"")
-                .doesNotContain("value=\"1500\"").doesNotContain("value=\"1200\"");
+        assertThat(cardWindow(afterSave2, ob1)).contains("name=\"hookRatePercent\" value=\"42.50\""); // unaffected by ob2's save
+        assertThat(cardWindow(afterSave2, ob2)).contains("name=\"hookRatePercent\" value=\"15.10\"")
+                .doesNotContain("value=\"42.50\"");
 
-        // B: modify obligation 1's draft (a real prefilled form resubmits every field; only Plays changes).
-        Map<String, String> ob1DraftUpdated = Map.of("views3sec", "1200", "plays", "1800",
-                "averageWatchTimeSeconds", "8.40", "videoLengthSeconds", "15.00", "linkClicks", "90", "impressions", "6000");
+        // B: modify obligation 1's draft (a real prefilled form resubmits every field; only Views changes).
+        Map<String, String> ob1DraftUpdated = Map.of("hookRatePercent", "42.50", "holdRatePercent", "28.75",
+                "views", "130000", "averageViewDurationSeconds", "6.80");
         assertThat(ceo.postForm(base + "/performance/" + ob1 + "/draft", ob1DraftUpdated).statusCode()).isEqualTo(302);
         String afterUpdate = ceo.get(base).body();
         String ob1WindowUpdated = cardWindow(afterUpdate, ob1);
-        assertThat(ob1WindowUpdated).contains("name=\"plays\" value=\"1800\"").doesNotContain("value=\"1500\"");
-        assertThat(ob1WindowUpdated).contains("name=\"views3sec\" value=\"1200\""); // other fields preserved
+        assertThat(ob1WindowUpdated).contains("name=\"views\" value=\"130000\"").doesNotContain("value=\"125430\"");
+        assertThat(ob1WindowUpdated).contains("name=\"hookRatePercent\" value=\"42.50\""); // other fields preserved
         // obligation 2 must still show its own draft, unaffected by obligation 1's update.
-        assertThat(cardWindow(afterUpdate, ob2)).contains("name=\"plays\" value=\"600\"");
+        assertThat(cardWindow(afterUpdate, ob2)).contains("name=\"views\" value=\"3200\"");
 
         // E: final submit uses the correct obligation/draft - only obligation 1 becomes submitted.
         assertThat(ceo.postForm(base + "/performance/" + ob1 + "/submit", Map.of()).statusCode()).isEqualTo(302);
@@ -230,7 +230,7 @@ class PerformanceDraftAndCorrectionTest {
         assertThat(ob1Submitted).contains("Hook Rate:").contains("Correct a metric");
         assertThat(ob1Submitted).doesNotContain("Save Draft");
         String ob2StillDraft = cardWindow(afterSubmit, ob2);
-        assertThat(ob2StillDraft).contains("name=\"plays\" value=\"600\"").contains("Submit Scorecard (final)");
+        assertThat(ob2StillDraft).contains("name=\"views\" value=\"3200\"").contains("Submit Scorecard (final)");
     }
 
     @Test
@@ -243,11 +243,11 @@ class PerformanceDraftAndCorrectionTest {
         String ob1 = obligationIdFor(planId, "VERY_SHORT");
         String ob2 = obligationIdFor(planId, "LONG");
 
-        // Obligation 1: Link Clicks marked N/A on this scorecard (e.g. platform/output doesn't
-        // support it) - must not be offered as a correctable metric for THIS scorecard.
-        Map<String, String> ob1Draft = new java.util.HashMap<>(Map.of("views3sec", "50000", "plays", "15000",
-                "averageWatchTimeSeconds", "8.40", "videoLengthSeconds", "15.00", "impressions", "20000"));
-        ob1Draft.put("clicksIsNa", "true");
+        // Obligation 1: Hold Rate marked N/A on this scorecard (e.g. a static-image-style output) -
+        // must not be offered as a correctable metric for THIS scorecard.
+        Map<String, String> ob1Draft = new java.util.HashMap<>(Map.of("hookRatePercent", "50.00",
+                "views", "80000", "averageViewDurationSeconds", "7.20"));
+        ob1Draft.put("holdRateIsNa", "true");
         // Drain the flash-message slot after every mutating POST (Spring's flash map is matched
         // FIFO against the next request to the same redirect target) so a later assertion never
         // reads a stale message queued by an earlier action in this same setup sequence.
@@ -257,8 +257,8 @@ class PerformanceDraftAndCorrectionTest {
         ceo.get(base);
 
         // Obligation 2: a fully normal scorecard, submitted, to prove correction scoping.
-        Map<String, String> ob2Draft = Map.of("views3sec", "9000", "plays", "12000",
-                "averageWatchTimeSeconds", "5.00", "videoLengthSeconds", "10.00", "linkClicks", "300", "impressions", "8000");
+        Map<String, String> ob2Draft = Map.of("hookRatePercent", "30.00", "holdRatePercent", "18.00",
+                "views", "40000", "averageViewDurationSeconds", "4.50");
         assertThat(ceo.postForm(base + "/performance/" + ob2 + "/draft", ob2Draft).statusCode()).isEqualTo(302);
         ceo.get(base);
         assertThat(ceo.postForm(base + "/performance/" + ob2 + "/submit", Map.of()).statusCode()).isEqualTo(302);
@@ -266,62 +266,60 @@ class PerformanceDraftAndCorrectionTest {
 
         String scorecardId1 = correctionScorecardId(planId, ob1);
 
-        // A: dropdown reflects applicable metrics for THIS scorecard - Link Clicks excluded on ob1.
+        // A: dropdown reflects applicable metrics for THIS scorecard - Hold Rate excluded on ob1.
         String bodyBeforeCorrection = ceo.get(base).body();
         String ob1Card = cardWindow(bodyBeforeCorrection, ob1);
-        assertThat(ob1Card).contains("<option value=\"views3sec\">3-sec Views</option>")
-                .contains("<option value=\"plays\">Plays</option>")
-                .contains("<option value=\"watchTime\">Avg Watch</option>")
-                .contains("<option value=\"videoLength\">Video Length</option>")
-                .contains("<option value=\"impressions\">Impressions</option>")
-                .doesNotContain("<option value=\"linkClicks\">Link Clicks</option>");
+        assertThat(ob1Card).contains("<option value=\"hookRate\">Hook Rate</option>")
+                .contains("<option value=\"views\">Views</option>")
+                .contains("<option value=\"avgViewDuration\">Average View Duration</option>")
+                .doesNotContain("<option value=\"holdRate\">Hold Rate</option>");
         String ob2Card = cardWindow(bodyBeforeCorrection, ob2);
-        assertThat(ob2Card).contains("<option value=\"linkClicks\">Link Clicks</option>");
-        // Current Value shown for Plays before any correction is the raw submitted value.
-        assertThat(ob1Card).contains("data-metric=\"plays\"");
-        assertThat(ob1Card.substring(ob1Card.indexOf("data-metric=\"plays\"")))
-                .contains("Current Value: 15000");
+        assertThat(ob2Card).contains("<option value=\"holdRate\">Hold Rate</option>");
+        // Current Value shown for Views before any correction is the raw submitted value.
+        assertThat(ob1Card).contains("data-metric=\"views\"");
+        assertThat(ob1Card.substring(ob1Card.indexOf("data-metric=\"views\"")))
+                .contains("Current Value: 80,000");
 
         // E: missing/blank reason fails cleanly (flash error, no Whitelabel, no correction persisted).
         int correctionsBefore = correctionRepository.findAll().size();
         HttpResponse<String> blankReason = ceo.postForm(base + "/performance/scorecards/" + scorecardId1 + "/corrections",
-                Map.of("correctedPlays", "15500", "correctionReason", ""));
+                Map.of("correctedViews", "82000", "correctionReason", ""));
         assertThat(blankReason.statusCode()).isEqualTo(302);
         String afterBlankReason = ceo.get(base).body();
         assertThat(afterBlankReason).doesNotContain("Whitelabel Error");
         assertThat(afterBlankReason).contains("mandatory");
         assertThat(correctionRepository.findAll()).hasSize(correctionsBefore); // nothing persisted
 
-        // B + C: correct Plays once - only Plays' effective value changes; the sealed scorecard's
+        // B + C: correct Views once - only Views' effective value changes; the sealed scorecard's
         // own stored value is never mutated (ERD-CON-060).
         assertThat(ceo.postForm(base + "/performance/scorecards/" + scorecardId1 + "/corrections",
-                Map.of("correctedPlays", "15500", "correctionReason", "Analytics updated")).statusCode()).isEqualTo(302);
+                Map.of("correctedViews", "82000", "correctionReason", "Analytics updated")).statusCode()).isEqualTo(302);
 
-        Integer rawPlaysAfterCorrection = jdbcPlays(scorecardId1);
-        assertThat(rawPlaysAfterCorrection).isEqualTo(15000); // sealed row untouched
+        Long rawViewsAfterCorrection = jdbcViews(scorecardId1);
+        assertThat(rawViewsAfterCorrection).isEqualTo(80000L); // sealed row untouched
 
         String afterFirstCorrection = ceo.get(base).body();
         String ob1AfterFirst = cardWindow(afterFirstCorrection, ob1);
-        assertThat(ob1AfterFirst.substring(ob1AfterFirst.indexOf("data-metric=\"plays\"")))
-                .contains("Current Value: 15500");
-        assertThat(ob1AfterFirst).contains("Plays: 15000 &rarr; 15500");
-        // F: obligation 2's own effective Plays must be completely unaffected by obligation 1's correction.
+        assertThat(ob1AfterFirst.substring(ob1AfterFirst.indexOf("data-metric=\"views\"")))
+                .contains("Current Value: 82,000");
+        assertThat(ob1AfterFirst).contains("Views: 80,000 &rarr; 82,000");
+        // F: obligation 2's own effective Views must be completely unaffected by obligation 1's correction.
         String ob2AfterFirst = cardWindow(afterFirstCorrection, ob2);
-        assertThat(ob2AfterFirst.substring(ob2AfterFirst.indexOf("data-metric=\"plays\"")))
-                .contains("Current Value: 12000");
-        assertThat(ob2AfterFirst).doesNotContain("15500");
+        assertThat(ob2AfterFirst.substring(ob2AfterFirst.indexOf("data-metric=\"views\"")))
+                .contains("Current Value: 40,000");
+        assertThat(ob2AfterFirst).doesNotContain("82,000");
 
         // D: a second correction on the same metric - latest correction wins, but history keeps both.
         assertThat(ceo.postForm(base + "/performance/scorecards/" + scorecardId1 + "/corrections",
-                Map.of("correctedPlays", "15850", "correctionReason", "Final analytics sync")).statusCode()).isEqualTo(302);
+                Map.of("correctedViews", "85500", "correctionReason", "Final analytics sync")).statusCode()).isEqualTo(302);
         String afterSecondCorrection = ceo.get(base).body();
         String ob1AfterSecond = cardWindow(afterSecondCorrection, ob1);
-        assertThat(ob1AfterSecond.substring(ob1AfterSecond.indexOf("data-metric=\"plays\"")))
-                .contains("Current Value: 15850");
-        assertThat(ob1AfterSecond).contains("Plays: 15000 &rarr; 15500").contains("Plays: 15500 &rarr; 15850");
-        // Correcting Plays must never touch Impressions/other metrics on the same scorecard.
-        assertThat(ob1AfterSecond.substring(ob1AfterSecond.indexOf("data-metric=\"impressions\"")))
-                .contains("Current Value: 20000");
+        assertThat(ob1AfterSecond.substring(ob1AfterSecond.indexOf("data-metric=\"views\"")))
+                .contains("Current Value: 85,500");
+        assertThat(ob1AfterSecond).contains("Views: 80,000 &rarr; 82,000").contains("Views: 82,000 &rarr; 85,500");
+        // Correcting Views must never touch Hook Rate/other metrics on the same scorecard.
+        assertThat(ob1AfterSecond.substring(ob1AfterSecond.indexOf("data-metric=\"hookRate\"")))
+                .contains("Current Value: 50.00");
 
         // G: Marketing Manager sees the identical corrected context (same JSP path, same permission gate).
         String[] mmIdEmail = createUser(ceo, "mm-viewer", MARKETING_MANAGER_ROLE_ID, unique).split("\\|");
@@ -329,9 +327,9 @@ class PerformanceDraftAndCorrectionTest {
         mm.login(mmIdEmail[1], "Passw0rd!");
         String mmBody = mm.get(base).body();
         String ob1Mm = cardWindow(mmBody, ob1);
-        assertThat(ob1Mm.substring(ob1Mm.indexOf("data-metric=\"plays\"")))
-                .contains("Current Value: 15850");
-        assertThat(ob1Mm).contains("Plays: 15000 &rarr; 15500").contains("Plays: 15500 &rarr; 15850");
+        assertThat(ob1Mm.substring(ob1Mm.indexOf("data-metric=\"views\"")))
+                .contains("Current Value: 85,500");
+        assertThat(ob1Mm).contains("Views: 80,000 &rarr; 82,000").contains("Views: 82,000 &rarr; 85,500");
 
         List<PerformanceMetricCorrection> corrections = correctionRepository.findAll().stream()
                 .filter(c -> c.getScorecard().getId().toString().equals(scorecardId1)).toList();
@@ -350,9 +348,9 @@ class PerformanceDraftAndCorrectionTest {
         return window.substring(start, end);
     }
 
-    private Integer jdbcPlays(String scorecardId) {
+    private Long jdbcViews(String scorecardId) {
         return jdbcTemplate().queryForObject(
-                "SELECT plays FROM creative_performance_scorecards WHERE scorecard_id = ?::uuid", Integer.class, scorecardId);
+                "SELECT meta_views FROM creative_performance_scorecards WHERE scorecard_id = ?::uuid", Long.class, scorecardId);
     }
 
     @Autowired

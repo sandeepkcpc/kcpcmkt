@@ -82,7 +82,8 @@
                 <tr>
                     <td><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</td>
                     <td class="num">${row.active}</td>
-                    <td class="num">${row.delayed}</td>
+                    <td class="num"><c:choose><c:when test="${empty row.delayed}">-</c:when>
+                        <c:otherwise>${row.delayed}</c:otherwise></c:choose></td>
                     <td class="num">${kcpc:days(row.avgAgeDays)}</td>
                     <td><c:choose><c:when test="${empty row.oldestItemAgeDays}">-</c:when>
                         <c:otherwise>${kcpc:days(row.oldestItemAgeDays)}<c:if test="${not empty row.oldestItemContentId}"> (${row.oldestItemContentId})</c:if></c:otherwise></c:choose></td>

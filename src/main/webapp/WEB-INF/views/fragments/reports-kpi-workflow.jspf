@@ -9,7 +9,8 @@
             <tr>
                 <td><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</td>
                 <td class="num">${row.active}</td>
-                <td class="num">${row.delayed}</td>
+                <td class="num"><c:choose><c:when test="${empty row.delayed}">-</c:when>
+                    <c:otherwise>${row.delayed}</c:otherwise></c:choose></td>
                 <td class="num"><c:choose><c:when test="${empty row.withinSlaPercent}">-</c:when>
                     <c:otherwise>${row.withinSlaPercent}%</c:otherwise></c:choose></td>
                 <td class="num">${kcpc:days(row.avgAgeDays)}</td>
@@ -20,7 +21,9 @@
         </tbody>
     </table>
     <p class="muted kpi-footnote">Within SLA % is a point-in-time snapshot ((Active - Delayed) / Active) - historical
-        delivery compliance is shown separately below (On-Time Delivery / cycle time).</p>
+        delivery compliance is shown separately below (On-Time Delivery / cycle time). Planning shows "-" for
+        Delayed and Within SLA % because no approved Planning-stage delay rule exists yet, not because Planning
+        is never late - see docs/KPI_DATA_RECONCILIATION_REPORT.md.</p>
 
     <h3 class="reports-kpi-group-title" style="font-size:0.88rem;margin-top:1rem;">Within SLA % by Stage</h3>
     <%-- Same withinSlaPercent values as the table above, drawn as bars - never a separate

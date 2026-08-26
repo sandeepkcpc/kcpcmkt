@@ -16,6 +16,7 @@ import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.dto.GrantedPermissionRow;
 import com.kcpc.mkt.identity.dto.PermissionManagementRow;
 import com.kcpc.mkt.identity.dto.PermissionSummaryCounts;
+import com.kcpc.mkt.identity.dto.UserImportBatchResult;
 import com.kcpc.mkt.identity.repository.BusinessRoleRepository;
 import com.kcpc.mkt.identity.repository.PermissionGrantItemScopeRepository;
 import com.kcpc.mkt.identity.repository.PermissionGrantRepository;
@@ -25,6 +26,7 @@ import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.BusinessRoleAdminService;
 import com.kcpc.mkt.identity.service.PermissionGrantAdminService;
 import com.kcpc.mkt.identity.service.UserAdminService;
+import com.kcpc.mkt.identity.service.UserCsvImportService;
 import com.kcpc.mkt.masterdata.repository.CompanyChannelRepository;
 import com.kcpc.mkt.masterdata.repository.PlatformRepository;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
@@ -33,6 +35,7 @@ import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -41,8 +44,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -81,6 +86,7 @@ public class AdminMvcController {
     private final BusinessRoleAdminService businessRoleAdminService;
     private final PermissionGrantAdminService permissionGrantAdminService;
     private final MasterCatalogueService masterCatalogueService;
+    private final UserCsvImportService userCsvImportService;
 
     public AdminMvcController(UserRepository userRepository, BusinessRoleRepository businessRoleRepository,
                                PermissionGrantRepository permissionGrantRepository,
@@ -92,7 +98,8 @@ public class AdminMvcController {
                                AuthorizationService authorizationService, UserAdminService userAdminService,
                                BusinessRoleAdminService businessRoleAdminService,
                                PermissionGrantAdminService permissionGrantAdminService,
-                               MasterCatalogueService masterCatalogueService) {
+                               MasterCatalogueService masterCatalogueService,
+                               UserCsvImportService userCsvImportService) {
         this.userRepository = userRepository;
         this.businessRoleRepository = businessRoleRepository;
         this.permissionGrantRepository = permissionGrantRepository;
@@ -108,6 +115,7 @@ public class AdminMvcController {
         this.businessRoleAdminService = businessRoleAdminService;
         this.permissionGrantAdminService = permissionGrantAdminService;
         this.masterCatalogueService = masterCatalogueService;
+        this.userCsvImportService = userCsvImportService;
     }
 
     private boolean isCeo(KcpcUserPrincipal principal) {
@@ -138,6 +146,67 @@ public class AdminMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return "redirect:/app/admin/users";
+    }
+
+    // -------------------------------------------------------------- User CSV Import
+
+    private static final String IMPORT_SESSION_BYTES = "userCsvImportBytes";
+    private static final String IMPORT_SESSION_FILENAME = "userCsvImportFilename";
+
+    @GetMapping("/users/import")
+    public String importUploadForm(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        if (!isCeo(principal)) {
+            return "redirect:/app/home";
+        }
+        model.addAttribute("activeAdminTab", "users");
+        return "admin-users-import";
+    }
+
+    @PostMapping("/users/import/preview")
+    public String importPreview(@RequestParam("file") MultipartFile file,
+                                 @AuthenticationPrincipal KcpcUserPrincipal principal, HttpSession session,
+                                 Model model, RedirectAttributes ra) {
+        if (!isCeo(principal)) {
+            return "redirect:/app/home";
+        }
+        if (file.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", "Please choose a CSV file to upload.");
+            return "redirect:/app/admin/users/import";
+        }
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            ra.addFlashAttribute("errorMessage", "Could not read the uploaded file.");
+            return "redirect:/app/admin/users/import";
+        }
+        String filename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.csv";
+        UserImportBatchResult result = userCsvImportService.validate(bytes, filename);
+        session.setAttribute(IMPORT_SESSION_BYTES, bytes);
+        session.setAttribute(IMPORT_SESSION_FILENAME, filename);
+        model.addAttribute("activeAdminTab", "users");
+        model.addAttribute("result", result);
+        return "admin-users-import-preview";
+    }
+
+    @PostMapping("/users/import/confirm")
+    public String importConfirm(@AuthenticationPrincipal KcpcUserPrincipal principal, HttpSession session,
+                                 Model model, RedirectAttributes ra) {
+        if (!isCeo(principal)) {
+            return "redirect:/app/home";
+        }
+        byte[] bytes = (byte[]) session.getAttribute(IMPORT_SESSION_BYTES);
+        String filename = (String) session.getAttribute(IMPORT_SESSION_FILENAME);
+        if (bytes == null) {
+            ra.addFlashAttribute("errorMessage", "Your import session expired. Please upload the file again.");
+            return "redirect:/app/admin/users/import";
+        }
+        session.removeAttribute(IMPORT_SESSION_BYTES);
+        session.removeAttribute(IMPORT_SESSION_FILENAME);
+        UserImportBatchResult result = userCsvImportService.importValidated(principal.user(), bytes, filename);
+        model.addAttribute("activeAdminTab", "users");
+        model.addAttribute("result", result);
+        return "admin-users-import-result";
     }
 
     // -------------------------------------------------------------- Permissions (consolidated)

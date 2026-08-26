@@ -11,7 +11,10 @@
 <jsp:include page="fragments/nav.jsp" />
 <main class="app-main app-main-wide">
     <%@ include file="fragments/admin-tabs.jspf" %>
-    <h1>Users</h1>
+    <div class="admin-users-header-row">
+        <h1>Users</h1>
+        <a class="btn-outline" href="${pageContext.request.contextPath}/app/admin/users/import">Import Users</a>
+    </div>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
     <c:if test="${not empty errorMessage}"><div class="alert-error">${errorMessage}</div></c:if>
 

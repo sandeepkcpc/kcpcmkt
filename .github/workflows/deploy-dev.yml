@@ -1,0 +1,14 @@
+name: Deploy DEV
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  deploy-dev:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      gh_environment: development
+      env_dir: /opt/kcpc-dev
+      image_tag_suffix: dev
+    secrets: inherit

@@ -29,10 +29,9 @@ public class PerformanceRestController {
     public ResponseEntity<ScorecardResponse> saveDraft(@PathVariable UUID obligationId,
                                                          @RequestBody ScorecardDraftRequest request,
                                                          @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        var scorecard = performanceService.saveDraft(principal.user(), obligationId, request.views3sec(),
-                request.views3secIsNa(), request.plays(), request.averageWatchTimeSeconds(), request.watchTimeIsNa(),
-                request.videoLengthSeconds(), request.videoLengthIsNa(), request.linkClicks(), request.clicksIsNa(),
-                request.impressions());
+        var scorecard = performanceService.saveDraft(principal.user(), obligationId, request.hookRatePercent(),
+                request.hookRateIsNa(), request.holdRatePercent(), request.holdRateIsNa(), request.views(),
+                request.averageViewDurationSeconds(), request.avgViewDurationIsNa());
         return ResponseEntity.ok(ScorecardResponse.from(scorecard));
     }
 

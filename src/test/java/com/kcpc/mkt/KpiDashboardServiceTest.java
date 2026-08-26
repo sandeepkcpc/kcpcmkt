@@ -555,14 +555,16 @@ class KpiDashboardServiceTest {
         assertThat(onHold.getLongestHoldDurationDays()).isGreaterThanOrEqualTo(0.0);
     }
 
-    // ================================================================== Performance (CTR rankings)
+    // ================================================================== Performance (V26: Hook Rate rankings)
 
-    /** CTR ranking sample size / N-exclusion / corrected-value usage (spec fix #9): N/A scorecards
-     * must never affect a ranking row's average or sample size; a real scorecard must add exactly 1
-     * to its label's sample size; and a later metric correction must change the ranking's average
-     * without changing its sample size (the effective, post-correction value is what's ranked). */
+    /** V26: Hook Rate ranking sample size / N-exclusion / corrected-value usage (approved
+     * replacement for the removed CTR ranking - same governing rules): N/A scorecards must never
+     * affect a ranking row's average or sample size; a real scorecard must add exactly 1 to its
+     * label's sample size; and a later metric correction must change the ranking's average without
+     * changing its sample size (the effective, post-correction value is what's ranked). TARGET_1 is
+     * Instagram (Meta-eligible), so every obligation created here is real, not filtered out. */
     @Test
-    void ctrRankingExcludesNaReportsSampleSizeAndReflectsCorrectedValue() throws Exception {
+    void hookRateRankingExcludesNaReportsSampleSizeAndReflectsCorrectedValue() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = ceo();
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
@@ -571,34 +573,34 @@ class KpiDashboardServiceTest {
                 .getPlatform().getPlatformName();
 
         Long sampleBefore = sampleSizeForLabel(
-                kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByCtr(), platformLabel);
+                kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByHookRate(), platformLabel);
 
-        // N/A CTR scorecard - must not move this label's sample size at all.
-        String planNa = advanceToReadyForPublishing(ceo, unique, "CTR NA Flow", today);
+        // N/A Hook Rate scorecard - must not move this label's sample size at all.
+        String planNa = advanceToReadyForPublishing(ceo, unique, "Hook Rate NA Flow", today);
         recordOriginalPublication(ceo, planNa, Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS));
-        submitScorecardWithClicks(ceo, planNa, true, null, 5000);
+        submitScorecardWithHookRate(ceo, planNa, true, null);
         Long sampleAfterNa = sampleSizeForLabel(
-                kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByCtr(), platformLabel);
+                kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByHookRate(), platformLabel);
         assertThat(sampleAfterNa).isEqualTo(sampleBefore);
 
-        // Real scorecard: 100 clicks / 5000 impressions -> 2.00% CTR - sample size must grow by 1.
-        String planReal = advanceToReadyForPublishing(ceo, unique, "CTR Real Flow", today);
+        // Real scorecard: Hook Rate 30.00% - sample size must grow by 1.
+        String planReal = advanceToReadyForPublishing(ceo, unique, "Hook Rate Real Flow", today);
         recordOriginalPublication(ceo, planReal, Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS));
-        submitScorecardWithClicks(ceo, planReal, false, 100, 5000);
-        List<LabelValueRow> afterReal = kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByCtr();
+        submitScorecardWithHookRate(ceo, planReal, false, new BigDecimal("30.00"));
+        List<LabelValueRow> afterReal = kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByHookRate();
         LabelValueRow realRow = findRowByLabel(afterReal, platformLabel);
         assertThat(realRow.getSampleSize()).isEqualTo(sampleAfterNa + 1);
 
-        // Correct clicks 100 -> 400 (CTR becomes 8.00%): sample size unchanged, average must shift to
-        // reflect the corrected (effective) value, never the original raw one.
+        // Correct Hook Rate 30.00% -> 55.00%: sample size unchanged, average must shift to reflect
+        // the corrected (effective) value, never the original raw one.
         ContentPlan realPlan = contentPlanRepository.findById(UUID.fromString(planReal)).orElseThrow();
         var obligation = obligationRepository.findByEvent_ContentPlan_Id(realPlan.getId()).stream().findFirst().orElseThrow();
         var scorecard = scorecardRepository.findByObligation(obligation).orElseThrow();
         assertThat(ceo.post("/api/v1/performance/scorecards/" + scorecard.getId() + "/corrections",
-                "{\"correctedLinkClicks\":400,\"correctionReason\":\"kpi ctr regression test correction\"}")
+                "{\"correctedHookRatePercent\":55.00,\"correctionReason\":\"kpi hook rate regression test correction\"}")
                 .statusCode()).isEqualTo(200);
 
-        List<LabelValueRow> afterCorrection = kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByCtr();
+        List<LabelValueRow> afterCorrection = kpiDashboardService.performance(ceoUser(), rangeStart, today).getTopPlatformByHookRate();
         LabelValueRow correctedRow = findRowByLabel(afterCorrection, platformLabel);
         assertThat(correctedRow.getSampleSize()).isEqualTo(realRow.getSampleSize());
         assertThat(correctedRow.getValue()).isNotEqualByComparingTo(realRow.getValue());
@@ -613,16 +615,16 @@ class KpiDashboardServiceTest {
                 .orElseThrow(() -> new IllegalStateException("No ranking row for label: " + label));
     }
 
-    private void submitScorecardWithClicks(TestApiClient ceo, String planId, boolean clicksIsNa, Integer linkClicks,
-                                            int impressions) throws Exception {
+    private void submitScorecardWithHookRate(TestApiClient ceo, String planId, boolean hookRateIsNa,
+                                              BigDecimal hookRatePercent) throws Exception {
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         var obligation = obligationRepository.findByEvent_ContentPlan_Id(plan.getId()).stream()
                 .max(java.util.Comparator.comparing(o -> o.getEvent().getActualPublicationTimestamp())).orElseThrow();
-        String linkClicksJson = linkClicks == null ? "0" : String.valueOf(linkClicks);
+        String hookRateJson = hookRatePercent == null ? "0" : hookRatePercent.toString();
         assertThat(ceo.post("/api/v1/performance-obligations/" + obligation.getId() + "/scorecard/draft",
-                "{\"views3sec\":800,\"views3secIsNa\":false,\"plays\":1000,\"averageWatchTimeSeconds\":12.5,"
-                        + "\"watchTimeIsNa\":false,\"videoLengthSeconds\":20.0,\"videoLengthIsNa\":false,"
-                        + "\"linkClicks\":" + linkClicksJson + ",\"clicksIsNa\":" + clicksIsNa + ",\"impressions\":" + impressions + "}")
+                "{\"hookRatePercent\":" + hookRateJson + ",\"hookRateIsNa\":" + hookRateIsNa + ","
+                        + "\"holdRatePercent\":10.00,\"holdRateIsNa\":false,"
+                        + "\"views\":5000,\"averageViewDurationSeconds\":4.5,\"avgViewDurationIsNa\":false}")
                 .statusCode()).isEqualTo(200);
         assertThat(ceo.post("/api/v1/performance-obligations/" + obligation.getId() + "/scorecard/submit", "")
                 .statusCode()).isEqualTo(200);

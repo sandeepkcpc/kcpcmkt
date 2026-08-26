@@ -1,0 +1,38 @@
+# Never send these into the build context / image - the Dockerfile only ever COPYs pom.xml and
+# src explicitly, but an unfiltered context still gets uploaded whole to the Docker daemon, and a
+# stray secret file sitting in the repo root must never be reachable by any future COPY change.
+
+# Build output (rebuilt inside the image itself; Maven cache never belongs in the final image)
+target/
+*.war
+*.jar
+
+# VCS / IDE
+.git/
+.gitignore
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Secrets - must never enter the build context under any circumstance
+.env
+.env.*
+!.env.example
+*.service-account.json
+*.pem
+*.key
+
+# Docs / non-runtime project files
+docs/
+*.md
+README*
+
+# DEV/PROD VM deployment configuration - never part of the app image; may contain real .env
+# files if someone runs deploy scripts from within a repo checkout instead of the VM's own
+# /opt/kcpc-dev or /opt/kcpc-prod directories.
+deploy/
+
+# Test artifacts
+target/surefire-reports/
+*.log

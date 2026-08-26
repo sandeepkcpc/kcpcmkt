@@ -11,6 +11,7 @@ import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import com.kcpc.mkt.performance.repository.CreativePerformanceScorecardRepository;
 import com.kcpc.mkt.performance.repository.PerformanceMetricCorrectionRepository;
 import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
+import com.kcpc.mkt.performance.service.PerformanceEligibilityService;
 import com.kcpc.mkt.performance.service.PerformanceService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.OutputType;
@@ -99,6 +100,17 @@ public class KpiDashboardService {
     private static final List<String> REVIEW_GATE_NAMES =
             List.of("PLANNING_REVIEW", "SHOOT_REVIEW", "EDIT_REVIEW");
 
+    /** V26: shared native-SQL join/filter for "this performance_obligations row (aliased po) is for
+     * an eligible Instagram/Facebook publication record" - see {@link #performanceOverdueCount} for
+     * the full rationale. Never write a bare {@code "Instagram"}/{@code "Facebook"} literal in a
+     * query here - always go through this pair (or {@link PerformanceEligibilityService} in Java code). */
+    private static final String PERFORMANCE_ELIGIBLE_JOIN =
+            "join actual_publication_events e on e.event_id = po.event_id "
+                    + "join publication_targets pt on pt.publication_target_id = e.publication_target_id "
+                    + "join platforms p on p.platform_id = pt.platform_id ";
+    private static final String PERFORMANCE_ELIGIBLE_WHERE =
+            "lower(p.platform_name) in (" + PerformanceEligibilityService.ELIGIBLE_PLATFORM_NAMES_SQL_LIST + ")";
+
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -118,6 +130,7 @@ public class KpiDashboardService {
     private final CreativePerformanceScorecardRepository scorecardRepository;
     private final PerformanceMetricCorrectionRepository metricCorrectionRepository;
     private final PerformanceService performanceService;
+    private final PerformanceEligibilityService performanceEligibilityService;
 
     public KpiDashboardService(AuthorizationService authorizationService, ContentPlanRepository contentPlanRepository,
                                 IdeaRepository ideaRepository, WorkHoldRecordRepository workHoldRecordRepository,
@@ -132,7 +145,8 @@ public class KpiDashboardService {
                                 PerformanceObligationRepository obligationRepository,
                                 CreativePerformanceScorecardRepository scorecardRepository,
                                 PerformanceMetricCorrectionRepository metricCorrectionRepository,
-                                PerformanceService performanceService) {
+                                PerformanceService performanceService,
+                                PerformanceEligibilityService performanceEligibilityService) {
         this.authorizationService = authorizationService;
         this.contentPlanRepository = contentPlanRepository;
         this.ideaRepository = ideaRepository;
@@ -149,6 +163,7 @@ public class KpiDashboardService {
         this.scorecardRepository = scorecardRepository;
         this.metricCorrectionRepository = metricCorrectionRepository;
         this.performanceService = performanceService;
+        this.performanceEligibilityService = performanceEligibilityService;
     }
 
     private void requireViewAuthority(User requester) {
@@ -230,14 +245,12 @@ public class KpiDashboardService {
         };
     }
 
+    /** Delegates to {@link StageDelayPolicy}, the single shared source of truth also used by
+     * {@link PipelineDashboardService} (and, through it, {@code TeamWorkloadService}) - see
+     * docs/KPI_DATA_RECONCILIATION_REPORT.md §1 for why this used to be a second, independent copy
+     * of that logic, and §2 for why Planning (PL, PLRV) deliberately returns {@code null} here. */
     private static LocalDate currentApprovedTarget(ContentPlan plan) {
-        WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
-        return switch (status) {
-            case PL, PLRV, PLAP, SA, SIP, SRV -> plan.getPlannedShootDate();
-            case SAP, EA, ED, ERV -> plan.getPlannedEditDate();
-            case EAP, RFP, PUBG, PP, PFUP -> plan.getPlannedLiveDate();
-            default -> null;
-        };
+        return StageDelayPolicy.currentApprovedTarget(plan.getWorkflowInstance().getCurrentStatusCode(), plan);
     }
 
     // ================================================================================ Stage Health
@@ -257,14 +270,22 @@ public class KpiDashboardService {
         for (String stage : List.of("Planning", "Shoot", "Edit", "Publishing", "Performance")) {
             List<ContentPlan> plans = byStage.getOrDefault(stage, List.of());
             long active = plans.size();
-            long delayed = 0;
+            // Planning has no governed delay rule (docs/KPI_DATA_RECONCILIATION_REPORT.md §2) -
+            // Delayed and Within SLA % stay null ("-") rather than a fabricated count, even though
+            // active > 0. Every other stage's rule comes from StageDelayPolicy, which already
+            // returns null targets for Planning too - this flag makes that explicit and readable
+            // here rather than relying on every delayed-count happening to land on zero.
+            boolean delayGoverned = !"Planning".equals(stage);
+            long delayedCount = 0;
             List<Double> ageDaysList = new ArrayList<>();
             double oldestAge = -1;
             String oldestContentId = null;
             for (ContentPlan plan : plans) {
-                LocalDate target = currentApprovedTarget(plan);
-                if (target != null && target.isBefore(ctx.today)) {
-                    delayed++;
+                if (delayGoverned) {
+                    LocalDate target = currentApprovedTarget(plan);
+                    if (target != null && target.isBefore(ctx.today)) {
+                        delayedCount++;
+                    }
                 }
                 Instant enteredCurrentStatus = mostRecentEntryIntoCurrentStatus(plan, ctx);
                 if (enteredCurrentStatus != null) {
@@ -276,8 +297,9 @@ public class KpiDashboardService {
                     }
                 }
             }
-            Double withinSla = active == 0 ? null
-                    : BigDecimal.valueOf((active - delayed) * 100.0 / active).setScale(1, RoundingMode.HALF_UP).doubleValue();
+            Long delayed = delayGoverned ? delayedCount : null;
+            Double withinSla = (!delayGoverned || active == 0) ? null
+                    : BigDecimal.valueOf((active - delayedCount) * 100.0 / active).setScale(1, RoundingMode.HALF_UP).doubleValue();
             Double avgAge = ageDaysList.isEmpty() ? null
                     : ageDaysList.stream().mapToDouble(Double::doubleValue).average().orElse(0);
             Long oldestAgeDays = oldestAge < 0 ? null : Math.round(oldestAge);
@@ -507,9 +529,16 @@ public class KpiDashboardService {
                 Map.of("from", start, "to", end));
     }
 
+    /** V26: Performance is Meta-only (Instagram/Facebook) - reused by both Overview's headline card
+     * and the Performance tab's own "Performance Overdue", so both can never disagree about the
+     * denominator. {@link #PERFORMANCE_ELIGIBLE_JOIN}/{@link #PERFORMANCE_ELIGIBLE_WHERE} share the
+     * one governed platform-name set with {@code PerformanceEligibilityService} (the Java-side rule
+     * used at obligation-creation time and everywhere else outside raw SQL) - see that class's
+     * javadoc for why the two representations exist and how they're kept from drifting apart. */
     private long performanceOverdueCount(LocalDate today) {
-        return scalarLong("select count(*) from performance_obligations where is_completed = false "
-                + "and performance_due_date < :today", Map.of("today", today));
+        return scalarLong("select count(*) from performance_obligations po " + PERFORMANCE_ELIGIBLE_JOIN
+                + "where po.is_completed = false and po.performance_due_date < :today and " + PERFORMANCE_ELIGIBLE_WHERE,
+                Map.of("today", today));
     }
 
     /** spec §9: real data only, clickable through to the existing operational screen - never a
@@ -518,7 +547,9 @@ public class KpiDashboardService {
                                                 long performanceOverdue) {
         List<AttentionItem> items = new ArrayList<>();
         StageHealthRow planning = stageHealth.stream().filter(r -> "Planning".equals(r.getStage())).findFirst().orElse(null);
-        if (planning != null && planning.getDelayed() > 0) {
+        // planning.getDelayed() is deliberately null (Planning's delay rule is not governed - see
+        // docs/KPI_DATA_RECONCILIATION_REPORT.md §2), so this can never surface a Planning item here.
+        if (planning != null && planning.getDelayed() != null && planning.getDelayed() > 0) {
             items.add(new AttentionItem("items delayed in Planning", planning.getDelayed(),
                     "/app/reports/delayed?stage=Planning"));
         }
@@ -925,7 +956,7 @@ public class KpiDashboardService {
     // ================================================================================ PERFORMANCE (spec §33-37)
 
     private record ScorecardContext(CreativePerformanceScorecard scorecard, ActualPublicationEvent event,
-                                     PlannedOutput output, BigDecimal effectiveCtr, BigDecimal effectiveImpressions) {
+                                     PlannedOutput output, BigDecimal effectiveHookRate, BigDecimal effectiveViews) {
     }
 
     @Transactional(readOnly = true)
@@ -933,48 +964,57 @@ public class KpiDashboardService {
         requireViewAuthority(requester);
         DashboardContext ctx = buildContext(startDate, endDate);
 
-        long performancePending = scalarLong("select count(*) from performance_obligations where is_completed = false",
-                Map.of());
+        long performancePending = scalarLong("select count(*) from performance_obligations po "
+                + PERFORMANCE_ELIGIBLE_JOIN + "where po.is_completed = false and " + PERFORMANCE_ELIGIBLE_WHERE, Map.of());
         long performanceOverdue = performanceOverdueCount(ctx.today);
 
-        long obligationsDue = scalarLong("select count(*) from performance_obligations "
-                + "where performance_due_date between :from and :to", Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
+        long obligationsDue = scalarLong("select count(*) from performance_obligations po " + PERFORMANCE_ELIGIBLE_JOIN
+                        + "where po.performance_due_date between :from and :to and " + PERFORMANCE_ELIGIBLE_WHERE,
+                Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
         long obligationsSubmitted = scalarLong("select count(*) from performance_obligations po "
                         + "join creative_performance_scorecards s on s.obligation_id = po.obligation_id "
-                        + "where s.submitted_at is not null and po.performance_due_date between :from and :to",
+                        + PERFORMANCE_ELIGIBLE_JOIN
+                        + "where s.submitted_at is not null and po.performance_due_date between :from and :to "
+                        + "and " + PERFORMANCE_ELIGIBLE_WHERE,
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
         BigDecimal scorecardCompletion = rate(obligationsSubmitted, obligationsDue);
 
         Double avgDelayInReporting = scalarDouble(
                 "select avg(extract(epoch from (s.submitted_at - po.performance_due_date::timestamp)) / 86400.0) "
                         + "from performance_obligations po join creative_performance_scorecards s "
-                        + "on s.obligation_id = po.obligation_id "
-                        + "where s.submitted_at is not null and po.performance_due_date between :from and :to",
+                        + "on s.obligation_id = po.obligation_id " + PERFORMANCE_ELIGIBLE_JOIN
+                        + "where s.submitted_at is not null and po.performance_due_date between :from and :to "
+                        + "and " + PERFORMANCE_ELIGIBLE_WHERE,
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
 
         List<ScorecardContext> scorecards = submittedScorecardsInRange(ctx);
 
-        List<LabelValueRow> topContentType = topByCtr(scorecards, sc -> {
+        List<LabelValueRow> topContentType = topByHookRate(scorecards, sc -> {
             String type = sc.output().getOutputType().name();
             return sc.output().getReelType() != null ? "REEL · " + sc.output().getReelType() : type;
         });
-        List<LabelValueRow> topPlatform = topByCtr(scorecards, sc -> sc.event().getPublicationTarget().getPlatform().getPlatformName());
-        List<LabelValueRow> topChannel = topByCtr(scorecards, sc -> sc.event().getPublicationTarget().getChannel().getChannelHandle());
+        List<LabelValueRow> topPlatform = topByHookRate(scorecards, sc -> sc.event().getPublicationTarget().getPlatform().getPlatformName());
+        List<LabelValueRow> topChannel = topByHookRate(scorecards, sc -> sc.event().getPublicationTarget().getChannel().getChannelHandle());
 
-        LabelValueRow originalCtr = avgByEventType(scorecards, PublicationEventType.ORIGINAL, ScorecardContext::effectiveCtr, "Original Avg CTR %");
-        LabelValueRow repostCtr = avgByEventType(scorecards, PublicationEventType.REPOST, ScorecardContext::effectiveCtr, "Repost Avg CTR %");
-        LabelValueRow originalImpressions = avgByEventType(scorecards, PublicationEventType.ORIGINAL, ScorecardContext::effectiveImpressions, "Original Avg Impressions");
-        LabelValueRow repostImpressions = avgByEventType(scorecards, PublicationEventType.REPOST, ScorecardContext::effectiveImpressions, "Repost Avg Impressions");
+        LabelValueRow originalHookRate = avgByEventType(scorecards, PublicationEventType.ORIGINAL, ScorecardContext::effectiveHookRate, "Original Avg Hook Rate %");
+        LabelValueRow repostHookRate = avgByEventType(scorecards, PublicationEventType.REPOST, ScorecardContext::effectiveHookRate, "Repost Avg Hook Rate %");
+        LabelValueRow originalViews = avgByEventType(scorecards, PublicationEventType.ORIGINAL, ScorecardContext::effectiveViews, "Original Avg Views");
+        LabelValueRow repostViews = avgByEventType(scorecards, PublicationEventType.REPOST, ScorecardContext::effectiveViews, "Repost Avg Views");
 
         return new PerformanceDashboardDto(performancePending, performanceOverdue, scorecardCompletion, avgDelayInReporting,
-                topContentType, topPlatform, topChannel, originalCtr, repostCtr, originalImpressions, repostImpressions);
+                topContentType, topPlatform, topChannel, originalHookRate, repostHookRate, originalViews, repostViews);
     }
 
-    /** Every submitted scorecard whose event's actual publication falls in range, with its
-     * effective (post-correction) CTR/Impressions already resolved - batch-loaded (avoids N+1). */
+    /** Every submitted, Meta-model ({@code usesMetaMetricModel}) scorecard for an eligible
+     * Instagram/Facebook obligation whose event's actual publication falls in range, with its
+     * effective (post-correction) Hook Rate/Views already resolved - batch-loaded (avoids N+1). A
+     * pre-V26 (legacy-model) scorecard is excluded here even if its platform happens to be
+     * Instagram/Facebook - its real data lives in the old fields, which have no Hook Rate/Views
+     * equivalent to rank/compare by (see CreativePerformanceScorecard's migration note). */
     private List<ScorecardContext> submittedScorecardsInRange(DashboardContext ctx) {
         List<PerformanceObligation> obligations = obligationRepository.findAll().stream()
                 .filter(o -> inRange(o.getEvent().getActualPublicationTimestamp(), ctx.rangeStart, ctx.rangeEnd))
+                .filter(o -> performanceEligibilityService.isEligible(o.getEvent()))
                 .toList();
         if (obligations.isEmpty()) {
             return List.of();
@@ -983,6 +1023,7 @@ public class KpiDashboardService {
         Map<UUID, CreativePerformanceScorecard> scorecardByObligationId = scorecardRepository
                 .findByObligation_IdIn(obligationIds).stream()
                 .filter(CreativePerformanceScorecard::isSubmitted)
+                .filter(CreativePerformanceScorecard::isUsesMetaMetricModel)
                 .collect(Collectors.toMap(s -> s.getObligation().getId(), s -> s));
         if (scorecardByObligationId.isEmpty()) {
             return List.of();
@@ -1005,18 +1046,18 @@ public class KpiDashboardService {
             }
             List<PerformanceMetricCorrection> corrections =
                     correctionsByScorecardId.getOrDefault(scorecard.getId(), List.of());
-            Integer effClicks = effectiveInt(corrections, PerformanceMetricCorrection::getNewClicks, scorecard.getLinkClicks());
-            boolean effClicksIsNa = effectiveBoolean(corrections, PerformanceMetricCorrection::getNewClicksIsNa, scorecard.isClicksIsNa());
-            Integer effImpressions = effectiveInt(corrections, PerformanceMetricCorrection::getNewImpressions, scorecard.getImpressions());
-            BigDecimal effectiveCtr = CreativePerformanceScorecard.computeRatePercent(
-                    effClicksIsNa ? null : CreativePerformanceScorecard.toDecimal(effClicks),
-                    CreativePerformanceScorecard.toDecimal(effImpressions));
-            BigDecimal effectiveImpressions = CreativePerformanceScorecard.toDecimal(effImpressions);
+            BigDecimal effHookRate = effectiveDecimal(corrections, PerformanceMetricCorrection::getNewMetaHookRate,
+                    scorecard.getMetaHookRatePercent());
+            boolean effHookRateIsNa = effectiveBoolean(corrections, PerformanceMetricCorrection::getNewMetaHookRateIsNa,
+                    scorecard.isMetaHookRateIsNa());
+            BigDecimal effectiveHookRate = effHookRateIsNa ? null : effHookRate;
+            Long effViews = effectiveLong(corrections, PerformanceMetricCorrection::getNewMetaViews, scorecard.getMetaViews());
+            BigDecimal effectiveViews = effViews == null ? null : BigDecimal.valueOf(effViews);
             PlannedOutput output = outputById.get(obligation.getEvent().getPlannedOutput().getId());
             if (output == null) {
                 continue;
             }
-            out.add(new ScorecardContext(scorecard, obligation.getEvent(), output, effectiveCtr, effectiveImpressions));
+            out.add(new ScorecardContext(scorecard, obligation.getEvent(), output, effectiveHookRate, effectiveViews));
         }
         return out;
     }
@@ -1026,9 +1067,15 @@ public class KpiDashboardService {
      * shaped (it re-queries corrections per scorecard); the underlying formula
      * ({@link CreativePerformanceScorecard#computeRatePercent}) is still the exact same call, never
      * duplicated logic. {@code correctionsDesc} must already be newest-first. */
-    private static Integer effectiveInt(List<PerformanceMetricCorrection> correctionsDesc,
-                                         java.util.function.Function<PerformanceMetricCorrection, Integer> extractor,
-                                         Integer rawValue) {
+    private static BigDecimal effectiveDecimal(List<PerformanceMetricCorrection> correctionsDesc,
+                                                java.util.function.Function<PerformanceMetricCorrection, BigDecimal> extractor,
+                                                BigDecimal rawValue) {
+        return correctionsDesc.stream().map(extractor).filter(java.util.Objects::nonNull).findFirst().orElse(rawValue);
+    }
+
+    private static Long effectiveLong(List<PerformanceMetricCorrection> correctionsDesc,
+                                       java.util.function.Function<PerformanceMetricCorrection, Long> extractor,
+                                       Long rawValue) {
         return correctionsDesc.stream().map(extractor).filter(java.util.Objects::nonNull).findFirst().orElse(rawValue);
     }
 
@@ -1038,16 +1085,17 @@ public class KpiDashboardService {
         return correctionsDesc.stream().map(extractor).filter(java.util.Objects::nonNull).findFirst().orElse(rawValue);
     }
 
-    /** spec §36: ranking metric is explicitly Avg CTR %, N/A (null) scorecards excluded entirely -
-     * never treated as 0. Top 5, descending. */
-    private List<LabelValueRow> topByCtr(List<ScorecardContext> scorecards,
-                                          java.util.function.Function<ScorecardContext, String> labelFn) {
+    /** V26 (approved replacement for the removed CTR - the closest analog, both attention/
+     * engagement percentages): ranking metric is Avg Hook Rate %, N/A (null) scorecards excluded
+     * entirely - never treated as 0. Top 5, descending. */
+    private List<LabelValueRow> topByHookRate(List<ScorecardContext> scorecards,
+                                               java.util.function.Function<ScorecardContext, String> labelFn) {
         Map<String, List<BigDecimal>> byLabel = new LinkedHashMap<>();
         for (ScorecardContext sc : scorecards) {
-            if (sc.effectiveCtr() == null) {
+            if (sc.effectiveHookRate() == null) {
                 continue;
             }
-            byLabel.computeIfAbsent(labelFn.apply(sc), k -> new ArrayList<>()).add(sc.effectiveCtr());
+            byLabel.computeIfAbsent(labelFn.apply(sc), k -> new ArrayList<>()).add(sc.effectiveHookRate());
         }
         return byLabel.entrySet().stream()
                 .map(e -> new LabelValueRow(e.getKey(), average(e.getValue()), (long) e.getValue().size()))

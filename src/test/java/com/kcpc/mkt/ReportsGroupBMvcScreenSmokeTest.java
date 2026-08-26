@@ -67,7 +67,7 @@ class ReportsGroupBMvcScreenSmokeTest {
         HttpResponse<String> performance = ceo.get("/app/reports/kpis?view=performance");
         assertOk(performance);
         assertThat(performance.body()).contains("kpi-hbar-chart")
-                .contains("ORIGINAL vs REPOST &middot; Avg CTR %").contains("ORIGINAL vs REPOST &middot; Avg Impressions");
+                .contains("ORIGINAL vs REPOST &middot; Avg Hook Rate %").contains("ORIGINAL vs REPOST &middot; Avg Views");
         // Invalid view falls back to Overview, never a 500/blank screen.
         HttpResponse<String> invalidView = ceo.get("/app/reports/kpis?view=not-a-real-view");
         assertOk(invalidView);

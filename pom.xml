@@ -32,6 +32,16 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- /actuator/health - deployment healthcheck (Docker/GitHub Actions), DB-connectivity-aware
+             via the auto-configured DataSource health indicator. Only the "health" endpoint is
+             exposed (see application.yml management.endpoints.web.exposure.include) and only the
+             aggregate UP/DOWN status is shown (show-details/show-components: never) - never beans,
+             env, or other actuator endpoints that could leak internals. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- JSP rendering support for Spring MVC views -->
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
@@ -119,6 +129,26 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.3.0</version>
+        </dependency>
+
+        <!-- CSV import (User master data bulk import) - a real RFC-4180 parser (quoted fields,
+             embedded commas/newlines) rather than a hand-rolled String.split, which would silently
+             mis-parse a Full Name containing a comma. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.14.1</version>
+        </dependency>
+
+        <!-- commons-csv 1.14.1 needs commons-io 2.20.0+ at runtime (org.apache.commons.io.input.
+             UnsynchronizedBufferedReader, added in 2.20.0). Declared explicitly so Maven's nearest-
+             declaration-wins mediation picks this version instead of the older 2.16.1 that
+             poi-ooxml pulls in transitively, which lacks that class and fails at runtime with a
+             NoClassDefFoundError. -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.20.0</version>
         </dependency>
 
         <!-- Google Drive folder provisioning (per-Content-ID folder structure). Disabled at

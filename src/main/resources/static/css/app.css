@@ -1389,6 +1389,7 @@ button[type="submit"].success { background: #1a7f4b; }
 .model-check-item { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 0.4rem; }
 .model-check-item input { width: auto; }
 .model-check-item.hidden { display: none; }
+.assignee-task-count { font-size: 0.82rem; }
 
 /* ENG-047: Shoot Instructions, entered alongside Cameraperson(s)/Shoot Lead during Planning. */
 .planning-shoot-instructions { margin-top: 1rem; }
@@ -2791,6 +2792,10 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .admin-table td, .admin-table th { padding: 0.55rem 0.75rem; }
 .admin-table .admin-email-cell { word-break: break-all; }
 .admin-table .admin-access-class { color: #6b7280; font-size: 0.82rem; }
+
+/* Users page header + "Import Users" compact action (User CSV Import feature). */
+.admin-users-header-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.admin-users-header-row h1 { margin: 0; }
 
 /* Compact icon-buttons (catalogue row Edit, and any other row-level icon action) - square, same
    family as .btn-outline (blue) but sized for a single glyph instead of a text label. */

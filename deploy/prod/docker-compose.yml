@@ -1,0 +1,95 @@
+# GCP VM deployment stack - PROD. Lives at /opt/kcpc-prod on the VM, deployed by
+# deploy/scripts/deploy.sh from GitHub Actions (deploy-prod.yml). See ../dev/docker-compose.yml
+# for the full DEV/PROD isolation rationale (Compose project name, service/container names,
+# network, DB, volume, .env, ports) and why SPRING_PROFILES_ACTIVE stays "docker" here too rather
+# than introducing a separate "prod" Spring profile.
+name: kcpc-prod
+
+services:
+  kcpc-prod-postgres:
+    image: postgres:16
+    container_name: kcpc-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?set DB_NAME in .env, e.g. kcpc_prod}
+      POSTGRES_USER: kcpc_migrator
+      POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    volumes:
+      # EXTERNAL volume - provisioned once, out-of-band, via:
+      #   docker volume create kcpc_prod_pgdata
+      # (see deploy/README.md "Production DB volume protection" and deploy/scripts/deploy.sh's
+      # preflight check). Compose refuses to start this stack if the volume does not already
+      # exist, and - because it is external - "docker compose down -v" in this directory can
+      # never delete it: Compose only ever deletes volumes it created itself. This is the primary
+      # safeguard against an accidental teardown destroying the production database.
+      - kcpc_prod_pgdata:/var/lib/postgresql/data
+      - ../../db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcpc_migrator -d ${DB_NAME:-kcpc_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kcpc-prod-app:
+    # No "build:" - PROD pulls the immutable image GitHub Actions already built and pushed to
+    # Artifact Registry. Never build/deploy from local source on the VM. IMAGE_TAG should be
+    # pinned to a real git SHA for every real deploy (see deploy/scripts/deploy.sh); the ":prod"
+    # floating tag exists only as a convenience/manual-recovery label, never the deploy target.
+    image: ${AR_IMAGE:?set AR_IMAGE in .env, e.g. REGION-docker.pkg.dev/PROJECT_ID/kcpc/kcpc-app}:${IMAGE_TAG:?set IMAGE_TAG to a real git SHA for every PROD deploy}
+    container_name: kcpc-prod-app
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: kcpc-prod-postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?set DB_NAME in .env, e.g. kcpc_prod}
+      DB_USER: kcpc_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      FLYWAY_DB_USER: kcpc_migrator
+      FLYWAY_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:?set a >=64-byte secret in .env, distinct from DEV's}
+      # PROD must be true once real HTTPS (a domain + TLS termination, see nginx.conf) fronts
+      # this stack - a Secure-flagged cookie is silently dropped by the browser over plain HTTP,
+      # so flip this only together with actually enabling HTTPS, never before.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      DRIVE_ENABLED: ${DRIVE_ENABLED:-false}
+      DRIVE_SERVICE_ACCOUNT_KEY: ${DRIVE_SERVICE_ACCOUNT_KEY:-}
+      # MUST point at the real "KCPC PROD CONTENT" Drive root, never DEV's - see
+      # deploy/README.md "Google Drive isolation". A blank value (the default) leaves Drive fully
+      # inert, which is the safe starting state until this is deliberately configured.
+      DRIVE_SHARED_DRIVE_ID: ${DRIVE_SHARED_DRIVE_ID:-}
+      DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
+      DRIVE_IMPERSONATE_USER: ${DRIVE_IMPERSONATE_USER:-}
+    depends_on:
+      kcpc-prod-postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kcpc-prod-nginx:
+    image: nginx:1.27-alpine
+    container_name: kcpc-prod-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Only needed once a real TLS certificate is provisioned (e.g. certbot) - see nginx.conf's
+      # commented HTTPS server block and deploy/README.md "Nginx / HTTPS". Mounting an empty/
+      # nonexistent host directory here is harmless while the HTTPS block stays commented out.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      kcpc-prod-app:
+        condition: service_healthy
+
+volumes:
+  kcpc_prod_pgdata:
+    external: true

@@ -6,20 +6,18 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/** V26: the four direct-entry Meta metrics. */
 public record PerformanceMetricCorrectionResponse(
         UUID correctionId,
         UUID scorecardId,
         UUID supersedesCorrectionId,
-        Integer priorViews3sec, Integer newViews3sec,
-        Integer priorPlays, Integer newPlays,
-        BigDecimal priorWatchTime, BigDecimal newWatchTime,
-        BigDecimal priorVideoLength, BigDecimal newVideoLength,
-        Integer priorClicks, Integer newClicks,
-        Integer priorImpressions, Integer newImpressions,
-        Boolean priorViews3secIsNa, Boolean newViews3secIsNa,
-        Boolean priorWatchTimeIsNa, Boolean newWatchTimeIsNa,
-        Boolean priorVideoLengthIsNa, Boolean newVideoLengthIsNa,
-        Boolean priorClicksIsNa, Boolean newClicksIsNa,
+        BigDecimal priorHookRate, BigDecimal newHookRate,
+        Boolean priorHookRateIsNa, Boolean newHookRateIsNa,
+        BigDecimal priorHoldRate, BigDecimal newHoldRate,
+        Boolean priorHoldRateIsNa, Boolean newHoldRateIsNa,
+        Long priorViews, Long newViews,
+        BigDecimal priorAvgViewDuration, BigDecimal newAvgViewDuration,
+        Boolean priorAvgViewDurationIsNa, Boolean newAvgViewDurationIsNa,
         String correctionReason,
         UUID correctedByUserId,
         Instant correctedAt) {
@@ -28,16 +26,13 @@ public record PerformanceMetricCorrectionResponse(
         return new PerformanceMetricCorrectionResponse(
                 c.getId(), c.getScorecard().getId(),
                 c.getSupersedesCorrection() != null ? c.getSupersedesCorrection().getId() : null,
-                c.getPriorViews3sec(), c.getNewViews3sec(),
-                c.getPriorPlays(), c.getNewPlays(),
-                c.getPriorWatchTime(), c.getNewWatchTime(),
-                c.getPriorVideoLength(), c.getNewVideoLength(),
-                c.getPriorClicks(), c.getNewClicks(),
-                c.getPriorImpressions(), c.getNewImpressions(),
-                c.getPriorViews3secIsNa(), c.getNewViews3secIsNa(),
-                c.getPriorWatchTimeIsNa(), c.getNewWatchTimeIsNa(),
-                c.getPriorVideoLengthIsNa(), c.getNewVideoLengthIsNa(),
-                c.getPriorClicksIsNa(), c.getNewClicksIsNa(),
+                c.getPriorMetaHookRate(), c.getNewMetaHookRate(),
+                c.getPriorMetaHookRateIsNa(), c.getNewMetaHookRateIsNa(),
+                c.getPriorMetaHoldRate(), c.getNewMetaHoldRate(),
+                c.getPriorMetaHoldRateIsNa(), c.getNewMetaHoldRateIsNa(),
+                c.getPriorMetaViews(), c.getNewMetaViews(),
+                c.getPriorMetaAvgViewDuration(), c.getNewMetaAvgViewDuration(),
+                c.getPriorMetaAvgViewDurationIsNa(), c.getNewMetaAvgViewDurationIsNa(),
                 c.getMandatoryReason(), c.getCorrectedBy().getId(), c.getCorrectedAt());
     }
 }

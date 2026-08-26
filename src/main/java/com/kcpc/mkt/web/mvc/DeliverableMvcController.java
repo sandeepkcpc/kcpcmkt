@@ -125,12 +125,14 @@ public class DeliverableMvcController {
     private final EditingService editingService;
     private final PublishingService publishingService;
     private final PerformanceService performanceService;
+    private final com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService;
     private final AdminActionService adminActionService;
     private final com.kcpc.mkt.workflow.service.AvailableActionService availableActionService;
     private final com.kcpc.mkt.drive.service.DriveProvisioningService driveProvisioningService;
     private final com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository driveProvisioningRepository;
     private final HoldService holdService;
     private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
+    private final com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService assigneeWorkloadCountService;
 
     public DeliverableMvcController(ContentPlanRepository contentPlanRepository,
                                      PredefinedRoleMarksRepository predefinedRoleMarksRepository,
@@ -158,12 +160,14 @@ public class DeliverableMvcController {
                                      PlanningService planningService,
                                      ShootingService shootingService, EditingService editingService,
                                      PublishingService publishingService, PerformanceService performanceService,
+                                     com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService,
                                      AdminActionService adminActionService,
                                      com.kcpc.mkt.workflow.service.AvailableActionService availableActionService,
                                      com.kcpc.mkt.drive.service.DriveProvisioningService driveProvisioningService,
                                      com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository driveProvisioningRepository,
                                      HoldService holdService,
-                                     com.kcpc.mkt.discussion.service.StageCommentService stageCommentService) {
+                                     com.kcpc.mkt.discussion.service.StageCommentService stageCommentService,
+                                     com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService assigneeWorkloadCountService) {
         this.contentPlanRepository = contentPlanRepository;
         this.predefinedRoleMarksRepository = predefinedRoleMarksRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -193,12 +197,14 @@ public class DeliverableMvcController {
         this.editingService = editingService;
         this.publishingService = publishingService;
         this.performanceService = performanceService;
+        this.performanceEligibilityService = performanceEligibilityService;
         this.adminActionService = adminActionService;
         this.availableActionService = availableActionService;
         this.driveProvisioningService = driveProvisioningService;
         this.driveProvisioningRepository = driveProvisioningRepository;
         this.holdService = holdService;
         this.stageCommentService = stageCommentService;
+        this.assigneeWorkloadCountService = assigneeWorkloadCountService;
     }
 
     private ContentPlan requirePlan(UUID id) {
@@ -302,17 +308,21 @@ public class DeliverableMvcController {
         model.addAttribute("isRepostPublishingCycle", isRepostPublishingCycle);
         model.addAttribute("publishingChecklist", buildPublishingChecklist(outputs, publishingCycleStart));
         model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
-        model.addAttribute("modelUsers",
-                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model"));
+        // Every assignee-selection picker shows each candidate's current active-task count
+        // alongside their name (same "active" definition Team Workload's Assignee Load already
+        // uses - see AssigneeActiveWindows/AssigneeWorkloadCountService) - display-only, never a
+        // change to who is eligible below.
+        model.addAttribute("modelUsers", assigneeWorkloadCountService.withModelCounts(
+                userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
         // Permission-driven candidate eligibility (PERM_18/19/08), not Business-Role name - see
         // OperationalEligibilityService. Business Role is still shown alongside each candidate's
         // name in the picker (organizational context only, never the eligibility rule).
-        model.addAttribute("camerapersonUsers",
-                operationalEligibilityService.shootExecutionCandidates(plan.getWorkflowInstance()));
-        model.addAttribute("videoEditorUsers",
-                operationalEligibilityService.editExecutionCandidates(plan.getWorkflowInstance()));
-        model.addAttribute("publisherUsers",
-                operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance()));
+        model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
+                operationalEligibilityService.shootExecutionCandidates(plan.getWorkflowInstance())));
+        model.addAttribute("videoEditorUsers", assigneeWorkloadCountService.withEditCounts(
+                operationalEligibilityService.editExecutionCandidates(plan.getWorkflowInstance())));
+        model.addAttribute("publisherUsers", assigneeWorkloadCountService.withPublishingCounts(
+                operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance())));
         model.addAttribute("publishingAssignments", publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
         List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
         model.addAttribute("activePublicationTargets", activeTargets);
@@ -346,7 +356,13 @@ public class DeliverableMvcController {
         // same shared resolver the Pipeline platform popover uses, so the two views can never
         // disagree on which correction is current.
         model.addAttribute("effectiveEvidenceUrlByEventId", publishingService.resolveEffectiveEvidenceUrls(events));
-        List<PerformanceObligation> obligations = obligationRepository.findByEvent_ContentPlan_Id(id);
+        // Performance is Meta-only (Instagram/Facebook) - filtered here too, not just at creation,
+        // so an older non-Meta obligation row (published before this rule existed, never deleted -
+        // see docs/IMPLEMENTATION_DECISIONS.md) never shows a card either. This is backend
+        // filtering, not JSP hiding: the JSP only ever receives the already-eligible list.
+        List<PerformanceObligation> obligations = obligationRepository.findByEvent_ContentPlan_Id(id).stream()
+                .filter(o -> performanceEligibilityService.isEligible(o.getEvent()))
+                .toList();
         model.addAttribute("obligations", obligations);
         // Collectors.toMap rejects null values (no scorecard drafted yet is the common case) -
         // build the map manually rather than via a null-hostile collector.
@@ -360,18 +376,29 @@ public class DeliverableMvcController {
         // must both reflect the latest per-metric correction (ERD-CON-060), never the frozen
         // at-submission-time raw value - same resolver for both, keyed by obligation id like
         // scorecardsByObligation above so the JSP can look either map up from the same ${ob.id}.
+        // Two parallel maps, not one: a scorecard created before V26 (usesMetaMetricModel == false)
+        // must keep resolving through the ORIGINAL 6-field effective-value logic (its real data
+        // lives in those columns, not the new meta_* ones) - see LegacyEffectiveScorecardMetrics.
+        // Every scorecard created since V26 is Meta-model by construction and uses the new map.
         java.util.Map<UUID, com.kcpc.mkt.performance.dto.EffectiveScorecardMetrics> effectiveMetricsByObligation =
+                new java.util.HashMap<>();
+        java.util.Map<UUID, com.kcpc.mkt.performance.dto.LegacyEffectiveScorecardMetrics> legacyEffectiveMetricsByObligation =
                 new java.util.HashMap<>();
         java.util.Map<UUID, java.util.List<com.kcpc.mkt.performance.domain.PerformanceMetricCorrection>> correctionsByObligation =
                 new java.util.HashMap<>();
         for (PerformanceObligation obligation : obligations) {
             com.kcpc.mkt.performance.domain.CreativePerformanceScorecard sc = scorecardsByObligation.get(obligation.getId());
             if (sc != null && sc.isSubmitted()) {
-                effectiveMetricsByObligation.put(obligation.getId(), performanceService.resolveEffectiveMetrics(sc));
+                if (sc.isUsesMetaMetricModel()) {
+                    effectiveMetricsByObligation.put(obligation.getId(), performanceService.resolveEffectiveMetrics(sc));
+                } else {
+                    legacyEffectiveMetricsByObligation.put(obligation.getId(), performanceService.resolveLegacyEffectiveMetrics(sc));
+                }
                 correctionsByObligation.put(obligation.getId(), performanceService.correctionsFor(sc));
             }
         }
         model.addAttribute("effectiveMetricsByObligation", effectiveMetricsByObligation);
+        model.addAttribute("legacyEffectiveMetricsByObligation", legacyEffectiveMetricsByObligation);
         model.addAttribute("correctionsByObligation", correctionsByObligation);
 
         var timeline = new java.util.ArrayList<>(transitionHistoryRepository
@@ -2217,21 +2244,17 @@ public class DeliverableMvcController {
 
     @PostMapping("/performance/{obligationId}/draft")
     public String saveScorecardDraft(@PathVariable UUID id, @PathVariable UUID obligationId,
-                                      @RequestParam(required = false) Integer views3sec,
-                                      @RequestParam(required = false, defaultValue = "false") boolean views3secIsNa,
-                                      @RequestParam(required = false) Integer plays,
-                                      @RequestParam(required = false) java.math.BigDecimal averageWatchTimeSeconds,
-                                      @RequestParam(required = false, defaultValue = "false") boolean watchTimeIsNa,
-                                      @RequestParam(required = false) java.math.BigDecimal videoLengthSeconds,
-                                      @RequestParam(required = false, defaultValue = "false") boolean videoLengthIsNa,
-                                      @RequestParam(required = false) Integer linkClicks,
-                                      @RequestParam(required = false, defaultValue = "false") boolean clicksIsNa,
-                                      @RequestParam(required = false) Integer impressions,
+                                      @RequestParam(required = false) java.math.BigDecimal hookRatePercent,
+                                      @RequestParam(required = false, defaultValue = "false") boolean hookRateIsNa,
+                                      @RequestParam(required = false) java.math.BigDecimal holdRatePercent,
+                                      @RequestParam(required = false, defaultValue = "false") boolean holdRateIsNa,
+                                      @RequestParam(required = false) Long views,
+                                      @RequestParam(required = false) java.math.BigDecimal averageViewDurationSeconds,
+                                      @RequestParam(required = false, defaultValue = "false") boolean avgViewDurationIsNa,
                                       @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            performanceService.saveDraft(principal.user(), obligationId, views3sec, views3secIsNa, plays,
-                    averageWatchTimeSeconds, watchTimeIsNa, videoLengthSeconds, videoLengthIsNa, linkClicks,
-                    clicksIsNa, impressions);
+            performanceService.saveDraft(principal.user(), obligationId, hookRatePercent, hookRateIsNa,
+                    holdRatePercent, holdRateIsNa, views, averageViewDurationSeconds, avgViewDurationIsNa);
             ra.addFlashAttribute("successMessage", "Scorecard draft saved.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
@@ -2253,21 +2276,22 @@ public class DeliverableMvcController {
 
     @PostMapping("/performance/scorecards/{scorecardId}/corrections")
     public String correctMetric(@PathVariable UUID id, @PathVariable UUID scorecardId,
-                                 @RequestParam(required = false) Integer correctedViews3sec,
-                                 @RequestParam(required = false) Integer correctedPlays,
-                                 @RequestParam(required = false) java.math.BigDecimal correctedWatchTimeSeconds,
-                                 @RequestParam(required = false) java.math.BigDecimal correctedVideoLengthSeconds,
-                                 @RequestParam(required = false) Integer correctedLinkClicks,
-                                 @RequestParam(required = false) Integer correctedImpressions,
+                                 @RequestParam(required = false) java.math.BigDecimal correctedHookRatePercent,
+                                 @RequestParam(required = false) Boolean correctedHookRateIsNa,
+                                 @RequestParam(required = false) java.math.BigDecimal correctedHoldRatePercent,
+                                 @RequestParam(required = false) Boolean correctedHoldRateIsNa,
+                                 @RequestParam(required = false) Long correctedViews,
+                                 @RequestParam(required = false) java.math.BigDecimal correctedAverageViewDurationSeconds,
+                                 @RequestParam(required = false) Boolean correctedAvgViewDurationIsNa,
                                  @RequestParam String correctionReason,
                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
             // Metric to correct is chosen one at a time in the UI (Correct-a-Metric dropdown), but
             // the params are all optional here (same contract as API-OP-046/CorrectScorecardMetricsRequest)
             // so a correction may still touch more than one metric if a future caller needs to.
-            performanceService.correctMetrics(principal.user(), scorecardId, correctedViews3sec, null, correctedPlays,
-                    correctedWatchTimeSeconds, null, correctedVideoLengthSeconds, null, correctedLinkClicks, null,
-                    correctedImpressions, correctionReason);
+            performanceService.correctMetrics(principal.user(), scorecardId, correctedHookRatePercent,
+                    correctedHookRateIsNa, correctedHoldRatePercent, correctedHoldRateIsNa, correctedViews,
+                    correctedAverageViewDurationSeconds, correctedAvgViewDurationIsNa, correctionReason);
             ra.addFlashAttribute("successMessage", "Metric correction recorded.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());

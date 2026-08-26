@@ -7,18 +7,15 @@ import java.math.BigDecimal;
 /**
  * API-OP-046 request body. Every metric field is optional - a correction may touch any subset of
  * metrics (ERD-TBL-028 mirrors the nullable metric columns of creative_performance_scorecards);
- * only correctionReason is mandatory.
+ * only correctionReason is mandatory. V26: the four direct-entry Meta fields.
  */
 public record CorrectScorecardMetricsRequest(
-        Integer correctedViews3sec,
-        Boolean correctedViews3secIsNa,
-        Integer correctedPlays,
-        BigDecimal correctedWatchTimeSeconds,
-        Boolean correctedWatchTimeIsNa,
-        BigDecimal correctedVideoLengthSeconds,
-        Boolean correctedVideoLengthIsNa,
-        Integer correctedLinkClicks,
-        Boolean correctedClicksIsNa,
-        Integer correctedImpressions,
+        BigDecimal correctedHookRatePercent,
+        Boolean correctedHookRateIsNa,
+        BigDecimal correctedHoldRatePercent,
+        Boolean correctedHoldRateIsNa,
+        Long correctedViews,
+        BigDecimal correctedAverageViewDurationSeconds,
+        Boolean correctedAvgViewDurationIsNa,
         @NotBlank String correctionReason) {
 }

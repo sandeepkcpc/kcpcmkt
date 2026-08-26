@@ -84,6 +84,44 @@ public class PerformanceMetricCorrection extends BaseEntity {
     @Column(name = "new_clicks_is_na")
     private Boolean newClicksIsNa;
 
+    // ---- Meta-only direct-entry model (V26) - mirrors CreativePerformanceScorecard's meta_* fields
+    // exactly, same reasoning as that class for why these are separate from the legacy pairs above.
+
+    @Column(name = "prior_meta_hook_rate", precision = 5, scale = 2)
+    private BigDecimal priorMetaHookRate;
+    @Column(name = "new_meta_hook_rate", precision = 5, scale = 2)
+    private BigDecimal newMetaHookRate;
+
+    @Column(name = "prior_meta_hook_rate_is_na")
+    private Boolean priorMetaHookRateIsNa;
+    @Column(name = "new_meta_hook_rate_is_na")
+    private Boolean newMetaHookRateIsNa;
+
+    @Column(name = "prior_meta_hold_rate", precision = 5, scale = 2)
+    private BigDecimal priorMetaHoldRate;
+    @Column(name = "new_meta_hold_rate", precision = 5, scale = 2)
+    private BigDecimal newMetaHoldRate;
+
+    @Column(name = "prior_meta_hold_rate_is_na")
+    private Boolean priorMetaHoldRateIsNa;
+    @Column(name = "new_meta_hold_rate_is_na")
+    private Boolean newMetaHoldRateIsNa;
+
+    @Column(name = "prior_meta_views")
+    private Long priorMetaViews;
+    @Column(name = "new_meta_views")
+    private Long newMetaViews;
+
+    @Column(name = "prior_meta_avg_view_duration", precision = 8, scale = 2)
+    private BigDecimal priorMetaAvgViewDuration;
+    @Column(name = "new_meta_avg_view_duration", precision = 8, scale = 2)
+    private BigDecimal newMetaAvgViewDuration;
+
+    @Column(name = "prior_meta_avg_view_duration_is_na")
+    private Boolean priorMetaAvgViewDurationIsNa;
+    @Column(name = "new_meta_avg_view_duration_is_na")
+    private Boolean newMetaAvgViewDurationIsNa;
+
     @Column(name = "mandatory_reason", nullable = false, columnDefinition = "text")
     private String mandatoryReason;
 
@@ -160,6 +198,41 @@ public class PerformanceMetricCorrection extends BaseEntity {
     public void setClicksIsNa(Boolean prior, Boolean next) {
         this.priorClicksIsNa = prior;
         this.newClicksIsNa = next;
+    }
+
+    public void setMetaHookRate(BigDecimal prior, BigDecimal next) {
+        this.priorMetaHookRate = prior;
+        this.newMetaHookRate = next;
+    }
+
+    public void setMetaHookRateIsNa(Boolean prior, Boolean next) {
+        this.priorMetaHookRateIsNa = prior;
+        this.newMetaHookRateIsNa = next;
+    }
+
+    public void setMetaHoldRate(BigDecimal prior, BigDecimal next) {
+        this.priorMetaHoldRate = prior;
+        this.newMetaHoldRate = next;
+    }
+
+    public void setMetaHoldRateIsNa(Boolean prior, Boolean next) {
+        this.priorMetaHoldRateIsNa = prior;
+        this.newMetaHoldRateIsNa = next;
+    }
+
+    public void setMetaViews(Long prior, Long next) {
+        this.priorMetaViews = prior;
+        this.newMetaViews = next;
+    }
+
+    public void setMetaAvgViewDuration(BigDecimal prior, BigDecimal next) {
+        this.priorMetaAvgViewDuration = prior;
+        this.newMetaAvgViewDuration = next;
+    }
+
+    public void setMetaAvgViewDurationIsNa(Boolean prior, Boolean next) {
+        this.priorMetaAvgViewDurationIsNa = prior;
+        this.newMetaAvgViewDurationIsNa = next;
     }
 
     public CreativePerformanceScorecard getScorecard() {
@@ -248,6 +321,62 @@ public class PerformanceMetricCorrection extends BaseEntity {
 
     public Boolean getNewClicksIsNa() {
         return newClicksIsNa;
+    }
+
+    public BigDecimal getPriorMetaHookRate() {
+        return priorMetaHookRate;
+    }
+
+    public BigDecimal getNewMetaHookRate() {
+        return newMetaHookRate;
+    }
+
+    public Boolean getPriorMetaHookRateIsNa() {
+        return priorMetaHookRateIsNa;
+    }
+
+    public Boolean getNewMetaHookRateIsNa() {
+        return newMetaHookRateIsNa;
+    }
+
+    public BigDecimal getPriorMetaHoldRate() {
+        return priorMetaHoldRate;
+    }
+
+    public BigDecimal getNewMetaHoldRate() {
+        return newMetaHoldRate;
+    }
+
+    public Boolean getPriorMetaHoldRateIsNa() {
+        return priorMetaHoldRateIsNa;
+    }
+
+    public Boolean getNewMetaHoldRateIsNa() {
+        return newMetaHoldRateIsNa;
+    }
+
+    public Long getPriorMetaViews() {
+        return priorMetaViews;
+    }
+
+    public Long getNewMetaViews() {
+        return newMetaViews;
+    }
+
+    public BigDecimal getPriorMetaAvgViewDuration() {
+        return priorMetaAvgViewDuration;
+    }
+
+    public BigDecimal getNewMetaAvgViewDuration() {
+        return newMetaAvgViewDuration;
+    }
+
+    public Boolean getPriorMetaAvgViewDurationIsNa() {
+        return priorMetaAvgViewDurationIsNa;
+    }
+
+    public Boolean getNewMetaAvgViewDurationIsNa() {
+        return newMetaAvgViewDurationIsNa;
     }
 
     public String getMandatoryReason() {

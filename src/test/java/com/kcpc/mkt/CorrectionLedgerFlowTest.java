@@ -204,33 +204,33 @@ class CorrectionLedgerFlowTest {
 
         HttpResponse<String> beforeSubmit = ceo.post(
                 "/api/v1/performance/scorecards/" + obligationId + "/corrections",
-                "{\"correctedLinkClicks\":410,\"correctionReason\":\"Too early.\"}");
+                "{\"correctedViews\":410,\"correctionReason\":\"Too early.\"}");
         // No draft/submitted scorecard resolves to scorecardId yet, so this must not silently succeed.
         assertThat(beforeSubmit.statusCode()).isIn(404, 409, 400);
 
         ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/draft",
-                "{\"views3sec\":800,\"plays\":1000,\"averageWatchTimeSeconds\":12.5,\"videoLengthSeconds\":20.0,"
-                        + "\"linkClicks\":400,\"impressions\":5000}");
+                "{\"hookRatePercent\":42.50,\"hookRateIsNa\":false,\"holdRatePercent\":28.75,\"holdRateIsNa\":false,"
+                        + "\"views\":400,\"averageViewDurationSeconds\":6.8,\"avgViewDurationIsNa\":false}");
         JsonNode submitted = ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/submit", "");
         String scorecardId = submitted.get("scorecardId").asText();
 
         HttpResponse<String> notYetSubmittedAttempt = ceo.post(
                 "/api/v1/performance/scorecards/" + UUID.randomUUID() + "/corrections",
-                "{\"correctedLinkClicks\":410,\"correctionReason\":\"Unknown scorecard.\"}");
+                "{\"correctedViews\":410,\"correctionReason\":\"Unknown scorecard.\"}");
         assertThat(notYetSubmittedAttempt.statusCode()).isEqualTo(404);
 
         JsonNode metricCorrection = ceo.postJson("/api/v1/performance/scorecards/" + scorecardId + "/corrections",
-                "{\"correctedLinkClicks\":410,\"correctionReason\":\"Analytics reconciliation added delayed clicks.\"}");
-        assertThat(metricCorrection.get("priorClicks").asInt()).isEqualTo(400);
-        assertThat(metricCorrection.get("newClicks").asInt()).isEqualTo(410);
-        assertThat(metricCorrection.get("priorPlays").isNull()).isTrue(); // untouched field stays null
+                "{\"correctedViews\":410,\"correctionReason\":\"Analytics reconciliation added delayed views.\"}");
+        assertThat(metricCorrection.get("priorViews").asInt()).isEqualTo(400);
+        assertThat(metricCorrection.get("newViews").asInt()).isEqualTo(410);
+        assertThat(metricCorrection.get("priorHookRate").isNull()).isTrue(); // untouched field stays null
 
-        // Sealed scorecard's own stored link_clicks must remain the original submitted value (ERD-CON-060).
+        // Sealed scorecard's own stored meta_views must remain the original submitted value (ERD-CON-060).
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        Integer storedClicks = jdbc.queryForObject(
-                "SELECT link_clicks FROM creative_performance_scorecards WHERE scorecard_id = ?::uuid",
-                Integer.class, scorecardId);
-        assertThat(storedClicks).isEqualTo(400);
+        Long storedViews = jdbc.queryForObject(
+                "SELECT meta_views FROM creative_performance_scorecards WHERE scorecard_id = ?::uuid",
+                Long.class, scorecardId);
+        assertThat(storedViews).isEqualTo(400L);
 
         // --- ERD-CON-058: append-only enforcement at the DB level, independent of the app layer. ---
         assertThatThrownBy(() -> jdbc.update(

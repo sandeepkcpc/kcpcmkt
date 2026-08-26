@@ -232,6 +232,41 @@ public class TestApiClient {
         return response;
     }
 
+    /**
+     * Multipart file upload exactly as a browser's {@code <form enctype="multipart/form-data">}
+     * sends it - the CSRF token is included as a regular form field (the same {@code _csrf}
+     * parameter name the JSP hidden input uses), not a header, matching every other
+     * {@code postForm*} method here. {@code java.net.http.HttpClient} has no built-in multipart
+     * body builder, so the boundary-delimited body is hand-assembled.
+     */
+    public HttpResponse<String> postMultipartFile(String path, String fieldName, String filename, byte[] fileContent,
+                                                    String contentType) throws IOException, InterruptedException {
+        String boundary = "----TestApiClientBoundary" + System.nanoTime();
+        var bytesOut = new java.io.ByteArrayOutputStream();
+        java.nio.charset.Charset utf8 = java.nio.charset.StandardCharsets.UTF_8;
+        if (csrfToken != null) {
+            bytesOut.writeBytes(("--" + boundary + "\r\n").getBytes(utf8));
+            bytesOut.writeBytes(("Content-Disposition: form-data; name=\"" + "_csrf" + "\"\r\n\r\n").getBytes(utf8));
+            bytesOut.writeBytes((csrfToken + "\r\n").getBytes(utf8));
+        }
+        bytesOut.writeBytes(("--" + boundary + "\r\n").getBytes(utf8));
+        bytesOut.writeBytes(("Content-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"" + filename
+                + "\"\r\n").getBytes(utf8));
+        bytesOut.writeBytes(("Content-Type: " + contentType + "\r\n\r\n").getBytes(utf8));
+        bytesOut.writeBytes(fileContent);
+        bytesOut.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(utf8));
+
+        HttpClient noRedirectClient = HttpClient.newBuilder().cookieHandler(cookieManager)
+                .followRedirects(HttpClient.Redirect.NEVER).build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(bytesOut.toByteArray()))
+                .build();
+        HttpResponse<String> response = noRedirectClient.send(request, HttpResponse.BodyHandlers.ofString());
+        debug("POST(multipart)", path, response);
+        return response;
+    }
+
     private void debug(String method, String path, HttpResponse<String> response) {
         if (Boolean.getBoolean("testApiClient.debug")) {
             System.out.println("DEBUG " + method + " " + path + " csrfToken=" + csrfToken

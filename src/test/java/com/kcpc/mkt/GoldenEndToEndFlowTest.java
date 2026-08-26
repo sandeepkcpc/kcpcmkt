@@ -143,11 +143,13 @@ class GoldenEndToEndFlowTest {
         String obligationId = findObligationId(contentPlanId);
         assertThat(obligationId).isNotNull();
 
+        // V26: direct-entry Meta model - values are stored as-is, never derived (unlike the old
+        // views3sec/plays -> hookRatePercent computation this test originally exercised).
         JsonNode draft = ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/draft",
-                "{\"views3sec\":800,\"plays\":1000,\"averageWatchTimeSeconds\":12.5,\"videoLengthSeconds\":20.0,"
-                        + "\"linkClicks\":0,\"clicksIsNa\":true,\"impressions\":5000}");
+                "{\"hookRatePercent\":80.00,\"hookRateIsNa\":false,\"holdRateIsNa\":true,"
+                        + "\"views\":5000,\"avgViewDurationIsNa\":true}");
         assertThat(draft.get("hookRatePercent").asDouble()).isEqualTo(80.00);
-        assertThat(draft.get("ctrPercent").isNull()).isTrue(); // SC-REQ-001: N/A, not 0
+        assertThat(draft.get("holdRateIsNa").asBoolean()).isTrue(); // SC-REQ-001-style: N/A, not 0
 
         JsonNode submitted = ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/submit", "");
         assertThat(submitted.get("submitted").asBoolean()).isTrue();

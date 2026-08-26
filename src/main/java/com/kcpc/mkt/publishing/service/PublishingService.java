@@ -66,6 +66,7 @@ public class PublishingService {
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
     private final OperationalEligibilityService operationalEligibilityService;
+    private final com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService;
     private final AuditService auditService;
     private final HoldService holdService;
 
@@ -80,6 +81,7 @@ public class PublishingService {
                               ReopenRecordRepository reopenRecordRepository,
                               WorkflowTransitionService workflowService, AuthorizationService authorizationService,
                               OperationalEligibilityService operationalEligibilityService,
+                              com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService,
                               AuditService auditService, HoldService holdService) {
         this.contentPlanRepository = contentPlanRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -94,6 +96,7 @@ public class PublishingService {
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
         this.operationalEligibilityService = operationalEligibilityService;
+        this.performanceEligibilityService = performanceEligibilityService;
         this.auditService = auditService;
         this.holdService = holdService;
     }
@@ -281,8 +284,14 @@ public class PublishingService {
 
         ActualPublicationEvent event = eventRepository.save(new ActualPublicationEvent(plan, plannedOutput, target,
                 eventType, actualPublicationTimestamp, evidenceUrl, actor));
-        // build-prompt §25: every Actual Publication Event creates its own performance obligation.
-        obligationRepository.save(new PerformanceObligation(event));
+        // Performance tracking is Meta-only (Instagram/Facebook) - build-prompt §25's "every event
+        // creates its own performance obligation" now applies only to eligible events, via the one
+        // governed rule in PerformanceEligibilityService. Publishing itself stays fully
+        // multi-platform - this only decides whether a Performance obligation exists, never blocks
+        // or hides the publication event itself.
+        if (performanceEligibilityService.isEligible(event)) {
+            obligationRepository.save(new PerformanceObligation(event));
+        }
 
         auditService.record(actor, actingGrant, "PUBLISHING", "ACTUAL_PUBLICATION_RECORDED",
                 "actual_publication_events", event.getId(), null);

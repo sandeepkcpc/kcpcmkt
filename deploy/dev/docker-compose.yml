@@ -1,0 +1,94 @@
+# GCP VM deployment stack - DEV. Lives at /opt/kcpc-dev on the VM, deployed by
+# deploy/scripts/deploy.sh from GitHub Actions (deploy-dev.yml). Isolated from PROD by every axis
+# the task requires: separate Compose project name, separate service/container names, separate
+# network (implicit - Compose scopes the default network per project name), separate DB + volume,
+# separate .env, separate ports.
+#
+# Spring profile: SPRING_PROFILES_ACTIVE=docker (same profile the verified local stack uses, and
+# the same one PROD uses below) - deliberately NOT the "dev" Spring profile. The "dev" profile
+# wires in db/migration-demo (8 demo users + 3 demo permission grants) and hardcoded
+# localhost-only datasource defaults, neither of which belongs in a real, shared, GCP-hosted
+# environment. The "docker" profile is already 100% environment-variable-driven and already never
+# references db/migration-demo (see DockerFlywayProfileConfigurationTest) - reusing it here means
+# DEV and PROD run byte-for-byte identical application logic, differing only in the environment
+# variable VALUES each stack injects. No new Spring profile was introduced.
+name: kcpc-dev
+
+services:
+  kcpc-dev-postgres:
+    image: postgres:16
+    container_name: kcpc-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?set DB_NAME in .env, e.g. kcpc_dev}
+      POSTGRES_USER: kcpc_migrator
+      POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    volumes:
+      # Compose-managed (not external) - intentional for DEV. See ../prod/docker-compose.yml for
+      # why PROD's equivalent volume must be external instead, and README.md in this directory
+      # for the full DEV-vs-PROD volume-protection rationale.
+      - kcpc_dev_pgdata:/var/lib/postgresql/data
+      - ../../db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcpc_migrator -d ${DB_NAME:-kcpc_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kcpc-dev-app:
+    # No "build:" - DEV pulls the immutable image GitHub Actions already built and pushed to
+    # Artifact Registry. Never build/deploy from local source on the VM.
+    image: ${AR_IMAGE:?set AR_IMAGE in .env, e.g. REGION-docker.pkg.dev/PROJECT_ID/kcpc/kcpc-app}:${IMAGE_TAG:-dev}
+    container_name: kcpc-dev-app
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: kcpc-dev-postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?set DB_NAME in .env, e.g. kcpc_dev}
+      DB_USER: kcpc_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      FLYWAY_DB_USER: kcpc_migrator
+      FLYWAY_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
+      APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:?set a >=64-byte secret in .env, distinct from PROD's}
+      # See ../../src/main/resources/application.yml docker profile: true only once real HTTPS
+      # (a domain + TLS termination) actually fronts this stack - false while only reachable by
+      # raw host:port. Independent of PROD's value.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DRIVE_ENABLED: ${DRIVE_ENABLED:-false}
+      DRIVE_SERVICE_ACCOUNT_KEY: ${DRIVE_SERVICE_ACCOUNT_KEY:-}
+      # MUST point at a DEV-only Drive root (e.g. "KCPC DEV CONTENT"), never the PROD root - see
+      # README.md "Google Drive isolation". A blank value (the default) leaves Drive fully inert.
+      DRIVE_SHARED_DRIVE_ID: ${DRIVE_SHARED_DRIVE_ID:-}
+      DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
+      DRIVE_IMPERSONATE_USER: ${DRIVE_IMPERSONATE_USER:-}
+    depends_on:
+      kcpc-dev-postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kcpc-dev-nginx:
+    image: nginx:1.27-alpine
+    container_name: kcpc-dev-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      # Host port 8081 (non-conflicting with PROD's 80/443 on the same VM) - see README.md
+      # "Ports" for the domain-based alternative (dev.example.com) that avoids exposing a raw
+      # port publicly at all.
+      - "8081:80"
+    depends_on:
+      kcpc-dev-app:
+        condition: service_healthy
+
+volumes:
+  kcpc_dev_pgdata:

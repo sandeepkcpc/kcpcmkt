@@ -33,3 +33,12 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Secrets (Docker/deployment) ###
+# .env.example is intentionally committed (names + placeholders only) - never a real value.
+.env
+.env.*
+!.env.example
+*.service-account.json
+*.pem
+*.key

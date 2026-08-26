@@ -1,0 +1,117 @@
+name: Reusable - Test, Build, Push, Deploy
+
+# Shared by deploy-dev.yml and deploy-prod.yml (workflow_call) so the actual test/build/push/
+# deploy/health-check logic exists exactly once. Callers only ever differ in which branch
+# triggers them and which `inputs` they pass - never in what this workflow actually does.
+on:
+  workflow_call:
+    inputs:
+      gh_environment:
+        description: "GitHub Environment name (development / production) - carries this environment's vars/secrets and any manual-approval protection rules."
+        required: true
+        type: string
+      env_dir:
+        description: "Absolute path to this environment's directory on the VM, e.g. /opt/kcpc-dev"
+        required: true
+        type: string
+      image_tag_suffix:
+        description: "Friendly floating tag pushed alongside the immutable git-SHA tag, e.g. dev or prod"
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Run test suite
+        run: mvn -B -q test
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    # This is where GitHub Environment protection rules (e.g. production's required reviewers)
+    # actually gate the run - a job that references `environment:` pauses here for approval if
+    # the target Environment has a protection rule configured (Settings -> Environments).
+    environment: ${{ inputs.gh_environment }}
+    permissions:
+      contents: read
+      id-token: write # required for Workload Identity Federation - no JSON key ever touches this workflow
+    outputs:
+      image_sha_tag: ${{ steps.tags.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          echo "sha_tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/kcpc-app" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: |
+          docker build -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}" \
+                        -t "${{ steps.tags.outputs.image }}:${{ inputs.image_tag_suffix }}" .
+
+      - name: Push image (immutable SHA tag + friendly floating tag)
+        run: |
+          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}"
+          docker push "${{ steps.tags.outputs.image }}:${{ inputs.image_tag_suffix }}"
+          # Old Artifact Registry images are intentionally never deleted here - see
+          # deploy/README.md "Image retention". Cleanup, if ever needed, is a separate,
+          # deliberate operation, not a side effect of every push.
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.gh_environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Refresh deploy scripts on the VM
+        # Scripts are copied fresh on every deploy from this exact commit's deploy/scripts/ -
+        # shared between DEV and PROD deploys (the scripts themselves hold no environment-specific
+        # values, only the per-environment .env files on the VM do), so there is one source of
+        # truth and no drift between what ran last time and what's in this repo now.
+        run: |
+          gcloud compute scp --tunnel-through-iap --zone "${{ vars.GCP_VM_ZONE }}" \
+            deploy/scripts/_lib.sh deploy/scripts/deploy.sh deploy/scripts/rollback.sh \
+            deploy/scripts/backup-postgres.sh deploy/scripts/restore-postgres.sh \
+            "${{ vars.GCP_VM_NAME }}:/opt/kcpc-scripts/"
+
+      - name: Deploy (updates only the app container; DB is untouched)
+        run: |
+          gcloud compute ssh --tunnel-through-iap --zone "${{ vars.GCP_VM_ZONE }}" "${{ vars.GCP_VM_NAME }}" \
+            --command "bash /opt/kcpc-scripts/deploy.sh '${{ inputs.env_dir }}' '${{ needs.build-and-push.outputs.image_sha_tag }}'"
+          # deploy.sh itself polls the app container's own healthcheck and exits non-zero (after
+          # auto-rolling back to the previous image) if the new one never becomes healthy - this
+          # step's own exit code IS the health-check gate GitHub Actions needs: the job (and the
+          # GitHub Deployment status tied to `environment:` above) is only ever marked successful
+          # if this command returns 0.

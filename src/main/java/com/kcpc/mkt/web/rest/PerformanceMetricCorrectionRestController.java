@@ -30,11 +30,10 @@ public class PerformanceMetricCorrectionRestController {
     public ResponseEntity<PerformanceMetricCorrectionResponse> correctMetrics(
             @PathVariable UUID scorecardId, @Valid @RequestBody CorrectScorecardMetricsRequest request,
             @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        var correction = performanceService.correctMetrics(principal.user(), scorecardId, request.correctedViews3sec(),
-                request.correctedViews3secIsNa(), request.correctedPlays(), request.correctedWatchTimeSeconds(),
-                request.correctedWatchTimeIsNa(), request.correctedVideoLengthSeconds(), request.correctedVideoLengthIsNa(),
-                request.correctedLinkClicks(), request.correctedClicksIsNa(), request.correctedImpressions(),
-                request.correctionReason());
+        var correction = performanceService.correctMetrics(principal.user(), scorecardId, request.correctedHookRatePercent(),
+                request.correctedHookRateIsNa(), request.correctedHoldRatePercent(), request.correctedHoldRateIsNa(),
+                request.correctedViews(), request.correctedAverageViewDurationSeconds(),
+                request.correctedAvgViewDurationIsNa(), request.correctionReason());
         return ResponseEntity.ok(PerformanceMetricCorrectionResponse.from(correction));
     }
 }

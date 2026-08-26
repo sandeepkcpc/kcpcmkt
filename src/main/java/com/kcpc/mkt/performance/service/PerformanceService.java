@@ -12,6 +12,7 @@ import com.kcpc.mkt.performance.domain.CreativePerformanceScorecard;
 import com.kcpc.mkt.performance.domain.PerformanceMetricCorrection;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import com.kcpc.mkt.performance.dto.EffectiveScorecardMetrics;
+import com.kcpc.mkt.performance.dto.LegacyEffectiveScorecardMetrics;
 import com.kcpc.mkt.performance.repository.CreativePerformanceScorecardRepository;
 import com.kcpc.mkt.performance.repository.PerformanceMetricCorrectionRepository;
 import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
@@ -49,19 +50,22 @@ public class PerformanceService {
     private final ContentPlanRepository contentPlanRepository;
     private final WorkflowTransitionService workflowService;
     private final AuthorizationService authorizationService;
+    private final PerformanceEligibilityService performanceEligibilityService;
     private final AuditService auditService;
 
     public PerformanceService(PerformanceObligationRepository obligationRepository,
                                CreativePerformanceScorecardRepository scorecardRepository,
                                PerformanceMetricCorrectionRepository metricCorrectionRepository,
                                ContentPlanRepository contentPlanRepository, WorkflowTransitionService workflowService,
-                               AuthorizationService authorizationService, AuditService auditService) {
+                               AuthorizationService authorizationService,
+                               PerformanceEligibilityService performanceEligibilityService, AuditService auditService) {
         this.obligationRepository = obligationRepository;
         this.scorecardRepository = scorecardRepository;
         this.metricCorrectionRepository = metricCorrectionRepository;
         this.contentPlanRepository = contentPlanRepository;
         this.workflowService = workflowService;
         this.authorizationService = authorizationService;
+        this.performanceEligibilityService = performanceEligibilityService;
         this.auditService = auditService;
     }
 
@@ -98,11 +102,16 @@ public class PerformanceService {
         }
     }
 
+    /** V26: direct-entry Meta model (Hook Rate / Hold Rate / Views / Average View Duration). Views
+     * has no N/A flag (see {@code EffectiveScorecardMetrics}). An obligation only ever exists for
+     * an eligible Instagram/Facebook event ({@code PublishingService} gates creation), so no
+     * eligibility re-check is needed here. */
     @Transactional
-    public CreativePerformanceScorecard saveDraft(User actor, UUID obligationId, Integer views3sec, boolean views3secIsNa,
-                                                    Integer plays, BigDecimal averageWatchTimeSeconds, boolean watchTimeIsNa,
-                                                    BigDecimal videoLengthSeconds, boolean videoLengthIsNa,
-                                                    Integer linkClicks, boolean clicksIsNa, Integer impressions) {
+    public CreativePerformanceScorecard saveDraft(User actor, UUID obligationId,
+                                                    BigDecimal hookRatePercent, boolean hookRateIsNa,
+                                                    BigDecimal holdRatePercent, boolean holdRateIsNa,
+                                                    Long views,
+                                                    BigDecimal averageViewDurationSeconds, boolean avgViewDurationIsNa) {
         PerformanceObligation obligation = requireObligation(obligationId);
         WorkflowInstance workflowInstance = obligation.getEvent().getContentPlan().getWorkflowInstance();
         Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(actor,
@@ -110,8 +119,8 @@ public class PerformanceService {
         requireDueDateReached(obligation);
 
         CreativePerformanceScorecard scorecard = scorecardFor(obligation, actor);
-        scorecard.updateDraft(views3sec, views3secIsNa, plays, averageWatchTimeSeconds, watchTimeIsNa,
-                videoLengthSeconds, videoLengthIsNa, linkClicks, clicksIsNa, impressions);
+        scorecard.updateMetaDraft(hookRatePercent, hookRateIsNa, holdRatePercent, holdRateIsNa, views,
+                averageViewDurationSeconds, avgViewDurationIsNa);
         scorecardRepository.save(scorecard);
         maybeAdvanceToPerformanceUpdate(workflowInstance, obligation, actor, actingGrant);
         auditService.record(actor, actingGrant, "PERFORMANCE", "SCORECARD_DRAFT_SAVED", "creative_performance_scorecards",
@@ -148,13 +157,14 @@ public class PerformanceService {
      * never mutated. A correction may touch any subset of metrics; unspecified fields are left
      * null in the correction row (no change recorded for that field).
      */
+    /** V26: corrections against the four direct-entry Meta metrics. */
     @Transactional
-    public PerformanceMetricCorrection correctMetrics(User actor, UUID scorecardId, Integer correctedViews3sec,
-                                                        Boolean correctedViews3secIsNa, Integer correctedPlays,
-                                                        BigDecimal correctedWatchTimeSeconds, Boolean correctedWatchTimeIsNa,
-                                                        BigDecimal correctedVideoLengthSeconds, Boolean correctedVideoLengthIsNa,
-                                                        Integer correctedLinkClicks, Boolean correctedClicksIsNa,
-                                                        Integer correctedImpressions, String correctionReason) {
+    public PerformanceMetricCorrection correctMetrics(User actor, UUID scorecardId,
+                                                        BigDecimal correctedHookRatePercent, Boolean correctedHookRateIsNa,
+                                                        BigDecimal correctedHoldRatePercent, Boolean correctedHoldRateIsNa,
+                                                        Long correctedViews,
+                                                        BigDecimal correctedAverageViewDurationSeconds,
+                                                        Boolean correctedAvgViewDurationIsNa, String correctionReason) {
         if (correctionReason == null || correctionReason.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A correction reason is mandatory");
         }
@@ -176,45 +186,33 @@ public class PerformanceService {
         PerformanceMetricCorrection correction = new PerformanceMetricCorrection(scorecard, latest, correctionReason,
                 actor, actingGrant.orElse(null));
 
-        if (correctedViews3sec != null) {
-            correction.setViews3sec(effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewViews3sec,
-                    scorecard.getViews3sec()), correctedViews3sec);
+        if (correctedHookRatePercent != null) {
+            correction.setMetaHookRate(effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaHookRate,
+                    scorecard.getMetaHookRatePercent()), correctedHookRatePercent);
         }
-        if (correctedPlays != null) {
-            correction.setPlays(effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewPlays,
-                    scorecard.getPlays()), correctedPlays);
+        if (correctedHookRateIsNa != null) {
+            correction.setMetaHookRateIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaHookRateIsNa,
+                    scorecard.isMetaHookRateIsNa()), correctedHookRateIsNa);
         }
-        if (correctedWatchTimeSeconds != null) {
-            correction.setWatchTime(effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewWatchTime,
-                    scorecard.getAverageWatchTimeSeconds()), correctedWatchTimeSeconds);
+        if (correctedHoldRatePercent != null) {
+            correction.setMetaHoldRate(effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaHoldRate,
+                    scorecard.getMetaHoldRatePercent()), correctedHoldRatePercent);
         }
-        if (correctedVideoLengthSeconds != null) {
-            correction.setVideoLength(effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewVideoLength,
-                    scorecard.getVideoLengthSeconds()), correctedVideoLengthSeconds);
+        if (correctedHoldRateIsNa != null) {
+            correction.setMetaHoldRateIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaHoldRateIsNa,
+                    scorecard.isMetaHoldRateIsNa()), correctedHoldRateIsNa);
         }
-        if (correctedLinkClicks != null) {
-            correction.setClicks(effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewClicks,
-                    scorecard.getLinkClicks()), correctedLinkClicks);
+        if (correctedViews != null) {
+            correction.setMetaViews(effectiveLong(priorCorrections, PerformanceMetricCorrection::getNewMetaViews,
+                    scorecard.getMetaViews()), correctedViews);
         }
-        if (correctedImpressions != null) {
-            correction.setImpressions(effectiveInt(priorCorrections, PerformanceMetricCorrection::getNewImpressions,
-                    scorecard.getImpressions()), correctedImpressions);
+        if (correctedAverageViewDurationSeconds != null) {
+            correction.setMetaAvgViewDuration(effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaAvgViewDuration,
+                    scorecard.getMetaAverageViewDurationSeconds()), correctedAverageViewDurationSeconds);
         }
-        if (correctedViews3secIsNa != null) {
-            correction.setViews3secIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewViews3secIsNa,
-                    scorecard.isViews3secIsNa()), correctedViews3secIsNa);
-        }
-        if (correctedWatchTimeIsNa != null) {
-            correction.setWatchTimeIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewWatchTimeIsNa,
-                    scorecard.isWatchTimeIsNa()), correctedWatchTimeIsNa);
-        }
-        if (correctedVideoLengthIsNa != null) {
-            correction.setVideoLengthIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewVideoLengthIsNa,
-                    scorecard.isVideoLengthIsNa()), correctedVideoLengthIsNa);
-        }
-        if (correctedClicksIsNa != null) {
-            correction.setClicksIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewClicksIsNa,
-                    scorecard.isClicksIsNa()), correctedClicksIsNa);
+        if (correctedAvgViewDurationIsNa != null) {
+            correction.setMetaAvgViewDurationIsNa(effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaAvgViewDurationIsNa,
+                    scorecard.isMetaAvgViewDurationIsNa()), correctedAvgViewDurationIsNa);
         }
 
         correction = metricCorrectionRepository.save(correction);
@@ -235,6 +233,32 @@ public class PerformanceService {
      * uses to compute a new correction's "prior" value, so the two can never disagree.
      */
     public EffectiveScorecardMetrics resolveEffectiveMetrics(CreativePerformanceScorecard scorecard) {
+        List<PerformanceMetricCorrection> priorCorrections =
+                metricCorrectionRepository.findByScorecardOrderByCorrectedAtDesc(scorecard);
+
+        BigDecimal hookRate = effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaHookRate,
+                scorecard.getMetaHookRatePercent());
+        boolean hookRateIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaHookRateIsNa,
+                scorecard.isMetaHookRateIsNa());
+        BigDecimal holdRate = effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaHoldRate,
+                scorecard.getMetaHoldRatePercent());
+        boolean holdRateIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaHoldRateIsNa,
+                scorecard.isMetaHoldRateIsNa());
+        Long views = effectiveLong(priorCorrections, PerformanceMetricCorrection::getNewMetaViews, scorecard.getMetaViews());
+        BigDecimal avgViewDuration = effectiveDecimal(priorCorrections, PerformanceMetricCorrection::getNewMetaAvgViewDuration,
+                scorecard.getMetaAverageViewDurationSeconds());
+        boolean avgViewDurationIsNa = effectiveBoolean(priorCorrections, PerformanceMetricCorrection::getNewMetaAvgViewDurationIsNa,
+                scorecard.isMetaAvgViewDurationIsNa());
+
+        return new EffectiveScorecardMetrics(hookRate, hookRateIsNa, holdRate, holdRateIsNa, views,
+                avgViewDuration, avgViewDurationIsNa);
+    }
+
+    /** For a PRE-V26 scorecard ({@code !scorecard.isUsesMetaMetricModel()}) only - the original
+     * 6-field/derived-Hook-Hold-CTR effective-value resolution, unchanged, so historical corrected
+     * values keep displaying correctly. Never called for a new (Meta-model) scorecard - use
+     * {@link #resolveEffectiveMetrics} for those. */
+    public LegacyEffectiveScorecardMetrics resolveLegacyEffectiveMetrics(CreativePerformanceScorecard scorecard) {
         List<PerformanceMetricCorrection> priorCorrections =
                 metricCorrectionRepository.findByScorecardOrderByCorrectedAtDesc(scorecard);
 
@@ -265,13 +289,20 @@ public class PerformanceService {
                 clicksIsNa ? null : CreativePerformanceScorecard.toDecimal(linkClicks),
                 CreativePerformanceScorecard.toDecimal(impressions));
 
-        return new EffectiveScorecardMetrics(views3sec, views3secIsNa, plays, watchTime, watchTimeIsNa,
+        return new LegacyEffectiveScorecardMetrics(views3sec, views3secIsNa, plays, watchTime, watchTimeIsNa,
                 videoLength, videoLengthIsNa, linkClicks, clicksIsNa, impressions, hookRate, holdRate, ctr);
     }
 
     private static Integer effectiveInt(List<PerformanceMetricCorrection> priorCorrectionsDesc,
                                          Function<PerformanceMetricCorrection, Integer> extractor,
                                          Integer rawScorecardValue) {
+        return priorCorrectionsDesc.stream().map(extractor).filter(Objects::nonNull).findFirst()
+                .orElse(rawScorecardValue);
+    }
+
+    private static Long effectiveLong(List<PerformanceMetricCorrection> priorCorrectionsDesc,
+                                       Function<PerformanceMetricCorrection, Long> extractor,
+                                       Long rawScorecardValue) {
         return priorCorrectionsDesc.stream().map(extractor).filter(Objects::nonNull).findFirst()
                 .orElse(rawScorecardValue);
     }
@@ -290,13 +321,22 @@ public class PerformanceService {
                 .orElse(rawScorecardValue);
     }
 
-    /** BFD status #20: Completed once every obligation for the deliverable is submitted/completed. */
+    /** BFD status #20: Completed once every ELIGIBLE (Instagram/Facebook) obligation for the
+     * deliverable is submitted/completed. Every obligation created after V26 is already
+     * Meta-eligible by construction ({@code PublishingService} gates creation), but a Content Plan
+     * published before that change can still carry older, non-Meta obligation rows (never deleted -
+     * see docs/IMPLEMENTATION_DECISIONS.md) - filtering here too, not just at creation, is what
+     * actually satisfies "a Content ID must not remain Performance Pending because YouTube/LinkedIn/
+     * etc. do not have performance records" for THAT pre-existing data as well, not only for
+     * content published going forward. */
     private void maybeComplete(ContentPlan plan, User actor, Optional<PermissionGrant> actingGrant) {
         WorkflowInstance workflowInstance = plan.getWorkflowInstance();
         if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.PFUP) {
             return;
         }
-        List<PerformanceObligation> obligations = obligationRepository.findByEvent_ContentPlan_Id(plan.getId());
+        List<PerformanceObligation> obligations = obligationRepository.findByEvent_ContentPlan_Id(plan.getId()).stream()
+                .filter(o -> performanceEligibilityService.isEligible(o.getEvent()))
+                .toList();
         boolean allCompleted = !obligations.isEmpty() && obligations.stream().allMatch(PerformanceObligation::isCompleted);
         if (allCompleted) {
             workflowService.transition(workflowInstance, WorkflowStatus.COMP, actor, actingGrant, "COMPLETE_DELIVERABLE", null);

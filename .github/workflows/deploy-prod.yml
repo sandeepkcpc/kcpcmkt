@@ -1,0 +1,19 @@
+name: Deploy PROD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-prod:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      gh_environment: production
+      env_dir: /opt/kcpc-prod
+      image_tag_suffix: prod
+    secrets: inherit
+    # Manual approval (if desired) is configured on the "production" GitHub Environment itself -
+    # Settings -> Environments -> production -> Required reviewers - not here. Once set, the
+    # build-and-push/deploy jobs inside deploy.yml (which both declare
+    # `environment: ${{ inputs.gh_environment }}`) pause for approval automatically; no workflow
+    # change is needed to turn that protection on or off.

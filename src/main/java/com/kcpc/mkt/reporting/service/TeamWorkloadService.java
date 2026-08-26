@@ -62,12 +62,11 @@ public class TeamWorkloadService {
 
     private static final Set<WorkflowStatus> PLANNING_WINDOW = EnumSet.of(
             WorkflowStatus.PL, WorkflowStatus.PLRV, WorkflowStatus.PLAP);
-    private static final Set<WorkflowStatus> SHOOT_WINDOW = EnumSet.of(
-            WorkflowStatus.SA, WorkflowStatus.SIP, WorkflowStatus.SRV);
-    private static final Set<WorkflowStatus> EDIT_WINDOW = EnumSet.of(
-            WorkflowStatus.EA, WorkflowStatus.ED, WorkflowStatus.ERV);
-    private static final Set<WorkflowStatus> PUBLISHING_WINDOW = EnumSet.of(
-            WorkflowStatus.RFP, WorkflowStatus.PUBG);
+    // Shoot/Edit/Publishing windows now live in AssigneeActiveWindows (single source of truth also
+    // used by AssigneeWorkloadCountService's assignee-picker task counts - see that class's javadoc).
+    private static final Set<WorkflowStatus> SHOOT_WINDOW = AssigneeActiveWindows.SHOOT;
+    private static final Set<WorkflowStatus> EDIT_WINDOW = AssigneeActiveWindows.EDIT;
+    private static final Set<WorkflowStatus> PUBLISHING_WINDOW = AssigneeActiveWindows.PUBLISHING;
     private static final Set<WorkflowStatus> PERFORMANCE_WINDOW = EnumSet.of(
             WorkflowStatus.PP, WorkflowStatus.PFUP);
 
@@ -215,8 +214,7 @@ public class TeamWorkloadService {
     }
 
     private static boolean isActiveStatus(WorkflowStatus status) {
-        return status != WorkflowStatus.COMP && status != WorkflowStatus.CAN
-                && status != WorkflowStatus.RJ && status != WorkflowStatus.RET;
+        return !AssigneeActiveWindows.CLOSED_OUT.contains(status);
     }
 
     private static boolean inDateRange(LocalDate date, LocalDate from, LocalDate to) {

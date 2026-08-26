@@ -1,6 +1,8 @@
 services:
-  db:
+  postgres:
     image: postgres:16
+    container_name: kcpc-postgres
+    restart: unless-stopped
     environment:
       # DB-001: kcpc_migrator is the cluster's initial superuser (schema owner, runs Flyway
       # migrations); db/init/01_create_app_role.sh then creates the separate, restricted
@@ -18,11 +20,13 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  kcpc-app:
     build: .
+    container_name: kcpc-app
+    restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      DB_HOST: db
+      DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: kcpc_prod
       # Runtime datasource (JPA/Hikari): the restricted role - see DB-001.
@@ -32,20 +36,46 @@ services:
       FLYWAY_DB_USER: kcpc_migrator
       FLYWAY_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?set MIGRATOR_DB_PASSWORD in .env}
       APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:?set a >=64-byte secret in .env}
+      # Session/JWT cookie "Secure" flag. This compose stack terminates plain HTTP at nginx (no
+      # local TLS cert), so a Secure-flagged cookie would be silently dropped by the browser and
+      # login would appear to succeed while every following request came back unauthenticated -
+      # defaults to false for that reason. Set COOKIE_SECURE=true in .env once this stack (or its
+      # GCP equivalent) actually sits behind real HTTPS.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Google Drive per-Content-ID folder provisioning - optional, all blank/false by default.
+      # DRIVE_SERVICE_ACCOUNT_KEY is the raw service-account JSON as a single-line string (never a
+      # file path, never baked into the image) - see .env.example for how to flatten it.
+      DRIVE_ENABLED: ${DRIVE_ENABLED:-false}
+      DRIVE_SERVICE_ACCOUNT_KEY: ${DRIVE_SERVICE_ACCOUNT_KEY:-}
+      DRIVE_SHARED_DRIVE_ID: ${DRIVE_SHARED_DRIVE_ID:-}
+      DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
+      DRIVE_IMPERSONATE_USER: ${DRIVE_IMPERSONATE_USER:-}
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
     expose:
       - "8080"
+    healthcheck:
+      # /actuator/health is permitAll (no auth required), only starts responding once the Spring
+      # context - including Flyway migration and the JPA/Hikari pool - has finished starting up,
+      # and folds in DB connectivity via the auto-configured DataSource health indicator.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   nginx:
     image: nginx:1.27-alpine
+    container_name: kcpc-nginx
+    restart: unless-stopped
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "80:80"
+      - "8085:80"
     depends_on:
-      - app
+      kcpc-app:
+        condition: service_healthy
 
 volumes:
   kcpc_db_data:

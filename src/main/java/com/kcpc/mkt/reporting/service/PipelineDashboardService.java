@@ -355,26 +355,24 @@ public class PipelineDashboardService {
     /**
      * Pipeline dashboard "Attention / Delayed" indicator - display-only, never a persisted or
      * workflow status (BFD's only real status catalogue entry for "delayed" is the supplementary
-     * DLY flag, never used here). Compares the plan's already-stored Planned date for whichever
-     * stage it is CURRENTLY active in against today - the same "past planned date, not yet past
-     * that stage" rule {@code LandingMvcController}'s My Work already applies per-employee-task,
-     * just evaluated here at the whole-plan level for the management dashboard. Planning/terminal/
-     * already-resolved statuses have no single applicable Planned date and are never flagged.
+     * DLY flag, never used here). Delegates to {@link StageDelayPolicy}, the single shared source
+     * of truth also used by {@link KpiDashboardService}'s Stage Health/Overview/Average Delay -
+     * see docs/KPI_DATA_RECONCILIATION_REPORT.md §1: this method used to carry its own independent,
+     * incomplete copy of this switch (missing PLAP/SAP/EAP/PP/PFUP entirely, so a plan in any of
+     * those statuses could never be flagged delayed here regardless of its actual date), which was
+     * the entire root cause of Content Pipeline -&gt; Delayed only disagreeing with Reports -&gt; KPI
+     * Dashboard -&gt; Stage Health. Planning (PL, PLRV) still returns {@code null} (never delayed) -
+     * that part was already correct, now for the documented reason (§2: ungoverned) rather than by
+     * accidental omission.
      */
     /**
      * ENG-087: {@code public static} (was {@code private}) - same reasoning as
      * {@link #buildPlatformSummaries}: a pure transform (no repository dependency, no DB access),
      * reused verbatim by the Team Workload dashboard's Assignee Load "Delayed Tasks" column rather
-     * than re-deriving the "planned date for this stage vs today" rule a fourth time (Pipeline row
-     * delay, My Work delay, Team Workload's old native-SQL delay CASE, and this).
+     * than re-deriving this rule separately there.
      */
     public static Integer delayDays(WorkflowStatus status, ContentPlan plan, LocalDate today) {
-        LocalDate relevantPlannedDate = switch (status) {
-            case SA, SIP, SRV -> plan.getPlannedShootDate();
-            case EA, ED, ERV -> plan.getPlannedEditDate();
-            case RFP, PUBG -> plan.getPlannedLiveDate();
-            default -> null;
-        };
+        LocalDate relevantPlannedDate = StageDelayPolicy.currentApprovedTarget(status, plan);
         if (relevantPlannedDate == null || !relevantPlannedDate.isBefore(today)) {
             return null;
         }
