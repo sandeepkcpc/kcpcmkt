@@ -271,9 +271,7 @@ class PermissionDrivenWorkflowTest {
         grant(ceo, hrId, "PERM_18_SHOOT_EXECUTION");
         grant(ceo, hrId, "PERM_19_EDIT_EXECUTION");
 
-        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "MultiFunc Shoot Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + shootPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + hrId + "\"}");
-        preparePlanningAndSubmit(ceo, shootPlanId, unique);
+        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "MultiFunc Shoot Flow " + unique, hrId);
 
         String editPlanId = advanceToShootApproved(ceo, unique + 1, "MultiFunc Edit Flow");
         ceo.post("/api/v1/content-plans/" + editPlanId + "/editing/assignments", "{\"editorUserId\":\"" + hrId + "\"}");
@@ -310,22 +308,30 @@ class PermissionDrivenWorkflowTest {
         grant(ceo, userId, "PERM_19_EDIT_EXECUTION");
         TestApiClient holder = loginNewClient(email);
 
-        // Shoot cycle -> Cameraperson mark.
-        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "BothMarks Shoot Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + shootPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + userId + "\"}");
-        preparePlanningAndSubmit(ceo, shootPlanId, unique);
+        // Shoot cycle -> Cameraperson mark. A throwaway Editor folds into this same Approve call
+        // (workflow redesign) - unrelated to this test's own Cameraperson/Editor mark assertions.
+        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "BothMarks Shoot Flow " + unique, userId);
         holder.post("/api/v1/content-plans/" + shootPlanId + "/shooting/start", "");
         holder.post("/api/v1/content-plans/" + shootPlanId + "/shooting/review/submit", "");
+        String throwawayEdId = createUser(ceo, "BothMarks Throwaway Ed", "bothmarks-throwaway-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, throwawayEdId, "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + shootPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"],"
+                        + "\"editorUserIds\":[\"" + throwawayEdId + "\"],\"leadEditorUserId\":\"" + throwawayEdId + "\"}");
 
-        // Independent Edit cycle -> Editor mark, same user.
+        // Independent Edit cycle -> Editor mark, same user. A throwaway Publisher folds into the
+        // Edit Review Approve call similarly.
         String editPlanId = advanceToShootApproved(ceo, unique + 1, "BothMarks Edit Flow");
         ceo.post("/api/v1/content-plans/" + editPlanId + "/editing/assignments", "{\"editorUserId\":\"" + userId + "\"}");
         holder.post("/api/v1/content-plans/" + editPlanId + "/editing/start", "");
         holder.post("/api/v1/content-plans/" + editPlanId + "/editing/review/submit", "");
+        String throwawayPubId = createUser(ceo, "BothMarks Throwaway Pub", "bothmarks-throwaway-pub-" + unique + "@kcpcbandhani.local",
+                PUBLISHER_ROLE_ID);
+        grant(ceo, throwawayPubId, "PERM_08_PUBLISHING_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + editPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"],"
+                        + "\"publisherUserIds\":[\"" + throwawayPubId + "\"]}");
 
         User user = userRepository.findById(UUID.fromString(userId)).orElseThrow();
         var marks = markAttributionRepository.findByRecipient(user);
@@ -342,9 +348,7 @@ class PermissionDrivenWorkflowTest {
         String email = "revoke-warning-" + unique + "@kcpcbandhani.local";
         String userId = createUser(ceo, "Revoke Warning User", email, HR_MANAGER_ROLE_ID);
         grant(ceo, userId, "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Revoke Warning Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + userId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Revoke Warning Flow " + unique, userId);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         revoke(ceo, userId, "PERM_18_SHOOT_EXECUTION");
@@ -372,9 +376,7 @@ class PermissionDrivenWorkflowTest {
         String hrId = createUser(ceo, "Participation HR", email, HR_MANAGER_ROLE_ID);
         // HR Manager's Business Role has participates_in_workflow = false by seed data.
         grant(ceo, hrId, "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Participation Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + hrId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Participation Flow " + unique, hrId);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         TestApiClient holder = loginNewClient(email);
@@ -441,9 +443,7 @@ class PermissionDrivenWorkflowTest {
         grant(ceo, hrId, "PERM_18_SHOOT_EXECUTION");
         grant(ceo, hrId, "PERM_19_EDIT_EXECUTION");
 
-        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "Workload Shoot Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + shootPlanId + "/shooting-assignments", "{\"cameramanUserId\":\"" + hrId + "\"}");
-        preparePlanningAndSubmit(ceo, shootPlanId, unique);
+        String shootPlanId = approveIdeaAndGetContentPlanId(ceo, "Workload Shoot Flow " + unique, hrId);
 
         String editPlanId = advanceToShootApproved(ceo, unique + 1, "Workload Edit Flow");
         ceo.post("/api/v1/content-plans/" + editPlanId + "/editing/assignments", "{\"editorUserId\":\"" + hrId + "\"}");
@@ -468,13 +468,15 @@ class PermissionDrivenWorkflowTest {
         grant(ceo, userId, "PERM_18_SHOOT_EXECUTION");
         TestApiClient holder = loginNewClient(email);
 
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Kpi History Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + userId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Kpi History Flow " + unique, userId);
         holder.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         holder.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        String throwawayEdId = createUser(ceo, "Kpi History Throwaway Ed", "kpi-history-throwaway-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, throwawayEdId, "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + userId + "\"],"
+                        + "\"editorUserIds\":[\"" + throwawayEdId + "\"],\"leadEditorUserId\":\"" + throwawayEdId + "\"}");
 
         // Revoking the permission afterward must not erase the historical mark/contribution.
         revoke(ceo, userId, "PERM_18_SHOOT_EXECUTION");
@@ -535,42 +537,60 @@ class PermissionDrivenWorkflowTest {
         }
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - this
+     * default overload creates a throwaway one (irrelevant to the caller's assertions) so plain
+     * "just give me an approved plan" call sites don't need to care. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String camId = createUser(ceo, "Default Cam " + unique, "pdw-default-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        return approveIdeaAndGetContentPlanId(ceo, title, camId);
+    }
+
+    /** Workflow redesign: Idea Review approval carries every former Planning field (including the
+     * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
+     * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pdw-" + Instant.now().toEpochMilli() + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         return plan.getId().toString();
     }
 
-    private void preparePlanningAndSubmit(TestApiClient ceo, String planId, long unique) throws Exception {
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pdw-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
-    }
-
-    /** Idea -> approved -> Shoot Assigned -> Started -> Submitted -> Approved (SAP), fresh Cameraperson with PERM_18. */
+    /** Idea -> approved -> Shoot Assigned -> Started -> Submitted -> Approved -> Edit Assigned (EA),
+     * fresh Cameraperson with PERM_18. Workflow redesign: Shoot Review Approve now folds in Editor
+     * team assignment directly (ShootingService#decideShootReview), so the plan lands on EA (never
+     * a resting SAP) via a throwaway Editor unrelated to callers' own assertions - the standalone
+     * /editing/assignments endpoint most callers exercise stays equally valid at EA
+     * (EditingService#assignEditor's window is SAP-or-EA, unchanged). */
     private String advanceToShootApproved(TestApiClient ceo, long unique, String title) throws Exception {
-        String planId = approveIdeaAndGetContentPlanId(ceo, title + " " + unique);
         String camEmail = "pdw-camflow-" + unique + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Pdw Cam Flow", camEmail, CAMERA_PERSON_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, title + " " + unique, camId);
         TestApiClient cam = loginNewClient(camEmail);
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        String throwawayEdEmail = "pdw-throwaway-ed-" + unique + "@kcpcbandhani.local";
+        String throwawayEdId = createUser(ceo, "Pdw Throwaway Ed", throwawayEdEmail, VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, throwawayEdId, "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + throwawayEdId + "\"],\"leadEditorUserId\":\"" + throwawayEdId + "\"}");
         return planId;
     }
 
-    /** Idea -> ... -> RFP (Edit approved), fresh Cameraperson+Editor with PERM_18/19. */
+    /** Idea -> ... -> RFP (Edit approved), fresh Cameraperson+Editor with PERM_18/19. Workflow
+     * redesign: Edit Review Approve now folds in Publisher team assignment directly
+     * (EditingService#decideEditReview) via a throwaway Publisher unrelated to callers' own
+     * assertions - the standalone /publishing/assignments endpoint most callers exercise remains
+     * unaffected (Publishing allows multiple simultaneously active Publishers). */
     private String advanceToReadyForPublishing(TestApiClient ceo, long unique, String title) throws Exception {
         String planId = advanceToShootApproved(ceo, unique, title);
         String edEmail = "pdw-edflow-" + unique + "@kcpcbandhani.local";
@@ -580,8 +600,12 @@ class PermissionDrivenWorkflowTest {
         TestApiClient ed = loginNewClient(edEmail);
         ed.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
+        String throwawayPubEmail = "pdw-throwaway-pub-" + unique + "@kcpcbandhani.local";
+        String throwawayPubId = createUser(ceo, "Pdw Throwaway Pub", throwawayPubEmail, PUBLISHER_ROLE_ID);
+        grant(ceo, throwawayPubId, "PERM_08_PUBLISHING_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + throwawayPubId + "\"]}");
         return planId;
     }
 }

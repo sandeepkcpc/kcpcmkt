@@ -8,7 +8,6 @@ package com.kcpc.mkt.identity.domain;
 public enum OperationalPermission {
     PERM_01_IDEA_REVIEW(1),
     PERM_02_PLANNING_EXECUTION(2),
-    PERM_03_PLANNING_REVIEW(3),
     PERM_04_SHOOT_ASSIGNMENT(4),
     PERM_05_SHOOT_REVIEW(5),
     PERM_06_EDIT_ASSIGNMENT(6),

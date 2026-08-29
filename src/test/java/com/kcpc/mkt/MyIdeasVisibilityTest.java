@@ -133,8 +133,19 @@ class MyIdeasVisibilityTest {
         assertThat(employee.postForm("/app/ideas", Map.of("title", titleA)).statusCode()).isEqualTo(302);
         Idea ideaA = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(titleA)).findFirst().orElseThrow();
-        ceo.postJson("/api/v1/ideas/" + ideaA.getId() + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        String camId = createUser(ceo, "MyIdeas Lifecycle Cam " + unique,
+                "e2e-myideas-lifecycle-cam-" + unique + "@kcpcbandhani.local", "01926e3e-0001-7000-8000-000000000004");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        var approved = ceo.postJson("/api/v1/ideas/" + ideaA.getId() + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/myideas-lifecycle-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         String myIdeasAfterApprove = employee.get("/app/ideas").body();
         assertThat(myIdeasAfterApprove).contains(titleA);
@@ -146,7 +157,9 @@ class MyIdeasVisibilityTest {
         HttpResponse<String> detailAfterApprove = employee.get("/app/ideas/" + ideaA.getId());
         assertThat(detailAfterApprove.statusCode()).isEqualTo(200);
         assertThat(detailAfterApprove.body()).contains("Current Idea Status").contains(">Approved<");
-        assertThat(detailAfterApprove.body()).contains("This approved idea has moved to Planning.");
+        // Workflow redesign: approval now lands directly on Shoot Assigned (SA) - there is no more
+        // resting "Planning" state to observe right after approval.
+        assertThat(detailAfterApprove.body()).contains("This approved idea now has an active production deliverable.");
         // Employee view: informational note only, no link into the operational deliverable page.
         assertThat(detailAfterApprove.body()).doesNotContain("Open the deliverable");
 
@@ -154,23 +167,8 @@ class MyIdeasVisibilityTest {
         HttpResponse<String> ceoDetailAfterApprove = ceo.get("/app/ideas/" + ideaA.getId());
         assertThat(ceoDetailAfterApprove.body()).contains("Open the deliverable");
 
-        // Progress the resulting plan well past Planning (Shoot Assigned) - the Idea Status must
-        // still read "Approved", never "Planning"/"Shoot Assigned"/any Planning workflow state name.
-        String planId = contentPlanRepository.findByIdea(ideaA).orElseThrow().getId().toString();
-        String camId = createUser(ceo, "MyIdeas Lifecycle Cam " + unique,
-                "e2e-myideas-lifecycle-cam-" + unique + "@kcpcbandhani.local", "01926e3e-0001-7000-8000-000000000004");
-        ceo.post("/api/v1/admin/permission-grants",
-                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
-                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/myideas-lifecycle-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        var decision = ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
-        assertThat(decision.get("status").asText()).isEqualTo("SA");
-
+        // The Idea Status must still read "Approved" once the resulting plan is at Shoot Assigned -
+        // never "Planning"/"Shoot Assigned"/any Planning workflow state name.
         String detailAfterShootAssigned = employee.get("/app/ideas/" + ideaA.getId()).body();
         assertThat(detailAfterShootAssigned).contains("Current Idea Status").contains(">Approved<");
         assertThat(detailAfterShootAssigned).doesNotContain("Shoot Assigned");

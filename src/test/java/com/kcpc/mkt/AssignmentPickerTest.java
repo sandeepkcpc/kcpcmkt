@@ -61,7 +61,10 @@ class AssignmentPickerTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createUser(ceo, "Idempotent Cam", "e2e-idem-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
                 "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Idempotent Shoot " + unique);
+        // Workflow redesign: Idea Review approval always requires at least one Cameraperson - make
+        // this test's own "cam" that mandatory initial assignee, so "add" below is exercised as the
+        // (still meaningful) idempotent-re-add case rather than a genuinely-first assignment.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Idempotent Shoot " + unique, cam);
 
         HttpResponse<String> add1 = ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments",
                 "{\"cameramanUserId\":\"" + cam + "\"}");
@@ -92,21 +95,20 @@ class AssignmentPickerTest {
         String cam = createUser(ceo, "Edit Picker Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         String editor = createUser(ceo, "Edit Picker Editor", "e2e-editpicker-ed-" + unique + "@kcpcbandhani.local",
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Picker " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Picker " + unique, cam);
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/editpicker-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor team assignment now folds directly into this same Approve call
+        // (ShootingService#decideShootReview) - "editor" becomes the mandatory initial Editor here,
+        // so the add1/add2 calls below exercise the standalone endpoint's idempotent re-add, same
+        // reframing already applied to the initial Cameraperson elsewhere in this file.
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor + "\"],\"leadEditorUserId\":\"" + editor + "\"}");
 
         // MVC chip-picker's no-JS batch-add form field (plural), driven via the AJAX branch the
         // JS layer uses - proves the new field name works end to end, not just the legacy singular one.
@@ -131,9 +133,13 @@ class AssignmentPickerTest {
      * SAP -> EA (EditingService.assignEditor's own existing behavior); the JSP's Editor Assignment
      * picker was gated on status == 'SAP' only, so on any page reload after that first assignment
      * the whole section (chips, checklist, AND the Edit Lead dropdown) vanished, even though the
-     * service layer explicitly still allows assigning further Editors at EA. Reproduces the exact
-     * sequence: assign editor 1 (SAP -> EA happens here), reload the page and assert the picker is
-     * still present, then assign a second editor while already at EA.
+     * service layer explicitly still allows assigning further Editors at EA. Workflow redesign:
+     * Shoot Review Approve now folds in the first Editor directly (ShootingService#
+     * decideShootReview), so the plan lands on EA with editor1 already assigned from the start,
+     * rather than via a separate first assign call - the regression this test guards against
+     * (the picker/Lead dropdown vanishing once status is EA, not SAP) is still fully exercised:
+     * reload the page and assert the picker is still present at EA, then assign a second editor
+     * while already at EA.
      */
     @Test
     void editAssignmentPickerAndLeadDropdownStayVisibleAndUsableAfterFirstEditorMovesStatusToEA() throws Exception {
@@ -146,27 +152,17 @@ class AssignmentPickerTest {
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String editor2 = createUser(ceo, "EA Reload Editor 2", "e2e-eareload-ed2-" + unique + "@kcpcbandhani.local",
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "EA Reload " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "EA Reload " + unique, cam);
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/eareload-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
-
-        HttpResponse<String> assign1 = ceo.post("/api/v1/content-plans/" + planId + "/editing/assignments",
-                "{\"editorUserId\":\"" + editor1 + "\"}");
-        assertThat(assign1.statusCode()).isEqualTo(200);
-        ContentPlan planAfterFirstAssign = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
-        assertThat(planAfterFirstAssign.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("EA");
+        JsonNode shootApproved = ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor1 + "\"],\"leadEditorUserId\":\"" + editor1 + "\"}");
+        assertThat(shootApproved.get("status").asText()).isEqualTo("EA");
 
         String pageAfterReload = ceo.get("/app/deliverables/" + planId).body();
         assertThat(pageAfterReload).contains("kcpc-assignment-picker").contains("Edit Lead").contains(editor1);
@@ -190,41 +186,53 @@ class AssignmentPickerTest {
         String editor = createUser(ceo, "Pub Picker Editor", editorEmail, VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String publisher = createUser(ceo, "Pub Picker Publisher", "e2e-pubpicker-pub-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID); // deliberately NOT the Publisher Business Role, to prove the 403 path below
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Pub Picker " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (including the initial output+publication scope+shoot team) and transitions
+        // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Pub Picker " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pubpicker-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+        String planId = findContentPlanId(ideaId);
+        String outputId = plannedOutputIdFor(planId);
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson/Editor.
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
         TestApiClient editorClient = new TestApiClient(port);
         editorClient.login(editorEmail, "Passw0rd!");
 
-        // Attempting Publisher assignment before RFP (still in Planning) must be rejected as an
+        // Attempting Publisher assignment before RFP (still Shoot Assigned) must be rejected as an
         // invalid workflow transition, not silently accepted.
         HttpResponse<String> tooEarly = ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments",
                 "{\"publisherUserId\":\"" + publisher + "\"}");
         assertThat(tooEarly.statusCode()).isEqualTo(409);
 
-        // Walk the plan to RFP.
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pubpicker-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-        String outputId = plannedOutputIdFor(planId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/
+        // Edit Review Approve calls themselves. A throwaway Publisher (pre-granted PERM_08) is used
+        // here specifically so "publisher"'s own no-permission-yet narrative below (tooEarly/
+        // forbidden/granted-afterward) stays unaffected by this fold-in requirement.
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + editor + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor + "\"],\"leadEditorUserId\":\"" + editor + "\"}");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
+        String throwawayPublisher = createUser(ceo, "Pub Picker Throwaway Publisher",
+                "e2e-pubpicker-throwaway-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, throwawayPublisher, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode editApproved = ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"],"
+                        + "\"publisherUserIds\":[\"" + throwawayPublisher + "\"]}");
         assertThat(editApproved.get("status").asText()).isEqualTo("RFP");
+        // Only "publisher" (the subject of the rest of this test) should end up as the active
+        // Publisher, so the size==1 assertions below stay meaningful.
+        ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments/" + throwawayPublisher + "/remove", "");
 
         // ENG-044: Publisher assignment is native CEO/MM only now, regardless of PERM_08 - this
         // user has neither, so still 403 (the actual server-side reason flipped from "no PERM_08
@@ -284,7 +292,20 @@ class AssignmentPickerTest {
         String pubA = createUser(ceo, "Pub Exec Publisher A", pubAEmail, CAMERA_PERSON_ROLE_ID);
         String pubB = createUser(ceo, "Pub Exec Publisher B", "e2e-pubexec-pubb-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Pub Exec " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (including the initial output+publication scope+shoot team) and transitions
+        // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Pub Exec " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pubexec-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+        String planId = findContentPlanId(ideaId);
+        String outputId = plannedOutputIdFor(planId);
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
         TestApiClient editorClient = new TestApiClient(port);
@@ -292,32 +313,21 @@ class AssignmentPickerTest {
         TestApiClient pubAClient = new TestApiClient(port);
         pubAClient.login(pubAEmail, "Passw0rd!");
 
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pubexec-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-        String outputId = plannedOutputIdFor(planId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/
+        // Edit Review Approve calls themselves - assignee-side eligibility (PERM_08) is required
+        // before Edit Review Approve will succeed, so grant it to Publisher A before that call
+        // rather than after, same requirement as before this redesign, just moved earlier.
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + editor + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor + "\"],\"leadEditorUserId\":\"" + editor + "\"}");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"]}");
-
-        // CEO (native) grants PERM_08 first - assignee-side eligibility is required before the
-        // assignment itself will succeed - then assigns Publisher A, everything a working
-        // Publisher needs.
         grantExecutionPermission(ceo, pubA, "PERM_08_PUBLISHING_EXECUTION");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubA + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubA + "\"]}");
 
         // Publisher A cannot assign a second Publisher, even though they hold PERM_08.
         HttpResponse<String> assignAttempt = pubAClient.post("/api/v1/content-plans/" + planId + "/publishing/assignments",
@@ -352,7 +362,9 @@ class AssignmentPickerTest {
                 "PERM_18_SHOOT_EXECUTION");
         String notAssigned = createUser(ceo, "Lead Not Assigned", "e2e-lead-notassigned-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Shoot " + unique);
+        // Workflow redesign: cam1 becomes the mandatory initial Shoot Team member assigned at Idea
+        // Review approval itself - the add call below is then an idempotent re-add, same as before.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Shoot " + unique, cam1);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam1 + "\"}");
@@ -405,23 +417,17 @@ class AssignmentPickerTest {
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String notAssigned = createUser(ceo, "Edit Lead Not Assigned", "e2e-editlead-notassigned-" + unique + "@kcpcbandhani.local",
                 VIDEO_EDITOR_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Edit " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Lead Edit " + unique, cam);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/editlead-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + editor + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor + "\"],\"leadEditorUserId\":\"" + editor + "\"}");
 
         HttpResponse<String> invalidLead = ceo.post("/api/v1/content-plans/" + planId + "/editing/assignments/lead",
                 "{\"editorUserId\":\"" + notAssigned + "\"}");
@@ -450,7 +456,10 @@ class AssignmentPickerTest {
                 "PERM_18_SHOOT_EXECUTION");
         String cam2 = createUser(ceo, "Team Cam 2", "e2e-team-cam2-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID,
                 "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team " + unique);
+        // Workflow redesign: cam1 becomes the mandatory initial Shoot Team member assigned at Idea
+        // Review approval itself - assignCameraperson is idempotent, so re-assigning cam1 via the
+        // team endpoint below is a no-op and the final active count is still exactly 2 (cam1+cam2).
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team " + unique, cam1);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         HttpResponse<String> combined = ceo.postFormMulti("/app/deliverables/" + planId + "/shooting-assignments/team",
@@ -490,13 +499,20 @@ class AssignmentPickerTest {
                 "PERM_18_SHOOT_EXECUTION");
         String notAssigned = createUser(ceo, "Rollback Not Assigned", "e2e-team-rollback-na-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team Rollback " + unique);
+        // Workflow redesign: approval always requires its own mandatory initial Cameraperson -
+        // use a throwaway one (distinct from "cam", which must stay genuinely unassigned so the
+        // rollback assertion below still proves the newly-staged assignee never lands).
+        String throwawayCam = createUser(ceo, "Rollback Throwaway Cam", "e2e-team-rollback-throwaway-" + unique + "@kcpcbandhani.local",
+                CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Team Rollback " + unique, throwawayCam);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         HttpResponse<String> combined = ceo.postFormMultiAjax("/app/deliverables/" + planId + "/shooting-assignments/team",
                 Map.of("cameramanUserIds", java.util.List.of(cam), "leadUserId", java.util.List.of(notAssigned)));
         assertThat(combined.statusCode()).isEqualTo(400);
-        assertThat(shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
+        assertThat(shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .noneMatch(a -> a.getCameraperson().getId().toString().equals(cam)))
+                .as("the newly-staged assignee must not end up assigned after the Lead half rolls back").isTrue();
     }
 
     /** Edit-side equivalent of {@link #shootTeamSingleRequestAssignsCamerapersonsAndSetsLeadTogether}. */
@@ -511,22 +527,20 @@ class AssignmentPickerTest {
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String editor2 = createUser(ceo, "Edit Team Editor 2", "e2e-editteam-ed2-" + unique + "@kcpcbandhani.local",
                 VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Team " + unique);
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Team " + unique, cam);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/editteam-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: editor1 becomes the mandatory initial Editor folded into this same
+        // Approve call - the combined team call below then re-adds editor1 (idempotent) and adds
+        // editor2 fresh, same final state (editor1+editor2 active, editor1 Lead) as before.
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor1 + "\"],\"leadEditorUserId\":\"" + editor1 + "\"}");
 
         HttpResponse<String> combined = ceo.postFormMulti("/app/deliverables/" + planId + "/editing/assignments/team",
                 Map.of("editorUserIds", java.util.List.of(editor1, editor2), "leadUserId", java.util.List.of(editor1)));
@@ -569,11 +583,27 @@ class AssignmentPickerTest {
         }
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - this
+     * default overload creates a throwaway one (irrelevant to the caller's assertions) so plain
+     * "just give me an approved plan" call sites don't need to care. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String camId = createUser(ceo, "Default Cam " + unique, "e2e-default-cam-" + unique + "@kcpcbandhani.local",
+                CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
+        return approveIdeaAndGetContentPlanId(ceo, title, camId);
+    }
+
+    /** Workflow redesign: Idea Review approval carries every former Planning field (including the
+     * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
+     * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/apt-" + Instant.now().toEpochMilli() + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         return findContentPlanId(ideaId);
     }
 

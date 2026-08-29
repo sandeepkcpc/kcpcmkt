@@ -96,7 +96,7 @@ CREATE TABLE review_cycles (
     decided_at                  TIMESTAMPTZ,
     acting_permission_grant_id  UUID REFERENCES permission_grants (grant_id),
     CONSTRAINT ck_review_cycles_gate_type
-        CHECK (gate_type IN ('IDEA_REVIEW', 'PLANNING_REVIEW', 'SHOOT_REVIEW', 'EDIT_REVIEW')),
+        CHECK (gate_type IN ('IDEA_REVIEW', 'SHOOT_REVIEW', 'EDIT_REVIEW')),
     CONSTRAINT uq_review_cycles_cycle UNIQUE (workflow_instance_id, gate_type, cycle_number) -- ERD-CON-030
 );
 

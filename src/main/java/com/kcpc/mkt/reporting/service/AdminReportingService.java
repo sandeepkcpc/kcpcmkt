@@ -51,14 +51,10 @@ public class AdminReportingService {
 
     private static final String STAGE_LABEL_CASE = StageSqlFragments.STAGE_LABEL_CASE;
     /** Current-stage assignee(s) only - never a future stage's assignment (spec requirement).
-     * Planning's "assignee" is its preparer (planning_preparers); Shoot/Edit use the active
-     * assignment tables; Publishing/Performance have no single-owner assignment table today, so
-     * they resolve to NULL (rendered as "-", never a fabricated name). */
+     * Shoot/Edit use the active assignment tables; Publishing/Performance have no single-owner
+     * assignment table today, so they resolve to NULL (rendered as "-", never a fabricated name). */
     private static final String ASSIGNED_TO_CASE =
-            "CASE WHEN wi.current_status_code IN ('PL','PLRV') THEN "
-                    + "(select string_agg(u.full_name, ', ' order by u.full_name) from planning_preparers pp "
-                    + "join users u on u.user_id = pp.preparer_user_id where pp.content_plan_id = cp.content_plan_id) "
-                    + "WHEN wi.current_status_code IN ('PLAP','SA','SIP','SRV','SAP') THEN "
+            "CASE WHEN wi.current_status_code IN ('SA','SIP','SRV','SAP') THEN "
                     + "(select string_agg(u.full_name, ', ' order by u.full_name) from shooting_assignments sa "
                     + "join users u on u.user_id = sa.cameraperson_user_id "
                     + "where sa.content_plan_id = cp.content_plan_id and sa.is_active = true) "

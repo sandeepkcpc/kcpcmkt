@@ -5,12 +5,21 @@ import com.kcpc.mkt.identity.domain.AccessClass;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.idea.domain.Idea;
 import com.kcpc.mkt.idea.domain.IdeaReviewDecision;
+import com.kcpc.mkt.idea.dto.PlanningApprovalRequest;
 import com.kcpc.mkt.idea.repository.IdeaRepository;
 import com.kcpc.mkt.idea.service.IdeaService;
+import com.kcpc.mkt.masterdata.domain.PublicationTarget;
+import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
+import com.kcpc.mkt.planning.domain.ContentPriority;
+import com.kcpc.mkt.planning.domain.OutputType;
+import com.kcpc.mkt.planning.domain.PlanningMode;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
+import com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.web.mvc.dto.IdeaHistoryEvent;
 import com.kcpc.mkt.web.mvc.dto.IdeaQueueRow;
@@ -55,6 +64,11 @@ public class IdeaMvcController {
     private final AuthorizationService authorizationService;
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
+    private final UserRepository userRepository;
+    private final OperationalEligibilityService operationalEligibilityService;
+    private final AssigneeWorkloadCountService assigneeWorkloadCountService;
+    private final PublicationTargetRepository publicationTargetRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /** Package-visible: reused as-is by ReviewsMvcController's Ideas tab (see {@link #statusLabel}). */
     static final Set<String> IDEA_LIFECYCLE_TRIGGER_COMMANDS =
@@ -63,13 +77,22 @@ public class IdeaMvcController {
     public IdeaMvcController(IdeaService ideaService, IdeaRepository ideaRepository,
                               ContentPlanRepository contentPlanRepository, AuthorizationService authorizationService,
                               ReviewCycleRepository reviewCycleRepository,
-                              WorkflowTransitionHistoryRepository transitionHistoryRepository) {
+                              WorkflowTransitionHistoryRepository transitionHistoryRepository,
+                              UserRepository userRepository, OperationalEligibilityService operationalEligibilityService,
+                              AssigneeWorkloadCountService assigneeWorkloadCountService,
+                              PublicationTargetRepository publicationTargetRepository,
+                              com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.ideaService = ideaService;
         this.ideaRepository = ideaRepository;
         this.contentPlanRepository = contentPlanRepository;
         this.authorizationService = authorizationService;
         this.reviewCycleRepository = reviewCycleRepository;
         this.transitionHistoryRepository = transitionHistoryRepository;
+        this.userRepository = userRepository;
+        this.operationalEligibilityService = operationalEligibilityService;
+        this.assigneeWorkloadCountService = assigneeWorkloadCountService;
+        this.publicationTargetRepository = publicationTargetRepository;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/app/ideas/new")
@@ -424,6 +447,9 @@ public class IdeaMvcController {
         java.util.Collections.reverse(historyEventsAsc); // oldest-first, for the Status Timeline widget only
 
         model.addAttribute("idea", idea);
+        // CEO/Marketing Manager only (native authority) - see IdeaService#updateDescription. Gates
+        // the note-icon modal's Edit control; the backend re-checks this independently.
+        model.addAttribute("canEditIdeaDescription", authorizationService.hasNativeAuthority(currentUser));
         model.addAttribute("canDecide", canDecide(currentUser, idea));
         model.addAttribute("ideaStatusLabel", ideaStatusLabel);
         model.addAttribute("ideaStatusCssClass", statusCssClass(ideaStatusLabel));
@@ -431,6 +457,23 @@ public class IdeaMvcController {
         model.addAttribute("ideaStatusHistory", historyEvents);
         model.addAttribute("ideaStatusHistoryAsc", historyEventsAsc);
         contentPlanRepository.findByIdea(idea).ifPresent(plan -> model.addAttribute("contentPlanId", plan.getId()));
+
+        if (idea.getWorkflowInstance().getCurrentStatusCode() == WorkflowStatus.PA) {
+            // Workflow redesign: Planning's former input set is now collected right here, in the
+            // same Review Decision form, only relevant when APPROVE is chosen (see idea-detail.jsp).
+            model.addAttribute("priorities", ContentPriority.values());
+            model.addAttribute("planningModes", PlanningMode.values());
+            model.addAttribute("outputTypes", OutputType.values());
+            model.addAttribute("modelUsers", assigneeWorkloadCountService.withModelCounts(
+                    userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
+            model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
+                    operationalEligibilityService.shootExecutionCandidates(idea.getWorkflowInstance())));
+            List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
+            model.addAttribute("activePublicationTargets", activeTargets);
+            model.addAttribute("activePlatformNames", activeTargets.stream()
+                    .map(t -> t.getPlatform().getPlatformName()).distinct().sorted().toList());
+            model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
+        }
         return "idea-detail";
     }
 
@@ -451,9 +494,43 @@ public class IdeaMvcController {
                           @RequestParam(required = false) String reason,
                           @RequestParam(required = false) BigDecimal cameramanMark,
                           @RequestParam(required = false) BigDecimal editorMark,
+                          @RequestParam(required = false) BigDecimal modelMark,
+                          @RequestParam(required = false) String categoryText,
+                          @RequestParam(required = false) ContentPriority contentPriority,
+                          @RequestParam(required = false) String skuReference,
+                          @RequestParam(required = false) PlanningMode planningMode,
+                          @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate plannedLiveDate,
+                          @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate shootDate,
+                          @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate editDate,
+                          @RequestParam(required = false) String urgencyReason,
+                          @RequestParam(required = false) String folderLink,
+                          @RequestParam(required = false) List<UUID> modelUserIds,
+                          @RequestParam(required = false) String outputsJson,
+                          @RequestParam(required = false) List<UUID> camerapersonUserIds,
+                          @RequestParam(required = false) UUID leadCamerapersonUserId,
                           @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes redirectAttributes) {
+        // SKU Reference has no separate "N/A" checkbox in the UI - leaving it blank simply IS N/A,
+        // derived here exactly as DeliverableMvcController#isSkuBlank already does for ongoing edits.
+        boolean skuNotApplicable = skuReference == null || skuReference.isBlank();
+        // The Planned Outputs grid (idea-detail.jsp - one row per Output Type) can hold any number
+        // of output groups, same as ReviewsMvcController#decideIdea's identical panel - the JS
+        // serializes the checked rows to JSON rather than encoding a variable-length list as
+        // indexed form params (which Spring @RequestParam binding does not support).
+        List<com.kcpc.mkt.idea.dto.PlanningOutputRequest> outputs;
         try {
-            ideaService.decide(principal.user(), ideaId, decision, reason, cameramanMark, editorMark);
+            outputs = outputsJson == null || outputsJson.isBlank() ? List.of()
+                    : objectMapper.readValue(outputsJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<com.kcpc.mkt.idea.dto.PlanningOutputRequest>>() { });
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Planned Outputs could not be read.");
+            return "redirect:/app/ideas/" + ideaId;
+        }
+        PlanningApprovalRequest planning = decision != IdeaReviewDecision.APPROVE ? null : new PlanningApprovalRequest(
+                categoryText, contentPriority, skuReference, skuNotApplicable, planningMode, plannedLiveDate,
+                shootDate, editDate, urgencyReason, folderLink, modelUserIds, outputs,
+                camerapersonUserIds, leadCamerapersonUserId);
+        try {
+            ideaService.decide(principal.user(), ideaId, decision, reason, cameramanMark, editorMark, modelMark, planning);
             redirectAttributes.addFlashAttribute("successMessage", "Review decision recorded.");
         } catch (DomainException e) {
             redirectAttributes.addFlashAttribute("errorMessage", e.getMessage());
@@ -471,5 +548,39 @@ public class IdeaMvcController {
             redirectAttributes.addFlashAttribute("errorMessage", e.getMessage());
         }
         return "redirect:/app/ideas/" + ideaId;
+    }
+
+    /**
+     * CEO/Marketing Manager only (IdeaService#updateDescription enforces this independently of
+     * the "canEditIdeaDescription" view-model attribute that just hides the Edit icon otherwise).
+     * Shared by both idea-detail.jsp's own note-icon modal (plain form POST, redirect+flash) and
+     * the Reviews Workspace's identical modal (AJAX, script-description-modal.js) - branched by
+     * the same X-Requested-With convention every other dual-mode endpoint in this app uses.
+     */
+    @PostMapping("/app/ideas/{ideaId}/description")
+    public Object updateDescription(@PathVariable UUID ideaId, @RequestParam(required = false) String description,
+                                     @RequestParam String correctionReason,
+                                     @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                     RedirectAttributes redirectAttributes, jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            ideaService.updateDescription(principal.user(), ideaId, description, correctionReason);
+            if (isAjax(requestedWith)) {
+                return org.springframework.http.ResponseEntity.ok(Map.of("status", "ok"));
+            }
+            redirectAttributes.addFlashAttribute("successMessage", "Idea Description updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            redirectAttributes.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/ideas/" + ideaId;
+    }
+
+    private org.springframework.http.ResponseEntity<com.kcpc.mkt.common.error.ApiErrorResponse> ajaxError(
+            DomainException e, jakarta.servlet.http.HttpServletRequest request) {
+        return org.springframework.http.ResponseEntity.status(e.getHttpStatus())
+                .body(com.kcpc.mkt.common.error.ApiErrorResponse.of(e.getErrorCode(), e.getMessage(), request.getRequestURI()));
     }
 }

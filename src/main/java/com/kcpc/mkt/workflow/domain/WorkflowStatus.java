@@ -1,18 +1,18 @@
 package com.kcpc.mkt.workflow.domain;
 
 /**
- * ERD-TBL-006 workflow_concepts: the governed 22 workflow concepts (BFD §6.8 Status Catalogue).
- * 17 Active, 1 Dormant (RETAINED), 2 Terminal (REJECTED, CANCELLED), 1 Closed/Reopenable
+ * ERD-TBL-006 workflow_concepts: the governed 19 workflow concepts (BFD §6.8 Status Catalogue).
+ * 14 Active, 1 Dormant (RETAINED), 2 Terminal (REJECTED, CANCELLED), 1 Closed/Reopenable
  * (COMPLETED), 1 Supplementary Flag (DELAYED - never a primary status).
+ *
+ * <p>Planning is not a separate active-workflow stage: {@code IdeaService#approve} creates a fresh
+ * Content Plan already fully planned and transitions it straight {@code PA -> SA}.
  */
 public enum WorkflowStatus {
     IS(1, "Idea Submitted", Classification.ACTIVE),
     PA(2, "Pending Approval", Classification.ACTIVE),
     RJ(3, "Rejected", Classification.TERMINAL),
     RET(4, "Retained", Classification.DORMANT),
-    PL(5, "Planning", Classification.ACTIVE),
-    PLRV(6, "Planning Review", Classification.ACTIVE),
-    PLAP(7, "Planning Approved", Classification.ACTIVE),
     SA(8, "Shoot Assigned", Classification.ACTIVE),
     SIP(9, "Shoot In Progress", Classification.ACTIVE),
     SRV(10, "Shoot Review", Classification.ACTIVE),

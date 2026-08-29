@@ -69,14 +69,23 @@ class CorrectionLedgerFlowTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        String camId = createUser(ceo, "Correction Marks Cam", "corr-marks-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"correction test fixture grant\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Correction Marks Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/corr-marks-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
 
         // First correction: 1.0/1.0 -> 2.0/0.5.
         JsonNode first = ceo.postJson("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":2.0,\"newEditorMarks\":0.5,"
+                "{\"newCamerapersonMarks\":2.0,\"newEditorMarks\":0.5,\"newModelMarks\":0.5,"
                         + "\"correctionReason\":\"Complexity re-evaluated.\"}");
         assertThat(first.get("priorCamerapersonMark").asDouble()).isEqualTo(1.0);
         assertThat(first.get("priorEditorMark").asDouble()).isEqualTo(1.0);
@@ -92,7 +101,7 @@ class CorrectionLedgerFlowTest {
 
         // Second correction chains onto the first: prior must equal the first correction's new values.
         JsonNode second = ceo.postJson("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":3.0,\"newEditorMarks\":1.0,"
+                "{\"newCamerapersonMarks\":3.0,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,"
                         + "\"correctionReason\":\"Further re-evaluation after review.\"}");
         assertThat(second.get("priorCamerapersonMark").asDouble()).isEqualTo(2.0);
         assertThat(second.get("priorEditorMark").asDouble()).isEqualTo(0.5);
@@ -100,12 +109,12 @@ class CorrectionLedgerFlowTest {
 
         // ERD-CON-029: corrected marks must be from the controlled list.
         HttpResponse<String> rejected = ceo.post("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":1.7,\"newEditorMarks\":1.0,\"correctionReason\":\"Invalid value.\"}");
+                "{\"newCamerapersonMarks\":1.7,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,\"correctionReason\":\"Invalid value.\"}");
         assertThat(rejected.statusCode()).isEqualTo(400);
 
         // Mandatory reason.
         HttpResponse<String> noReason = ceo.post("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":1.0,\"newEditorMarks\":1.0,\"correctionReason\":\"\"}");
+                "{\"newCamerapersonMarks\":1.0,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,\"correctionReason\":\"\"}");
         assertThat(noReason.statusCode()).isEqualTo(400);
     }
 
@@ -139,37 +148,30 @@ class CorrectionLedgerFlowTest {
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"correction test publisher grant\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String liveDate = LocalDate.now().plusDays(10).toString();
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Correction Evidence/Metric Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/corr-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
-
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/corr-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
         String outputId = findPlannedOutputId(contentPlanId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments",
-                "{\"editorUserId\":\"" + edId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
-                "{\"publisherUserId\":\"" + pubId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         String originalEvidenceUrl = "https://instagram.com/p/corr-original-" + unique;

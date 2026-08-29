@@ -332,8 +332,9 @@ public class AdminMvcController {
     private static Map<OperationalPermission, String> buildPermissionDescriptions() {
         Map<OperationalPermission, String> d = new EnumMap<>(OperationalPermission.class);
         d.put(OperationalPermission.PERM_01_IDEA_REVIEW, "Evaluate submitted ideas: Approve, Reject, or Retain.");
-        d.put(OperationalPermission.PERM_02_PLANNING_EXECUTION, "Prepare Stage 3 planning parameters and submit for Planning Review.");
-        d.put(OperationalPermission.PERM_03_PLANNING_REVIEW, "Approve or Request Rework on submitted planning parameters.");
+        d.put(OperationalPermission.PERM_02_PLANNING_EXECUTION,
+                "Manage an already-approved Content ID's Outputs, Reel Types, and Publication Scope (Publishing tab). "
+                        + "The initial Idea Review approval itself is governed by PERM_01_IDEA_REVIEW alone, not this permission.");
         d.put(OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 "ASSIGNMENT MANAGEMENT ONLY: allows the holder to assign/reassign/manage who is on the Shoot "
                         + "team. Does NOT make the holder eligible to execute Shoot work themselves - that requires "
@@ -388,7 +389,6 @@ public class AdminMvcController {
         Map<OperationalPermission, String> d = new EnumMap<>(OperationalPermission.class);
         d.put(OperationalPermission.PERM_01_IDEA_REVIEW, "Idea Review");
         d.put(OperationalPermission.PERM_02_PLANNING_EXECUTION, "Planning Execution");
-        d.put(OperationalPermission.PERM_03_PLANNING_REVIEW, "Planning Review");
         d.put(OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, "Shoot Assignment Management");
         d.put(OperationalPermission.PERM_05_SHOOT_REVIEW, "Shoot Review");
         d.put(OperationalPermission.PERM_06_EDIT_ASSIGNMENT, "Edit Assignment Management");
@@ -439,6 +439,23 @@ public class AdminMvcController {
         try {
             userAdminService.deactivate(principal.user(), id, reason);
             ra.addFlashAttribute("successMessage", "User deactivated.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/users/" + id;
+    }
+
+    /** Admin/CEO Password Reset: generates a temporary password and shows it to the CEO exactly
+     * once (a flash attribute - gone on the very next real page load, never persisted/logged raw)
+     * to copy and share out-of-band. The employee is forced to change it on their next login. */
+    @PostMapping("/users/{id}/reset-password")
+    public String resetUserPassword(@PathVariable UUID id, @RequestParam String reason,
+                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            String temporaryPassword = userAdminService.resetPasswordByAdmin(principal.user(), id, reason);
+            ra.addFlashAttribute("temporaryPassword", temporaryPassword);
+            ra.addFlashAttribute("successMessage",
+                    "Temporary password generated. Copy and share it with the employee now - it will not be shown again.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }

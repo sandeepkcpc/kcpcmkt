@@ -23,11 +23,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Build-prompt §40: the golden end-to-end flow, automated. Login -&gt; Submit Idea -&gt; Approve
- * Idea (Content ID + Content Plan + Marks allocated atomically) -&gt; Planning -&gt; Planning Review
- * -&gt; Shoot assignment -&gt; Shoot -&gt; Shoot Review -&gt; Editor assignment -&gt; Edit -&gt; Edit Review -&gt;
- * Publishing -&gt; Actual Publication -&gt; Performance Due -&gt; Scorecard Draft -&gt; Scorecard Submit -&gt;
- * Completed.
+ * Build-prompt §40: the golden end-to-end flow, automated. Login -&gt; Submit Idea -&gt; Approve Idea
+ * (workflow redesign: Content ID + Content Plan + Marks + Outputs/Publication Scope/initial Shoot
+ * Assignment all allocated atomically in the SAME Idea Review approval, straight to Shoot Assigned
+ * - no separate Planning/Planning Review stage any more) -&gt; Shoot -&gt; Shoot Review -&gt; Editor
+ * assignment -&gt; Edit -&gt; Edit Review -&gt; Publishing -&gt; Actual Publication -&gt; Performance Due -&gt;
+ * Scorecard Draft -&gt; Scorecard Submit -&gt; Completed.
  *
  * <p>Behaviour under test flows entirely through real HTTP against the governed API surface;
  * repositories are autowired only to resolve fixture IDs the API intentionally does not expose
@@ -92,47 +93,41 @@ class GoldenEndToEndFlowTest {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"E2E Golden Path " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
 
+        // Workflow redesign: every former Planning field (Priority/Schedule/Folder Link/Outputs/
+        // Publication Scope/initial Shoot Team) now travels in the SAME Idea Review approval call,
+        // and approval transitions straight to Shoot Assigned (SA) - never through PL/PLRV/PLAP.
+        String liveDate = LocalDate.now().plusDays(10).toString();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-        assertThat(approved.get("status").asText()).isEqualTo("PL");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/e2e-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         String contentPlanId = findContentPlanId(ideaId);
         assertThat(contentPlanId).isNotNull();
-
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/e2e-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-
         String outputId = findPlannedOutputId(contentPlanId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}");
-
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        JsonNode planApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision",
-                "{\"approve\":true}");
-        assertThat(planApproved.get("status").asText()).isEqualTo("SA");
 
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor team assignment (incl. Editor Lead) now folds directly into
+        // this same Shoot Review Approve call - see ShootingService#decideShootReview.
         JsonNode shootApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        assertThat(shootApproved.get("status").asText()).isEqualTo("SAP");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
+        assertThat(shootApproved.get("status").asText()).isEqualTo("EA");
 
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments",
-                "{\"editorUserId\":\"" + edId + "\"}");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
+        // Same fold-in, Publisher team assignment now folds into Edit Review Approve - see
+        // EditingService#decideEditReview.
         JsonNode editApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         assertThat(editApproved.get("status").asText()).isEqualTo("RFP");
 
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments",
-                "{\"publisherUserId\":\"" + pubId + "\"}");
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
         String pastTimestamp = Instant.now().minus(3, ChronoUnit.DAYS).toString();
         pub.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/events",

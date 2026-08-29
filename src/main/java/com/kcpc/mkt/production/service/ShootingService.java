@@ -7,6 +7,7 @@ import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.PersonalMarkAttribution;
@@ -31,6 +32,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +54,8 @@ public class ShootingService {
     private final OperationalEligibilityService operationalEligibilityService;
     private final HoldService holdService;
     private final AuditService auditService;
+    private final EditingService editingService;
+    private final UserRepository userRepository;
 
     public ShootingService(ContentPlanRepository contentPlanRepository,
                             ShootingAssignmentRepository shootingAssignmentRepository,
@@ -61,7 +65,7 @@ public class ShootingService {
                             ReviewCycleRepository reviewCycleRepository, WorkflowTransitionService workflowService,
                             AuthorizationService authorizationService,
                             OperationalEligibilityService operationalEligibilityService, HoldService holdService,
-                            AuditService auditService) {
+                            AuditService auditService, EditingService editingService, UserRepository userRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.participantRepository = participantRepository;
@@ -73,6 +77,8 @@ public class ShootingService {
         this.operationalEligibilityService = operationalEligibilityService;
         this.holdService = holdService;
         this.auditService = auditService;
+        this.editingService = editingService;
+        this.userRepository = userRepository;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -149,6 +155,26 @@ public class ShootingService {
     @Transactional
     public ContentPlan decideShootReview(User reviewer, UUID contentPlanId, boolean approve, String reason,
                                           List<UUID> qualifyingRecipientUserIds) {
+        return decideShootReview(reviewer, contentPlanId, approve, reason, qualifyingRecipientUserIds, null, null);
+    }
+
+    /**
+     * Workflow redesign: Editor team assignment (incl. Editor Lead) is now folded directly into
+     * the SAME Approve action as the Shoot Review decision itself, rather than a separate step on
+     * a separate screen - matching how Idea Review approval already folds in the initial Shoot
+     * Team. {@code editorUserIds}/{@code leadEditorUserId} are required on Approve only (ignored
+     * for Request Rework, which needs no next-team assignment). Reuses
+     * {@link EditingService#assignEditTeam} unchanged (same Permission #6 authorization, same
+     * eligibility checks, same idempotent assignment/Lead logic) rather than duplicating any of
+     * that business logic - called from within this same {@code @Transactional} method so the
+     * Shoot Review decision and the Editor team assignment commit or roll back together atomically.
+     * SRV -&gt; SAP -&gt; EA both fire here in one transaction (assignEditTeam's first assignment call
+     * auto-advances SAP -&gt; EA, exactly as it already does for the standalone Assign Editor(s) action).
+     */
+    @Transactional
+    public ContentPlan decideShootReview(User reviewer, UUID contentPlanId, boolean approve, String reason,
+                                          List<UUID> qualifyingRecipientUserIds, List<UUID> editorUserIds,
+                                          UUID leadEditorUserId) {
         ContentPlan plan = requirePlan(contentPlanId);
         WorkflowInstance workflowInstance = plan.getWorkflowInstance();
         if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.SRV) {
@@ -174,6 +200,25 @@ public class ShootingService {
                 throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                         "At least one qualifying final Cameraperson must be confirmed on Approve");
             }
+            if (editorUserIds == null || editorUserIds.isEmpty()) {
+                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                        "At least one Editor must be assigned before approval");
+            }
+            if (leadEditorUserId == null) {
+                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Editor Lead is mandatory");
+            }
+            if (!editorUserIds.contains(leadEditorUserId)) {
+                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                        "Editor Lead must be one of the selected Editor(s)");
+            }
+            // Resolved up front (before any mutation below) so an invalid editor id fails fast,
+            // same pattern IdeaService#approve already uses for the initial Shoot Team.
+            List<User> editors = new ArrayList<>();
+            for (UUID editorId : editorUserIds) {
+                editors.add(userRepository.findById(editorId)
+                        .orElseThrow(() -> DomainException.notFound("User not found: " + editorId)));
+            }
+
             PredefinedRoleMarks marks = predefinedRoleMarksRepository.findByContentPlan(plan)
                     .orElseThrow(() -> DomainException.notFound("Predefined Marks not found for this Content Plan"));
             cycle.decide(reviewer, "APPROVED", null, actingGrant.orElse(null));
@@ -191,6 +236,8 @@ public class ShootingService {
             workflowService.transition(workflowInstance, WorkflowStatus.SAP, reviewer, actingGrant,
                     "APPROVE_SHOOT", null);
             auditService.record(reviewer, actingGrant, "SHOOTING", "SHOOT_APPROVED", "content_plans", plan.getId(), null);
+
+            editingService.assignEditTeam(reviewer, contentPlanId, editors, leadEditorUserId);
         } else {
             if (reason == null || reason.isBlank()) {
                 throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A rework reason is mandatory (ERD-CON-059)");

@@ -52,11 +52,12 @@ public class AvailableActionService {
 
     /**
      * Reassign eligibility, per taskStage.
-     * <p>SHOOTING: valid while the canonical stage is still Planning or Shoot - the only window in
-     * which the Shoot team is ever actually mutable (PlanningService#assignCameraperson/
-     * removeCameraperson themselves only operate at PL, and nothing in the domain marks a
-     * ShootingAssignment "finalized" before Edit begins) - AND an active ShootingAssignment
-     * currently exists to reassign.
+     * <p>SHOOTING: valid while the canonical stage is still Shoot - the only window in which the
+     * Shoot team is ever actually mutable (PlanningService#assignCameraperson/removeCameraperson
+     * themselves only operate at status SA - an initial Shoot team is always already assigned at
+     * Idea Review approval time, so this is the "still adjustable" window, not "not yet assigned" -
+     * and nothing in the domain marks a ShootingAssignment "finalized" before Edit begins) - AND an
+     * active ShootingAssignment currently exists to reassign.
      * <p>EDITING: valid while the canonical stage is Edit - EditingService#assignEditor's own
      * window is SAP/EA, but assigning at SAP atomically transitions the workflow to EA within the
      * same call, so by the time an EditingAssignment actually exists, the canonical stage is always
@@ -73,7 +74,7 @@ public class AvailableActionService {
         }
         ContentCanonicalStage stage = ContentCanonicalStage.forStatus(workflowInstance.getCurrentStatusCode());
         return switch (taskStage) {
-            case SHOOTING -> (stage == ContentCanonicalStage.PLANNING || stage == ContentCanonicalStage.SHOOTING)
+            case SHOOTING -> stage == ContentCanonicalStage.SHOOTING
                     && !shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).isEmpty();
             case EDITING -> stage == ContentCanonicalStage.EDITING
                     && !editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).isEmpty();

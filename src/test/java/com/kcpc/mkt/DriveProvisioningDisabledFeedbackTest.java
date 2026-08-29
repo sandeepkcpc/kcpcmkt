@@ -53,10 +53,19 @@ class DriveProvisioningDisabledFeedbackTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        String camId = createUser(ceo, "Disabled Drive Cam", "disabled-drive-cam-" + unique + "@kcpcbandhani.local");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"drive disabled feedback test grant\"}");
+        // Workflow redesign: approval carries every former Planning field and transitions straight
+        // to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Disabled Drive Feedback " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/disabled-drive-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
 
@@ -78,5 +87,12 @@ class DriveProvisioningDisabledFeedbackTest {
                 .contains("Drive integration is not enabled on this server")
                 .doesNotContain("alert-success\">Drive folder provisioning retried.")
                 .doesNotContain("alert-success\">Drive folders provisioned successfully.");
+    }
+
+    private String createUser(TestApiClient ceo, String fullName, String email) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
+                        + "\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000004\",\"creationReason\":\"drive disabled feedback test fixture\"}");
+        return response.get("userId").asText();
     }
 }

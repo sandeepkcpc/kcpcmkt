@@ -12,7 +12,7 @@
 <main class="app-main">
     <h1>Welcome, ${user.fullName}</h1>
     <p>Business Role: ${user.businessRole.roleName} &middot; Access Class: ${accessClass}</p>
-    <p class="muted">Further stage dashboards (Planning, Shooting, Editing, Publishing, Performance) are added in subsequent build phases.</p>
+    <p class="muted">Further stage dashboards (Shooting, Editing, Publishing, Performance) are added in subsequent build phases.</p>
 </main>
 </body>
 </html>

@@ -61,11 +61,10 @@ public class WorkspaceAccessService {
                 || !publishingAssignmentRepository.findByPublisherAndActiveTrue(user).isEmpty();
     }
 
-    /** Reviews reachability: any of the four review permissions. */
+    /** Reviews reachability: any of the three review permissions Reviews still has a tab for. */
     public boolean canReachReviews(User user) {
         return authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_01_IDEA_REVIEW,
-                OperationalPermission.PERM_03_PLANNING_REVIEW, OperationalPermission.PERM_05_SHOOT_REVIEW,
-                OperationalPermission.PERM_07_EDIT_REVIEW);
+                OperationalPermission.PERM_05_SHOOT_REVIEW, OperationalPermission.PERM_07_EDIT_REVIEW);
     }
 
     /** Team Workload reachability: PERM_14 only. */

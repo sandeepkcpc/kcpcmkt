@@ -24,7 +24,6 @@
         <label for="delayedStage">Stage</label>
         <select name="stage" id="delayedStage">
             <option value="" ${empty selectedStage ? 'selected' : ''}>All Stages</option>
-            <option value="Planning" ${selectedStage == 'Planning' ? 'selected' : ''}>Planning</option>
             <option value="Shoot" ${selectedStage == 'Shoot' ? 'selected' : ''}>Shoot</option>
             <option value="Edit" ${selectedStage == 'Edit' ? 'selected' : ''}>Edit</option>
             <option value="Publishing" ${selectedStage == 'Publishing' ? 'selected' : ''}>Publishing</option>

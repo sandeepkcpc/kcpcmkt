@@ -120,7 +120,7 @@ class PlannedOutputsTableTest {
     }
 
     @Test
-    void addOutputRejectsReelWithNoReelTypeSelected() throws Exception {
+    void addOutputAcceptsReelWithNoReelTypeSelected() throws Exception {
         ContentPlan plan = approvedPlan("Reel No Type");
         String base = "/app/deliverables/" + plan.getId();
         TestApiClient ceo = new TestApiClient(port);
@@ -129,9 +129,13 @@ class PlannedOutputsTableTest {
         HttpResponse<String> response = ceo.postForm(base + "/outputs", Map.of("outputType", "REEL"));
         assertThat(response.statusCode()).isEqualTo(302);
 
-        assertThat(plannedOutputRepository.findByContentPlan(plan)).isEmpty();
+        List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
+        assertThat(outputs).hasSize(1);
+        assertThat(outputs.get(0).getOutputType().name()).isEqualTo("REEL");
+        assertThat(outputs.get(0).getReelType()).isNull();
         HttpResponse<String> page = ceo.get(base);
-        assertThat(page.body()).contains("Select at least one Reel Type when Output Type is Reel");
+        assertThat(page.body()).contains("Planned output added.");
+        assertThat(page.body()).doesNotContain("Reel Type is mandatory", "Select at least one Reel Type");
     }
 
     @Test
@@ -260,18 +264,18 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
 
         HttpResponse<String> response = ceo.postForm(base + "/outputs/" + groupId + "/edit",
-                Map.of("outputType", "VIDEO", "titleDescription", "Renamed Output"));
+                Map.of("outputType", "LONG_VIDEO", "titleDescription", "Renamed Output"));
         assertThat(response.statusCode()).isEqualTo(302);
 
         List<PlannedOutput> members = plannedOutputRepository.findByReelGroupId(groupId);
         assertThat(members).hasSize(1);
         assertThat(members.get(0).getId()).isEqualTo(output.getId()); // same row, edited in place
-        assertThat(members.get(0).getOutputType().name()).isEqualTo("VIDEO");
+        assertThat(members.get(0).getOutputType().name()).isEqualTo("LONG_VIDEO");
         assertThat(members.get(0).getTitleDescription()).isEqualTo("Renamed Output");
     }
 
@@ -308,7 +312,7 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
 
@@ -328,7 +332,7 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
         assertThat(ceo.postForm(base + "/outputs/" + groupId + "/targets",
@@ -362,7 +366,7 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
 
@@ -379,9 +383,9 @@ class PlannedOutputsTableTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
         HttpResponse<String> response = ceo.postFormAjax(base + "/outputs",
-                Map.of("outputType", "PHOTOGRAPHY", "titleDescription", "Ajax created output"));
+                Map.of("outputType", "POST", "titleDescription", "Ajax created output"));
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("\"outputType\":\"PHOTOGRAPHY\"", "Ajax created output");
+        assertThat(response.body()).contains("\"outputType\":\"POST\"", "Ajax created output");
 
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         assertThat(response.body()).contains(output.getReelGroupId().toString());
@@ -394,12 +398,12 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
 
         HttpResponse<String> response = ceo.postFormAjax(base + "/outputs/" + groupId + "/edit",
-                Map.of("outputType", "PHOTOGRAPHY", "titleDescription", "Renamed via AJAX"));
+                Map.of("outputType", "POST", "titleDescription", "Renamed via AJAX"));
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("Renamed via AJAX");
 
@@ -414,7 +418,7 @@ class PlannedOutputsTableTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "POST")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
         UUID groupId = output.getReelGroupId();
 
@@ -424,16 +428,34 @@ class PlannedOutputsTableTest {
         assertThat(plannedOutputRepository.findByReelGroupId(groupId)).isEmpty();
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - a
+     * throwaway one here (irrelevant to this file's Planned Outputs-focused assertions) and
+     * transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP. */
     private ContentPlan approvedPlan(String title) throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+        var camUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Planned Outputs Cam\",\"email\":\"planned-outputs-cam-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000004\","
+                        + "\"creationReason\":\"planned outputs test fixture\"}");
+        String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"planned outputs test fixture grant\"}");
         String ideaTitle = title + " " + unique;
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")).statusCode()).isEqualTo(302);
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.of(
+                "decision", java.util.List.of("APPROVE"),
+                "cameramanMark", java.util.List.of("1.0"),
+                "editorMark", java.util.List.of("1.0"),
+                "modelMark", java.util.List.of("1.0"),
+                "contentPriority", java.util.List.of("MEDIUM"),
+                "plannedLiveDate", java.util.List.of(java.time.LocalDate.now().plusDays(10).toString()),
+                "folderLink", java.util.List.of("https://drive.example.com/planned-outputs-" + unique),
+                "camerapersonUserIds", java.util.List.of(camId))).statusCode()).isEqualTo(302);
         return contentPlanRepository.findByIdea(idea).orElseThrow();
     }
 }

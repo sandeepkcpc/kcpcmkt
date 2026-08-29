@@ -203,8 +203,9 @@ public class ContentPlan extends BaseEntity {
         this.preparedBy = preparedBy;
     }
 
-    /** ERD-CON-026: all fields Planning Review requires must be present. */
-    public boolean isReadyForPlanningReview() {
+    /** Always true - IdeaService#approve enforces every one of these fields before a Content Plan
+     * can even be created. Kept as an informational API field on ContentPlanResponse. */
+    public boolean isFullyPlanned() {
         return contentPriority != null && plannedLiveDate != null && plannedShootDate != null
                 && plannedEditDate != null && folderLink != null && !folderLink.isBlank();
     }

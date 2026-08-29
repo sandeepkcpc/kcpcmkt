@@ -48,6 +48,7 @@ class AssigneeWorkloadCountDisplayTest {
     PlannedOutputRepository plannedOutputRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
     private static final String PUBLICATION_TARGET_ID = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -76,9 +77,14 @@ class AssigneeWorkloadCountDisplayTest {
         String plan3Id = createPlanAssignedToShoot(ceo, camAId, unique, "P3");
         camA.post("/api/v1/content-plans/" + plan3Id + "/shooting/start", "");
         camA.post("/api/v1/content-plans/" + plan3Id + "/shooting/review/submit", "");
+        // Workflow redesign: Shoot Review Approve now requires an Editor team assignment in the
+        // same call (ShootingService#decideShootReview) - a throwaway Editor here, unrelated to
+        // this test's own subject (Shoot workload counts).
+        String plan3EditorId = createEditorUser(ceo, "Workload Editor " + unique);
         JsonNode plan3Approved = ceo.postJson("/api/v1/content-plans/" + plan3Id + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camAId + "\"]}");
-        assertThat(plan3Approved.get("status").asText()).isEqualTo("SAP");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camAId + "\"],"
+                        + "\"editorUserIds\":[\"" + plan3EditorId + "\"],\"leadEditorUserId\":\"" + plan3EditorId + "\"}");
+        assertThat(plan3Approved.get("status").asText()).isEqualTo("EA");
 
         // Cam B has never been assigned anywhere yet - must show 0 Active Tasks, not "-"/blank/omitted.
         // A brand-new, still-unassigned Planning-stage plan is where both candidates actually appear
@@ -131,46 +137,55 @@ class AssigneeWorkloadCountDisplayTest {
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"workload count test grant\"}");
     }
 
-    /** Idea -> approved (PL) -> scheduled/parameterized -> Shoot-assigned -> output + publication
-     * scope -> Planning Review submit/approve -> Shoot Assigned (SA), the same sequence
-     * {@code GoldenEndToEndFlowTest} uses, parameterized by which cameraperson gets assigned. */
-    private String createPlanAssignedToShoot(TestApiClient ceo, String cameramanUserId, long unique, String label)
-            throws Exception {
-        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Workload Count " + label + " " + unique + "\"}");
-        String ideaId = idea.get("ideaId").asText();
-        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-        assertThat(approved.get("status").asText()).isEqualTo("PL");
-        String contentPlanId = findContentPlanId(ideaId);
-
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/workload-" + label + "-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + cameramanUserId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-        String outputId = findPlannedOutputId(contentPlanId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}");
-
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        JsonNode planApproved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision",
-                "{\"approve\":true}");
-        assertThat(planApproved.get("status").asText()).isEqualTo("SA");
-        return contentPlanId;
+    private String createEditorUser(TestApiClient ceo, String fullName) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + fullName.toLowerCase().replace(" ", "-")
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + VIDEO_EDITOR_ROLE_ID
+                        + "\",\"creationReason\":\"workload count test fixture\"}");
+        String editorId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editorId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"workload count test grant\"}");
+        return editorId;
     }
 
-    /** A Content Plan left at raw Planning (PL) status, unassigned - the state the Shoot Assignee
-     * "who can I assign" checklist is rendered from, so both a fully-loaded and a zero-task
-     * candidate can be observed side by side. */
-    private String createFreshPlanningPlan(TestApiClient ceo, long unique, String label) throws Exception {
+    /** Workflow redesign: Idea Review approval now carries every former Planning field (including
+     * the initial Shoot Team and initial Output/Publication Scope) in one call and transitions
+     * straight to Shoot Assigned (SA), never PL/PLRV/PLAP - parameterized by which cameraperson
+     * gets assigned. */
+    private String createPlanAssignedToShoot(TestApiClient ceo, String cameramanUserId, long unique, String label)
+            throws Exception {
+        String liveDate = LocalDate.now().plusDays(10).toString();
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Workload Count " + label + " " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-        assertThat(approved.get("status").asText()).isEqualTo("PL");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/workload-" + label + "-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + cameramanUserId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
+        return findContentPlanId(ideaId);
+    }
+
+    /** A Content Plan at Shoot Assigned (SA) whose own Shoot Team is a throwaway cameraperson
+     * (neither Cam A nor Cam B) - the state the Shoot Assignee "who can I assign" checklist is
+     * rendered from (it lists every eligible candidate NOT YET assigned to THIS plan), so both a
+     * fully-loaded and a zero-task candidate can be observed side by side without either of them
+     * being filtered out as already-assigned here. Workflow redesign: approval always requires at
+     * least one Cameraperson, so a truly unassigned plan is no longer reachable via the API. */
+    private String createFreshPlanningPlan(TestApiClient ceo, long unique, String label) throws Exception {
+        String observerCamId = createUser(ceo, "Workload Observer Cam " + unique, "e2e-workload-observer-" + unique + "@kcpcbandhani.local");
+        grantShootExecution(ceo, observerCamId);
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Workload Count " + label + " " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/workload-observer-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + observerCamId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
         return findContentPlanId(ideaId);
     }
 

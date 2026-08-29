@@ -197,6 +197,23 @@ public class PublishingService {
     }
 
     /**
+     * Single-button "Assign Publisher(s)" (mirroring ENG-041's Assign Editor(s)/Assign
+     * Cameraperson(s)): assigns every newly-staged Publisher in one request/transaction. Unlike
+     * Shoot/Edit, Publishing has no Lead concept (explicit product decision - see ENG-036/ENG-044).
+     * Used both by the standalone Publisher Assignment action and, since the Edit Review ->
+     * Publisher Assignment fold-in, by {@link com.kcpc.mkt.production.service.EditingService#decideEditReview}
+     * as part of the same atomic Edit Review approval transaction.
+     */
+    @Transactional
+    public void assignPublisherTeam(User actor, UUID contentPlanId, List<User> publishers) {
+        if (publishers != null) {
+            for (User publisher : publishers) {
+                assignPublisher(actor, contentPlanId, publisher);
+            }
+        }
+    }
+
+    /**
      * ENG-046: one Publishing Description shared by the whole Publisher team on this plan (not per
      * individual assignee), editable any time. Gated to native CEO/MM authority only - matching
      * ENG-044's Publisher-assignment rule, not PERM_08 - since this is a management action

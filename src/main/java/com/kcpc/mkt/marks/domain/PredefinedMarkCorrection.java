@@ -45,6 +45,12 @@ public class PredefinedMarkCorrection extends BaseEntity {
     @Column(name = "new_editor_mark", nullable = false, precision = 3, scale = 1)
     private BigDecimal newEditorMark;
 
+    @Column(name = "prior_model_mark", nullable = false, precision = 3, scale = 1)
+    private BigDecimal priorModelMark;
+
+    @Column(name = "new_model_mark", nullable = false, precision = 3, scale = 1)
+    private BigDecimal newModelMark;
+
     @Column(name = "correction_reason", nullable = false, columnDefinition = "text")
     private String correctionReason;
 
@@ -65,14 +71,17 @@ public class PredefinedMarkCorrection extends BaseEntity {
 
     public PredefinedMarkCorrection(PredefinedRoleMarks predefinedMark, PredefinedMarkCorrection supersedesCorrection,
                                      BigDecimal priorCamerapersonMark, BigDecimal priorEditorMark,
-                                     BigDecimal newCamerapersonMark, BigDecimal newEditorMark, String correctionReason,
+                                     BigDecimal priorModelMark, BigDecimal newCamerapersonMark,
+                                     BigDecimal newEditorMark, BigDecimal newModelMark, String correctionReason,
                                      User correctedBy, PermissionGrant actingPermissionGrant) {
         this.predefinedMark = predefinedMark;
         this.supersedesCorrection = supersedesCorrection;
         this.priorCamerapersonMark = priorCamerapersonMark;
         this.priorEditorMark = priorEditorMark;
+        this.priorModelMark = priorModelMark;
         this.newCamerapersonMark = newCamerapersonMark;
         this.newEditorMark = newEditorMark;
+        this.newModelMark = newModelMark;
         this.correctionReason = correctionReason;
         this.correctedBy = correctedBy;
         this.actingPermissionGrant = actingPermissionGrant;
@@ -100,6 +109,14 @@ public class PredefinedMarkCorrection extends BaseEntity {
 
     public BigDecimal getNewEditorMark() {
         return newEditorMark;
+    }
+
+    public BigDecimal getPriorModelMark() {
+        return priorModelMark;
+    }
+
+    public BigDecimal getNewModelMark() {
+        return newModelMark;
     }
 
     public String getCorrectionReason() {

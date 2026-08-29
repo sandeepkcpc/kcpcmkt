@@ -354,51 +354,69 @@ class KpiDashboardServiceTest {
 
     // ================================================================== Reviews (first-pass / rework / pending / retained)
 
+    /**
+     * Workflow redesign: Planning Review (the gate this test originally exercised) no longer
+     * exists as an active review gate - a Content Plan is created already fully planned and never
+     * passes through PLRV/PLAP. The first-pass-vs-rework/first-cycle-denominator calculation this
+     * test protects is gate-agnostic (KpiDashboardService#qualityReviews computes it identically
+     * per GateType), so this now exercises the equivalent behavior at the still-live Shoot Review
+     * gate instead.
+     */
     @Test
     void firstPassApprovalVsReworkCycleAreDistinguished() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = ceo();
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
 
-        // Plan A: first-pass approved (cycle #1 decided APPROVED).
-        String planA = approveIdeaAndGetContentPlanId(ceo, "Review FirstPass Flow " + unique);
+        // Plan A: first-pass approved (cycle #1 decided APPROVED) at Shoot Review.
         String camA = createCameraperson(ceo, unique, "A");
-        ceo.post("/api/v1/content-plans/" + planA + "/shooting-assignments", "{\"cameramanUserId\":\"" + camA + "\"}");
-        preparePlanningAndSubmit(ceo, planA, unique);
-        assertThat(ceo.post("/api/v1/content-plans/" + planA + "/planning-review/decision", "{\"approve\":true}")
-                .statusCode()).isEqualTo(200);
+        String planA = approveIdeaAndGetContentPlanId(ceo, "Review FirstPass Flow " + unique, camA, unique);
+        TestApiClient camAClient = loginNewClient(camerapersonEmail(unique, "A"));
+        assertThat(camAClient.post("/api/v1/content-plans/" + planA + "/shooting/start", "").statusCode()).isEqualTo(200);
+        assertThat(camAClient.post("/api/v1/content-plans/" + planA + "/shooting/review/submit", "").statusCode()).isEqualTo(200);
+        String edA = createUser(ceo, "Review FirstPass Throwaway Ed", "review-firstpass-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, edA, "PERM_19_EDIT_EXECUTION");
+        assertThat(ceo.postJson("/api/v1/content-plans/" + planA + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camA + "\"],"
+                        + "\"editorUserIds\":[\"" + edA + "\"],\"leadEditorUserId\":\"" + edA + "\"}").has("status")).isTrue();
 
-        // Plan B: reworked once, then approved on cycle #2.
-        String planB = approveIdeaAndGetContentPlanId(ceo, "Review Rework Flow " + unique);
+        // Plan B: reworked once, then approved on cycle #2, at Shoot Review.
         String camB = createCameraperson(ceo, unique, "B");
-        ceo.post("/api/v1/content-plans/" + planB + "/shooting-assignments", "{\"cameramanUserId\":\"" + camB + "\"}");
-        preparePlanningAndSubmit(ceo, planB, unique);
-        assertThat(ceo.post("/api/v1/content-plans/" + planB + "/planning-review/decision",
-                "{\"approve\":false,\"reason\":\"needs more detail\"}").statusCode()).isEqualTo(200);
-        // Resubmit and approve on the second cycle.
-        assertThat(ceo.post("/api/v1/content-plans/" + planB + "/planning-review/submit", "").statusCode()).isEqualTo(200);
-        assertThat(ceo.post("/api/v1/content-plans/" + planB + "/planning-review/decision", "{\"approve\":true}")
-                .statusCode()).isEqualTo(200);
+        String planB = approveIdeaAndGetContentPlanId(ceo, "Review Rework Flow " + unique, camB, unique);
+        TestApiClient camBClient = loginNewClient(camerapersonEmail(unique, "B"));
+        assertThat(camBClient.post("/api/v1/content-plans/" + planB + "/shooting/start", "").statusCode()).isEqualTo(200);
+        assertThat(camBClient.post("/api/v1/content-plans/" + planB + "/shooting/review/submit", "").statusCode()).isEqualTo(200);
+        assertThat(ceo.postJson("/api/v1/content-plans/" + planB + "/shooting/review/decision",
+                "{\"approve\":false,\"reason\":\"needs more detail\"}").has("status")).isTrue();
+        // Rework sends the plan back to SIP (in progress) - resubmit and approve on the second cycle.
+        assertThat(camBClient.post("/api/v1/content-plans/" + planB + "/shooting/review/submit", "").statusCode()).isEqualTo(200);
+        String edB = createUser(ceo, "Review Rework Throwaway Ed", "review-rework-ed-" + unique + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, edB, "PERM_19_EDIT_EXECUTION");
+        assertThat(ceo.postJson("/api/v1/content-plans/" + planB + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camB + "\"],"
+                        + "\"editorUserIds\":[\"" + edB + "\"],\"leadEditorUserId\":\"" + edB + "\"}").has("status")).isTrue();
 
         QualityReviewsDashboardDto quality = kpiDashboardService.qualityReviews(ceoUser(), today, today);
-        StageHealthRowLikeReview planningRow = findReviewStageRow(quality, "Planning");
-        assertThat(planningRow.totalReviews()).isGreaterThanOrEqualTo(3); // A's 1 + B's 2
-        assertThat(planningRow.firstPassApproved()).isGreaterThanOrEqualTo(1); // at least Plan A
-        assertThat(planningRow.rework()).isGreaterThanOrEqualTo(1); // at least Plan B's first cycle
+        StageHealthRowLikeReview shootRow = findReviewStageRow(quality, "Shoot");
+        assertThat(shootRow.totalReviews()).isGreaterThanOrEqualTo(3); // A's 1 + B's 2
+        assertThat(shootRow.firstPassApproved()).isGreaterThanOrEqualTo(1); // at least Plan A
+        assertThat(shootRow.rework()).isGreaterThanOrEqualTo(1); // at least Plan B's first cycle
         // Plan B contributes a cycle-2 decided review that is NOT a first-cycle review - Total
         // Reviews must exceed First-Cycle Reviews here, which is exactly the condition that exposes
         // a wrong (all-cycles) denominator on First-Pass Approved %.
-        assertThat(planningRow.totalReviews()).isGreaterThan(planningRow.firstCycleReviews());
+        assertThat(shootRow.totalReviews()).isGreaterThan(shootRow.firstCycleReviews());
         // First-Pass Approved % must be mathematically derived from firstPassApproved /
         // firstCycleReviews - never from firstPassApproved / totalReviews (spec fix #7).
-        BigDecimal expectedPercent = BigDecimal.valueOf(planningRow.firstPassApproved())
-                .divide(BigDecimal.valueOf(planningRow.firstCycleReviews()), 6, RoundingMode.HALF_UP)
+        BigDecimal expectedPercent = BigDecimal.valueOf(shootRow.firstPassApproved())
+                .divide(BigDecimal.valueOf(shootRow.firstCycleReviews()), 6, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP);
-        assertThat(planningRow.firstPassApprovedPercent()).isEqualByComparingTo(expectedPercent);
-        BigDecimal wrongPercent = BigDecimal.valueOf(planningRow.firstPassApproved())
-                .divide(BigDecimal.valueOf(planningRow.totalReviews()), 6, RoundingMode.HALF_UP)
+        assertThat(shootRow.firstPassApprovedPercent()).isEqualByComparingTo(expectedPercent);
+        BigDecimal wrongPercent = BigDecimal.valueOf(shootRow.firstPassApproved())
+                .divide(BigDecimal.valueOf(shootRow.totalReviews()), 6, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP);
-        assertThat(planningRow.firstPassApprovedPercent()).isNotEqualByComparingTo(wrongPercent);
+        assertThat(shootRow.firstPassApprovedPercent()).isNotEqualByComparingTo(wrongPercent);
     }
 
     @Test
@@ -409,10 +427,11 @@ class KpiDashboardServiceTest {
 
         long pendingBefore = kpiDashboardService.overview(ceoUser(), today, today).getPendingReviews();
 
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Review Pending Flow " + unique);
         String cam = createCameraperson(ceo, unique, "P");
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Review Pending Flow " + unique, cam, unique);
+        TestApiClient camClient = loginNewClient(camerapersonEmail(unique, "P"));
+        assertThat(camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "").statusCode()).isEqualTo(200);
+        assertThat(camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "").statusCode()).isEqualTo(200);
         // Submitted but not yet decided - must show up as pending.
 
         long pendingAfter = kpiDashboardService.overview(ceoUser(), today, today).getPendingReviews();
@@ -458,8 +477,12 @@ class KpiDashboardServiceTest {
         assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review", java.util.Map.of("decision", "RETAIN"))
                 .statusCode()).isEqualTo(302);
         assertThat(ceo.post("/api/v1/ideas/" + idea.getId() + "/reopen", "").statusCode()).isEqualTo(200);
+        String camId = createCameraperson(ceo, unique, "Funnel");
         assertThat(ceo.postJson("/api/v1/ideas/" + idea.getId() + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}").has("ideaId")).isTrue();
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/kpi-funnel-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}").has("ideaId")).isTrue();
 
         var after = kpiDashboardService.overview(ceoUser(), today, today).getFunnel();
         assertThat(after.getSubmitted()).isEqualTo(before.getSubmitted() + 1);
@@ -490,11 +513,7 @@ class KpiDashboardServiceTest {
         grant(ceo, hrId, "PERM_18_SHOOT_EXECUTION");
         grant(ceo, hrId, "PERM_19_EDIT_EXECUTION");
 
-        String planId = approveIdeaAndGetContentPlanId(ceo, "MultiFunc KPI Flow " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + hrId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
-        assertThat(ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}")
-                .statusCode()).isEqualTo(200);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "MultiFunc KPI Flow " + unique, hrId, unique);
 
         TestApiClient hr = loginNewClient(hrEmail);
         assertThat(hr.post("/api/v1/content-plans/" + planId + "/shooting/start", "").statusCode()).isEqualTo(200);
@@ -675,31 +694,30 @@ class KpiDashboardServiceTest {
     }
 
     private String createCameraperson(TestApiClient ceo, long unique, String suffix) throws Exception {
-        String userId = createUser(ceo, "KPI Cam " + suffix, "kpi-cam-" + suffix + "-" + unique + "@kcpcbandhani.local",
-                CAMERA_PERSON_ROLE_ID);
+        String userId = createUser(ceo, "KPI Cam " + suffix, camerapersonEmail(unique, suffix), CAMERA_PERSON_ROLE_ID);
         grant(ceo, userId, "PERM_18_SHOOT_EXECUTION");
         return userId;
     }
 
-    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+    private String camerapersonEmail(long unique, String suffix) {
+        return "kpi-cam-" + suffix + "-" + unique + "@kcpcbandhani.local";
+    }
+
+    /** Workflow redesign: Idea Review approval now carries every former Planning field (including
+     * the initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA) - the
+     * given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId, long unique) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/kpi-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         return plan.getId().toString();
-    }
-
-    private void preparePlanningAndSubmit(TestApiClient ceo, String planId, long unique) throws Exception {
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/kpi-" + unique + "\"}");
-        HttpResponse<String> submit = ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        if (submit.statusCode() != 200) {
-            throw new IllegalStateException("Planning review submit failed: " + submit.statusCode() + " " + submit.body());
-        }
     }
 
     /** Idea -> approved -> Shoot -> Edit -> Ready for Publishing, with the given Planned Live Date
@@ -713,24 +731,26 @@ class KpiDashboardServiceTest {
     /** Same as above, but with an explicit set of required Publishing targets (for N/A-handling tests). */
     private String advanceToReadyForPublishing(TestApiClient ceo, long unique, String title, LocalDate plannedLiveDate,
                                                 List<String> targetIds) throws Exception {
-        String planId = approveIdeaAndGetContentPlanId(ceo, title + " " + unique);
         String camEmail = "kpi-otd-cam-" + unique + "-" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000) + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Kpi Otd Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
 
-        // Standard scheduling requires a future date (BR-REQ-093, >= 5 days out) - always schedule
-        // with a safe placeholder first, then move to the actually-desired (possibly past)
-        // deadline via Admin Reschedule below, which has no such restriction (a real admin
-        // correcting/pulling in a deadline is exactly this kind of after-the-fact date change).
+        // Standard scheduling requires a future date (BR-REQ-093, >= 5 days out) - always approve
+        // with a safe placeholder Planned Live Date first, then move to the actually-desired
+        // (possibly past) deadline via Admin Reschedule below, which has no such restriction (a
+        // real admin correcting/pulling in a deadline is exactly this kind of after-the-fact
+        // date change).
         LocalDate placeholderLiveDate = LocalDate.now(BUSINESS_ZONE).plusDays(5);
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + placeholderLiveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/kpi-otd-" + unique + "\"}");
-        assertThat(ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "").statusCode()).isEqualTo(200);
-        assertThat(ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}")
-                .statusCode()).isEqualTo(200);
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + " " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + placeholderLiveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/kpi-otd-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
+        Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
+        String planId = contentPlanRepository.findByIdea(ideaEntity).orElseThrow().getId().toString();
         if (!placeholderLiveDate.equals(plannedLiveDate)) {
             // ERD-CON-066: planned_edit_date must stay <= planned_live_date (and shoot <= edit) -
             // move all three together, mirroring the standard 5/2-day-before derivation, so pulling
@@ -742,11 +762,20 @@ class KpiDashboardServiceTest {
                     .statusCode()).isEqualTo(200);
         }
 
+        // Workflow redesign: Editor team assignment now folds directly into this same Shoot Review
+        // Approve call - a throwaway Editor here, unrelated to this helper's own Editor (edId
+        // below), which remains the one that actually starts/submits/decides Edit Review.
+        String throwawayEdId = createUser(ceo, "Kpi Otd Throwaway Ed",
+                "kpi-otd-throwaway-ed-" + unique + "-" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000) + "@kcpcbandhani.local",
+                VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, throwawayEdId, "PERM_19_EDIT_EXECUTION");
         TestApiClient cam = loginNewClient(camEmail);
         assertThat(cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "").statusCode()).isEqualTo(200);
         assertThat(cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "").statusCode()).isEqualTo(200);
         assertThat(ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}").has("status")).isTrue();
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + throwawayEdId + "\"],\"leadEditorUserId\":\"" + throwawayEdId + "\"}")
+                .has("status")).isTrue();
 
         String edEmail = "kpi-otd-ed-" + unique + "-" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000) + "@kcpcbandhani.local";
         String edId = createUser(ceo, "Kpi Otd Ed", edEmail, VIDEO_EDITOR_ROLE_ID);
@@ -755,12 +784,19 @@ class KpiDashboardServiceTest {
         TestApiClient ed = loginNewClient(edEmail);
         assertThat(ed.post("/api/v1/content-plans/" + planId + "/editing/start", "").statusCode()).isEqualTo(200);
         assertThat(ed.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "").statusCode()).isEqualTo(200);
+        // Same fold-in, a throwaway Publisher here - the "real" pubId (below) is assigned separately
+        // via the standalone endpoint, additive to this one.
+        String throwawayPubId = createUser(ceo, "Kpi Otd Throwaway Pub",
+                "kpi-otd-throwaway-pub-" + unique + "-" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000) + "@kcpcbandhani.local",
+                HR_MANAGER_ROLE_ID);
+        grant(ceo, throwawayPubId, "PERM_08_PUBLISHING_EXECUTION");
         assertThat(ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}").has("status")).isTrue();
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + throwawayPubId + "\"]}").has("status")).isTrue();
 
         // Set up the required Publishing target(s) so Publishing Scope has something to resolve.
         HttpResponse<String> outputHttp = ceo.post("/api/v1/content-plans/" + planId + "/outputs",
-                "{\"outputType\":\"PHOTOGRAPHY\"}");
+                "{\"outputType\":\"POST\"}");
         assertThat(outputHttp.statusCode()).isEqualTo(200);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();

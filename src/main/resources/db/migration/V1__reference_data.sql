@@ -55,8 +55,7 @@ CREATE TABLE operational_permissions (
 
 INSERT INTO operational_permissions (permission_number, permission_code, permission_name, description) VALUES
     (1, 'PERM_01_IDEA_REVIEW', 'Idea Review', 'Evaluate submitted ideas: Approve (with predefined Marks), Reject, Retain.'),
-    (2, 'PERM_02_PLANNING_EXECUTION', 'Planning Execution', 'Prepare Stage 3 planning parameters and submit for Planning Review.'),
-    (3, 'PERM_03_PLANNING_REVIEW', 'Planning Review', 'Approve or Request Rework on submitted planning parameters.'),
+    (2, 'PERM_02_PLANNING_EXECUTION', 'Planning Execution', 'Manage an approved Content ID''s planning parameters (Outputs, Reel Types, Publication Scope).'),
     (4, 'PERM_04_SHOOT_ASSIGNMENT', 'Shooting Assignment Management', 'Assign initial shooting team/Cameraperson(s).'),
     (5, 'PERM_05_SHOOT_REVIEW', 'Shoot Review', 'Approve or Request Rework on shoot output; attribute Cameraperson Marks.'),
     (6, 'PERM_06_EDIT_ASSIGNMENT', 'Editing Assignment Management', 'Assign Editor(s) after Shoot Approval.'),
@@ -102,9 +101,6 @@ INSERT INTO workflow_concepts (status_code, concept_number, status_name, classif
     ('PA',   2,  'Pending Approval',     'ACTIVE',              TRUE),
     ('RJ',   3,  'Rejected',             'TERMINAL',            TRUE),
     ('RET',  4,  'Retained',             'DORMANT',             TRUE),
-    ('PL',   5,  'Planning',             'ACTIVE',              TRUE),
-    ('PLRV', 6,  'Planning Review',      'ACTIVE',              TRUE),
-    ('PLAP', 7,  'Planning Approved',    'ACTIVE',              TRUE),
     ('SA',   8,  'Shoot Assigned',       'ACTIVE',              TRUE),
     ('SIP',  9,  'Shoot In Progress',    'ACTIVE',              TRUE),
     ('SRV',  10, 'Shoot Review',         'ACTIVE',              TRUE),

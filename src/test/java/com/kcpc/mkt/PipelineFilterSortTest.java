@@ -135,16 +135,16 @@ class PipelineFilterSortTest {
                 + "&plannedShootTo=" + shootDate.plusDays(10) + "&size=50").body();
         assertThat(rangeExcluding).doesNotContain(delayedPlan.getContentId());
 
-        // ENG-073: Stage tabs isolate by coarse status group - "shoot" gets only the delayed plan
-        // (Shoot Assigned), "planning" gets only the other 3 (still Planning), never both.
+        // ENG-073 (workflow redesign): Stage tabs isolate by coarse status group - since Planning is
+        // no longer a separate resting stage, every one of these fixture plans (all created already
+        // Shoot Assigned) lands in "shoot", never "planning".
         String shootStage = ceo.get("/app/pipeline?q=" + skuTag + "&stage=shoot&size=50").body();
-        assertThat(shootStage).contains(delayedPlan.getContentId());
-        assertThat(shootStage).doesNotContain(highPlan.getContentId())
-                .doesNotContain(medPlan.getContentId()).doesNotContain(lowPlan.getContentId());
+        assertThat(shootStage).contains(delayedPlan.getContentId())
+                .contains(highPlan.getContentId()).contains(medPlan.getContentId()).contains(lowPlan.getContentId());
 
         String planningStage = ceo.get("/app/pipeline?q=" + skuTag + "&stage=planning&size=50").body();
-        assertThat(planningStage).contains(highPlan.getContentId()).contains(medPlan.getContentId()).contains(lowPlan.getContentId());
-        assertThat(planningStage).doesNotContain(delayedPlan.getContentId());
+        assertThat(planningStage).doesNotContain(highPlan.getContentId()).doesNotContain(medPlan.getContentId())
+                .doesNotContain(lowPlan.getContentId()).doesNotContain(delayedPlan.getContentId());
 
         // ENG-074: per-column filter popups are gone (replaced by the compact top filter bar +
         // stage tabs); "Clear" replaces the old drawer's "Clear Filters"/"Reset Filters" wording.
@@ -166,15 +166,27 @@ class PipelineFilterSortTest {
 
     private String createPlanWithPriorityAndSku(TestApiClient ceo, String ideaTitle, String priority, String sku)
             throws Exception {
+        String camEmail = "pfs-cam-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Filter Sort Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                java.util.Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")).statusCode())
-                .isEqualTo(302);
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", java.util.Map.of(
+                "decision", java.util.List.of("APPROVE"),
+                "cameramanMark", java.util.List.of("1.0"),
+                "editorMark", java.util.List.of("1.0"),
+                "modelMark", java.util.List.of("1.0"),
+                "contentPriority", java.util.List.of(priority),
+                "skuReference", java.util.List.of(sku),
+                "plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()),
+                "folderLink", java.util.List.of("https://drive.example.com/pfs-" + sku),
+                "camerapersonUserIds", java.util.List.of(camId))).statusCode()).isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
-        ceo.postJson("/api/v1/content-plans/" + plan.getId() + "/parameters",
-                "{\"contentPriority\":\"" + priority + "\",\"skuReference\":\"" + sku + "\"}");
         return plan.getId().toString();
     }
 
@@ -185,30 +197,30 @@ class PipelineFilterSortTest {
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (including Urgent scheduling) and transitions straight to Shoot Assigned
+        // (SA), never PL/PLRV/PLAP.
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                java.util.Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")).statusCode())
-                .isEqualTo(302);
-        ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
-        ceo.postJson("/api/v1/content-plans/" + plan.getId() + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"skuReference\":\"" + sku
-                        + "\",\"folderLink\":\"https://drive.example.com/pfs-" + sku + "\"}");
         String futureLive = LocalDate.now().plusDays(5).toString();
         String pastShoot = LocalDate.now().minusDays(2).toString();
         String pastEdit = LocalDate.now().minusDays(1).toString();
-        HttpResponse<String> scheduleResp = ceo.post("/api/v1/content-plans/" + plan.getId() + "/schedule/urgent",
-                "{\"plannedLiveDate\":\"" + futureLive + "\",\"shootDate\":\"" + pastShoot + "\",\"editDate\":\"" + pastEdit
-                        + "\",\"urgencyReason\":\"pipeline filter/sort test fixture\"}");
-        assertThat(scheduleResp.statusCode()).isEqualTo(200);
-        assertThat(ceo.post("/api/v1/content-plans/" + plan.getId() + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}").statusCode()).isEqualTo(200);
-        assertThat(ceo.post("/api/v1/content-plans/" + plan.getId() + "/planning-review/submit", "").statusCode())
-                .isEqualTo(200);
-        HttpResponse<String> decideResp = ceo.post("/api/v1/content-plans/" + plan.getId() + "/planning-review/decision",
-                "{\"approve\":true}");
-        assertThat(decideResp.statusCode()).isEqualTo(200);
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", java.util.Map.ofEntries(
+                java.util.Map.entry("decision", java.util.List.of("APPROVE")),
+                java.util.Map.entry("cameramanMark", java.util.List.of("1.0")),
+                java.util.Map.entry("editorMark", java.util.List.of("1.0")),
+                java.util.Map.entry("modelMark", java.util.List.of("1.0")),
+                java.util.Map.entry("contentPriority", java.util.List.of("MEDIUM")),
+                java.util.Map.entry("skuReference", java.util.List.of(sku)),
+                java.util.Map.entry("folderLink", java.util.List.of("https://drive.example.com/pfs-" + sku)),
+                java.util.Map.entry("planningMode", java.util.List.of("URGENT")),
+                java.util.Map.entry("plannedLiveDate", java.util.List.of(futureLive)),
+                java.util.Map.entry("shootDate", java.util.List.of(pastShoot)),
+                java.util.Map.entry("editDate", java.util.List.of(pastEdit)),
+                java.util.Map.entry("urgencyReason", java.util.List.of("pipeline filter/sort test fixture")),
+                java.util.Map.entry("camerapersonUserIds", java.util.List.of(camId)))).statusCode()).isEqualTo(302);
+        ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         // Plan is now Shoot Assigned (SA) with a Planned Shoot Date 2 days in the past - delayed.
 
         return plan.getId().toString();

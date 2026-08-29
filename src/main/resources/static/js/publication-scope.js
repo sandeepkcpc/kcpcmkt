@@ -8,7 +8,8 @@
  * 2. Output Type -> Reel Type: the Reel Type field (checkbox multi-select in "+ Add Output" and
  *    in the per-row Edit form) is only shown while Output Type is REEL; switching away from REEL
  *    hides it, disables its checkboxes and clears whatever was selected, matching ERD-CON-008
- *    (Reel Type is mandatory for REEL and must be blank otherwise).
+ *    (Reel Type must be blank for non-REEL output types - it is optional, never required, for
+ *    REEL itself; a REEL output with no Reel Type selected is valid).
  *
  * Progressive enhancement, not a requirement: the server renders every Channel checkbox visible
  * and the Reel Type field visible/enabled by default, so both forms are fully usable with

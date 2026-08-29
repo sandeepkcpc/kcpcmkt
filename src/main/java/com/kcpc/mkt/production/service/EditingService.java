@@ -7,6 +7,7 @@ import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.PersonalMarkAttribution;
@@ -20,6 +21,7 @@ import com.kcpc.mkt.production.domain.EditingAssignment;
 import com.kcpc.mkt.production.domain.EditingExecutionParticipant;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.EditingExecutionParticipantRepository;
+import com.kcpc.mkt.publishing.service.PublishingService;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.WorkflowInstance;
@@ -31,6 +33,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +55,8 @@ public class EditingService {
     private final OperationalEligibilityService operationalEligibilityService;
     private final HoldService holdService;
     private final AuditService auditService;
+    private final PublishingService publishingService;
+    private final UserRepository userRepository;
 
     public EditingService(ContentPlanRepository contentPlanRepository,
                            EditingAssignmentRepository editingAssignmentRepository,
@@ -61,7 +66,8 @@ public class EditingService {
                            ReviewCycleRepository reviewCycleRepository, WorkflowTransitionService workflowService,
                            AuthorizationService authorizationService,
                            OperationalEligibilityService operationalEligibilityService, HoldService holdService,
-                           AuditService auditService) {
+                           AuditService auditService, PublishingService publishingService,
+                           UserRepository userRepository) {
         this.contentPlanRepository = contentPlanRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.participantRepository = participantRepository;
@@ -73,6 +79,8 @@ public class EditingService {
         this.operationalEligibilityService = operationalEligibilityService;
         this.holdService = holdService;
         this.auditService = auditService;
+        this.publishingService = publishingService;
+        this.userRepository = userRepository;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -274,9 +282,26 @@ public class EditingService {
         return cycle;
     }
 
+    /**
+     * Workflow redesign: Publisher team assignment is now folded directly into the SAME Approve
+     * action as the Edit Review decision itself, rather than a separate step on a separate screen -
+     * mirroring {@link ShootingService#decideShootReview}'s Editor fold-in, which itself mirrors
+     * how Idea Review approval folds in the initial Shoot Team. {@code publisherUserIds} is
+     * required on Approve only (ignored for Request Rework). Unlike Editor/Cameraperson
+     * assignment, Publisher assignment has no Lead concept (explicit product decision - see
+     * ENG-036/ENG-044) - just a required, non-empty Publisher(s) list. Reuses
+     * {@link PublishingService#assignPublisherTeam} unchanged (same ENG-044 native-CEO/MM-only
+     * authorization, same eligibility checks, same idempotent assignment logic) rather than
+     * duplicating any of that business logic - called from within this same {@code @Transactional}
+     * method so the Edit Review decision and the Publisher team assignment commit or roll back
+     * together atomically. ERV -&gt; EAP -&gt; RFP still fire here as before; Publisher assignment
+     * happens once status is RFP (assignPublisher's own window), still inside this one
+     * transaction. Publishing itself only starts once the assigned Publisher clicks Start
+     * Publishing (RFP -&gt; PUBG), unchanged - mirroring Edit's own EA -&gt; ED handoff.
+     */
     @Transactional
     public ContentPlan decideEditReview(User reviewer, UUID contentPlanId, boolean approve, String reason,
-                                         List<UUID> qualifyingRecipientUserIds) {
+                                         List<UUID> qualifyingRecipientUserIds, List<UUID> publisherUserIds) {
         ContentPlan plan = requirePlan(contentPlanId);
         WorkflowInstance workflowInstance = plan.getWorkflowInstance();
         if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.ERV) {
@@ -302,6 +327,17 @@ public class EditingService {
                 throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                         "At least one qualifying final Editor must be confirmed on Approve");
             }
+            if (publisherUserIds == null || publisherUserIds.isEmpty()) {
+                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                        "At least one Publisher must be assigned before approval");
+            }
+            // Resolved up front (before any mutation below) so an invalid publisher id fails fast.
+            List<User> publishers = new ArrayList<>();
+            for (UUID publisherId : publisherUserIds) {
+                publishers.add(userRepository.findById(publisherId)
+                        .orElseThrow(() -> DomainException.notFound("User not found: " + publisherId)));
+            }
+
             PredefinedRoleMarks marks = predefinedRoleMarksRepository.findByContentPlan(plan)
                     .orElseThrow(() -> DomainException.notFound("Predefined Marks not found for this Content Plan"));
             cycle.decide(reviewer, "APPROVED", null, actingGrant.orElse(null));
@@ -321,6 +357,8 @@ public class EditingService {
             workflowService.transition(workflowInstance, WorkflowStatus.RFP, reviewer, actingGrant,
                     "READY_FOR_PUBLISHING", null);
             auditService.record(reviewer, actingGrant, "EDITING", "EDIT_APPROVED", "content_plans", plan.getId(), null);
+
+            publishingService.assignPublisherTeam(reviewer, contentPlanId, publishers);
         } else {
             if (reason == null || reason.isBlank()) {
                 throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A rework reason is mandatory (ERD-CON-059)");

@@ -20,10 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Task visibility on the Employee's "My Work" screen comes from an active assignment, never
- * Designation/Business Role alone, and (for Shoot specifically, since a Cameraperson can be
- * assigned during Planning itself, before Planning Review even starts) not until Planning has
- * actually been Approved. Explicit user request: a Cameraperson assigned mid-Planning must not
- * see the deliverable in My Work until the plan reaches Shoot Assigned (SA) or later.
+ * Designation/Business Role alone. Workflow redesign: the initial Shoot Team is now assigned
+ * atomically as part of Idea Review approval itself (IdeaService#approve), landing directly on
+ * Shoot Assigned (SA) - there is no more separate "assigned during Planning, before Planning
+ * Review approves" window in which the assignment exists but the task must stay hidden; the
+ * assignment and Shoot Assigned visibility are now inseparable.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -38,9 +39,10 @@ class MyWorkVisibilityTest {
     ContentPlanRepository contentPlanRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
 
     @Test
-    void camerapersonSeesTaskOnlyAfterPlanningIsApprovedNotAtAssignmentTime() throws Exception {
+    void camerapersonSeesTaskAssignedAtoIdeaReviewApprovalImmediatelyInMyWork() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
@@ -51,29 +53,22 @@ class MyWorkVisibilityTest {
         String camId = camUser.get("userId").asText();
         grantShootExecution(ceo, camId);
 
-        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Visibility " + unique + "\"}");
-        String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-        ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
-                .orElseThrow();
-        String planId = plan.getId().toString();
-
-        // Assigned while the plan is still at PL (Shoot Assignment happens during Planning itself,
-        // before Planning Review even starts) - matches how the real UI's Shoot Assignment picker works.
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
         String beforeApproval = cam.get("/app/my-work").body();
-        assertThat(beforeApproval).doesNotContain(plan.getContentId());
 
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/mywork-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        JsonNode approved = ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Visibility " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        // Workflow redesign: Idea Review approval carries every former Planning field (including the
+        // initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA).
+        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/mywork-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
+                .orElseThrow();
+        assertThat(beforeApproval).doesNotContain(plan.getContentId());
         assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         String afterApproval = cam.get("/app/my-work").body();
@@ -98,21 +93,18 @@ class MyWorkVisibilityTest {
         String camId = camUser.get("userId").asText();
         grantShootExecution(ceo, camId);
 
+        // Workflow redesign: Idea Review approval carries every former Planning field (including the
+        // initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA).
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork History " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/mywork-history-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
-
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/mywork-history-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
 
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
@@ -124,9 +116,11 @@ class MyWorkVisibilityTest {
 
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        String edId = createEditorUser(ceo, "MyWork History Ed " + unique);
         JsonNode approved = ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        assertThat(approved.get("status").asText()).isEqualTo("SAP");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
+        assertThat(approved.get("status").asText()).isEqualTo("EA");
 
         // Shoot Approved - moved out of the Active Shoot Tasks TABLE, into Completed Work with the
         // Approve outcome, and never appears in both tables at once (ENG-057: "Completed Work", not
@@ -169,21 +163,18 @@ class MyWorkVisibilityTest {
         String camId = camUser.get("userId").asText();
         grantShootExecution(ceo, camId);
 
+        // Workflow redesign: Idea Review approval carries every former Planning field (including the
+        // initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA).
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Rework " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/mywork-rework-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
-
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/mywork-rework-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
 
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
@@ -202,20 +193,24 @@ class MyWorkVisibilityTest {
         assertThat(detailDuringRework).contains("Latest Reviewer Feedback").contains("REWORK REQUIRED").contains(reworkReason);
 
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        String edId = createEditorUser(ceo, "MyWork Rework Ed " + unique);
         JsonNode approved = ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        assertThat(approved.get("status").asText()).isEqualTo("SAP");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
+        assertThat(approved.get("status").asText()).isEqualTo("EA");
 
         String myWorkAfterApproval = cam.get("/app/my-work").body();
         assertThat(myWorkAfterApproval).contains("Active Shoots</span><span class=\"kpi-card-count\">0</span>");
         assertThat(myWorkAfterApproval).contains("Rework Required</span><span class=\"kpi-card-count\">0</span>");
         assertThat(myWorkAfterApproval).contains("Completed</span><span class=\"kpi-card-count\">1</span>");
 
-        // ENG-064: the latest decision (Approved) is now shown prominently, while the earlier
-        // rework reason is preserved (not lost) inside the collapsible "View Feedback History".
-        String detailAfterApproval = cam.get("/app/deliverables/" + planId).body();
-        assertThat(detailAfterApproval).contains("Latest Reviewer Feedback").contains("APPROVED");
-        assertThat(detailAfterApproval).contains("View Feedback History").contains(reworkReason);
+        // ENG-064: the latest decision (Approved) is preserved alongside the earlier rework reason.
+        // Workflow redesign: the plan now lands on EA (Editor already assigned via the Approve
+        // fold-in), outside the Cameraperson's own redesigned-page window (SA/SIP/SRV/SAP only -
+        // their Shoot task is done) - viewed via CEO's standard shell instead ("Review Feedback
+        // History" panel, not the task-detail page's "Latest Reviewer Feedback"), same underlying data.
+        String detailAfterApproval = ceo.get("/app/deliverables/" + planId).body();
+        assertThat(detailAfterApproval).contains("Review Feedback History").contains("Approved").contains(reworkReason);
     }
 
     /** Candidate eligibility/execution is now permission-driven (OperationalEligibilityService). */
@@ -223,6 +218,20 @@ class MyWorkVisibilityTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+    }
+
+    /** Throwaway Editor for the Shoot Review Approve fold-in (ShootingService#decideShootReview),
+     * unrelated to these tests' own Cameraperson-focused assertions. */
+    private String createEditorUser(TestApiClient ceo, String fullName) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + fullName.toLowerCase().replace(" ", "-")
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + VIDEO_EDITOR_ROLE_ID
+                        + "\",\"creationReason\":\"e2e test fixture\"}");
+        String editorId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editorId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        return editorId;
     }
 
     private String[] splitOnHistoryHeader(String body) {

@@ -186,9 +186,52 @@
                                 <label id="reviewsPlanReasonLabel" for="reviewsPlanReason">Reason (mandatory for Request Rework)</label>
                                 <textarea id="reviewsPlanReason" rows="3" maxlength="500" placeholder="Describe required changes..."></textarea>
                                 <div class="idea-detail-reason-counter-row"><span class="char-counter" data-counter-for="reviewsPlanReason">0 / 500</span></div>
+
+                                <%-- Editor Assignment: shown only when Approve is selected (workflow redesign -
+                                     folds Editor team assignment directly into the SAME Approve action, same
+                                     design pattern as Idea Review's Initial Shoot Assignment section - a
+                                     .kcpc-model-picker checklist plus a Lead <select> that model-picker.js keeps
+                                     scoped to the currently-checked Editor(s), display:contents purely so both
+                                     columns become real grid items while the Lead select stays a DOM descendant
+                                     of the picker. Hidden by default; toggled by reviews-workspace.js. --%>
+                                <div class="hidden" id="reviewsNextTeamFields">
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">1</span> Editor Assignment</h3>
+                                        <div class="reviews-next-team-grid">
+                                            <div class="kcpc-model-picker reviews-next-team-picker">
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label>Editor(s) *</label>
+                                                    <div class="kcpc-model-input">
+                                                        <div class="kcpc-model-chips"></div>
+                                                        <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                                                    </div>
+                                                    <div class="kcpc-model-checklist">
+                                                        <c:forEach var="eu" items="${editorCandidateUsers}">
+                                                            <label class="model-check-item">
+                                                                <input type="checkbox" name="nextTeamUserIds" value="${eu.id}" data-name="${eu.fullName}"> ${eu.fullName}
+                                                                <span class="muted assignee-task-count">(<c:out value="${eu.activeTaskLabel}"/>)</span>
+                                                            </label>
+                                                        </c:forEach>
+                                                    </div>
+                                                </div>
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label for="reviewsNextTeamLead">Editor Lead *</label>
+                                                    <select id="reviewsNextTeamLead" class="kcpc-lead-select" disabled>
+                                                        <option value="">- None -</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="reviews-plan-decision-buttons">
-                                    <button type="button" class="reviews-decision-btn reviews-decision-rework" data-approve="false">&#8635; Request Rework</button>
-                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-approve="true">&#10003; Approve Shoot</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-rework" data-decision="REWORK">&#8635; Request Rework</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-decision="APPROVE">&#10003; Approve Shoot</button>
+                                </div>
+                                <div class="reviews-decision-confirm-bar hidden" id="reviewsPlanConfirmBar">
+                                    <button type="button" class="btn-outline" id="reviewsPlanCancelBtn">Cancel</button>
+                                    <button type="button" class="reviews-decision-confirm-btn" id="reviewsPlanConfirmBtn">Confirm</button>
                                 </div>
                                 <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
                             </div>

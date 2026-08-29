@@ -79,7 +79,7 @@ class KpiServiceTest {
         Idea idea = ideaRepository.save(new Idea(workflowInstance, "KPI028-TEST-" + unique, "KPI-028 regression idea",
                 null, null, null, actor));
         ContentPlan plan = contentPlanRepository.save(new ContentPlan(idea, workflowInstance, "KPI028-" + unique));
-        PlannedOutput output = plannedOutputRepository.save(new PlannedOutput(plan, OutputType.PHOTOGRAPHY, null, null));
+        PlannedOutput output = plannedOutputRepository.save(new PlannedOutput(plan, OutputType.POST, null, null));
         UUID publicationTargetId = publicationTargetRepository.findAll().get(0).getId();
         var publicationTarget = publicationTargetRepository.findById(publicationTargetId).orElseThrow();
 

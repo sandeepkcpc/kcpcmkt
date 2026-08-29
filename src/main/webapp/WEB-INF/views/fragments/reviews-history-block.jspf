@@ -1,4 +1,4 @@
-<%-- Shared by reviews-planning.jspf / reviews-shoot.jspf / reviews-edit.jspf: renders ${reviewHistory}
+<%-- Shared by reviews-shoot.jspf / reviews-edit.jspf: renders ${reviewHistory}
      (List<ShootFeedbackEntry>, newest-decided-first, built fresh from the immutable ReviewCycle
      rows for this plan+gate - see ReviewsMvcController#reviewHistory). The single most recent entry
      is shown prominently as "Previous Feedback"; the rest (if any) sit behind a details toggle so

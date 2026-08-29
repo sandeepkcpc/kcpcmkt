@@ -37,6 +37,7 @@ class ShootTaskDetailTest {
     ContentPlanRepository contentPlanRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
 
     @Test
     void camerapersonSeesRedesignedPageThroughTheFullLifecycleWhileCeoSeesTheStandardShell() throws Exception {
@@ -52,21 +53,18 @@ class ShootTaskDetailTest {
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Shoot Detail Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/shoot-detail-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
-
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/shoot-detail-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
 
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
@@ -116,17 +114,29 @@ class ShootTaskDetailTest {
         assertThat(atRework).doesNotContain("IDEA_REVIEW").doesNotContain("PLANNING_REVIEW").doesNotContain("EDIT_REVIEW");
 
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor team assignment now folds directly into this same Approve call
+        // (ShootingService#decideShootReview) - SAP is no longer a resting status reachable through
+        // this flow (SRV -> SAP -> EA all fire atomically here), so the plan lands on EA directly,
+        // never observably pausing at "Shoot Approved" the way it used to before this feature.
+        String editEmail = "e2e-shoot-detail-editor-" + unique + "@kcpcbandhani.local";
+        JsonNode editUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Shoot Detail Editor\",\"email\":\"" + editEmail + "\",\"password\":\"Passw0rd!\","
+                        + "\"businessRoleId\":\"" + VIDEO_EDITOR_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
+        String editId = editUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + editId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
         JsonNode approved = ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        assertThat(approved.get("status").asText()).isEqualTo("SAP");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + editId + "\"],\"leadEditorUserId\":\"" + editId + "\"}");
+        assertThat(approved.get("status").asText()).isEqualTo("EA");
 
-        // SAP: "Approved" status, no execution controls at all, but the earlier rework decision is
-        // still reachable via "View Feedback History" - never lost.
-        String atApproved = cam.get("/app/deliverables/" + planId).body();
-        assertThat(atApproved).contains("Approved");
-        assertThat(atApproved).doesNotContain("Continue Shoot").doesNotContain("Start Shoot")
-                .doesNotContain("Submitted for Review");
-        assertThat(atApproved).contains("Latest Reviewer Feedback").contains("APPROVED");
-        assertThat(atApproved).contains("View Feedback History").contains(reworkReason);
+        // The Cameraperson's own redesigned page window is SA/SIP/SRV/SAP only - once the plan has
+        // moved on to EA, it correctly falls out of that window (their Shoot task is done); the
+        // earlier rework decision remains reachable to a manager via the standard shell's "Review
+        // Feedback History" panel (not the task-detail page's "Latest Reviewer Feedback"),
+        // unchanged from before this feature (see DeliverableMvcController#view).
+        String ceoAtEa = ceo.get("/app/deliverables/" + planId).body();
+        assertThat(ceoAtEa).contains("Review Feedback History").contains("Approved").contains(reworkReason);
     }
 }

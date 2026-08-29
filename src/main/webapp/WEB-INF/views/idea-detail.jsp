@@ -46,12 +46,24 @@
 
             <%-- ============================ IDEA DETAILS ============================ --%>
             <div class="panel idea-detail-card">
+                <%-- Idea Description/Details (notes_remarks) may be unlimited-length script content -
+                     it is never rendered inline in this card (see the removed field row below); only
+                     this note icon, shown exclusively when a description exists, opens a modal with
+                     the complete text (view-only for most users; CEO/Marketing Manager also get an
+                     Edit control - see fragments/idea-description-modal*.jspf and
+                     IdeaService#updateDescription). --%>
+                <c:set var="ideaDescModalIdea" value="${idea}"/>
+                <c:set var="ideaDescModalCanEdit" value="${canEditIdeaDescription}"/>
+                <c:set var="ideaDescModalAjax" value="${false}"/>
+                <c:set var="ideaDescModalTriggerClass" value="idea-detail-header-note-btn"/>
                 <h2 class="idea-detail-card-title">
                     <span class="idea-detail-card-icon idea-detail-icon-circle">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                     </span>
                     Idea Details
+                    <%@ include file="fragments/idea-description-modal-trigger.jspf" %>
                 </h2>
+                <%@ include file="fragments/idea-description-modal.jspf" %>
                 <div class="idea-detail-fields-grid">
                     <div class="idea-detail-col">
                         <div class="idea-detail-row">
@@ -67,18 +79,6 @@
                                 Title
                             </span>
                             <span class="idea-detail-field-value"><c:out value="${idea.title}"/></span>
-                        </div>
-                        <div class="idea-detail-row">
-                            <span class="idea-detail-field-label">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
-                                Idea Description / Details
-                            </span>
-                            <span class="idea-detail-field-value">
-                                <c:choose>
-                                    <c:when test="${not empty idea.notesRemarks}"><c:out value="${idea.notesRemarks}"/></c:when>
-                                    <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
-                                </c:choose>
-                            </span>
                         </div>
                         <div class="idea-detail-row">
                             <span class="idea-detail-field-label">
@@ -268,7 +268,200 @@
                                         </select>
                                     </label>
                                 </div>
+                                <div>
+                                    <label>Model Mark (Approve only)
+                                        <select name="modelMark">
+                                            <option value="0.0">0</option>
+                                            <option value="0.5">0.5</option>
+                                            <option value="1.0">1.0</option>
+                                            <option value="2.0">2.0</option>
+                                            <option value="3.0">3.0</option>
+                                        </select>
+                                    </label>
+                                </div>
                             </div>
+
+                            <%-- Workflow redesign: Planning is no longer a separate stage - every
+                                 field it used to collect is entered right here, only relevant (and
+                                 only shown, via idea-detail.js) when Approve is the chosen decision.
+                                 Approval validates all of this and creates the Content Plan already
+                                 fully populated, moving straight to Shoot Assigned. --%>
+                            <div id="idea-review-planning-fields" class="idea-detail-planning-fields">
+                                <h3>Planning Details</h3>
+                                <div class="form-grid">
+                                    <label>Category (optional) <input type="text" name="categoryText"></label>
+                                    <label>Priority
+                                        <select name="contentPriority">
+                                            <option value="" selected disabled>Select priority</option>
+                                            <c:forEach var="p" items="${priorities}">
+                                                <option value="${p}">${p}</option>
+                                            </c:forEach>
+                                        </select>
+                                    </label>
+                                    <label>SKU Reference <input type="text" name="skuReference"></label>
+
+                                    <label>Drive Folder Link
+                                        <input type="text" name="folderLink" placeholder="https://drive.google.com/...">
+                                    </label>
+                                    <label>Planning Mode
+                                        <select name="planningMode" id="idea-review-planning-mode">
+                                            <option value="STANDARD" selected>Standard</option>
+                                            <option value="URGENT">Urgent</option>
+                                        </select>
+                                    </label>
+
+                                    <p class="note-box grid-span-all">Standard: Shoot/Edit Date default to Live Date minus 5/2
+                                        days unless overridden below, and Planned Live Date must be at least 5 days away. Urgent:
+                                        required when the Planned Live Date is fewer than 5 days away — Shoot Date, Edit Date and
+                                        Urgency Reason become mandatory.</p>
+
+                                    <label>Planned Live Date * <input type="date" name="plannedLiveDate" min="${today}"></label>
+                                    <label id="idea-review-shoot-date-label">Shoot Date <input type="date" name="shootDate" min="${today}"></label>
+                                    <label id="idea-review-edit-date-label">Edit Date <input type="date" name="editDate" min="${today}"></label>
+                                    <label class="grid-span-all" id="idea-review-urgency-reason-label">Urgency Reason (required for Urgent)
+                                        <input type="text" name="urgencyReason"></label>
+                                </div>
+
+                                <h4 class="idea-detail-outputs-heading">Planned Outputs</h4>
+                                <p class="reviews-field-hint">Select the type(s) of content you are planning to create and where they will be published.</p>
+                                <div class="reviews-outputs-grid-wrap">
+                                    <table class="data-table reviews-outputs-grid" id="ideaOutputsGrid">
+                                        <thead>
+                                            <tr>
+                                                <th>Output Type</th>
+                                                <th>Platform / Channel</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <c:forEach var="t" items="${outputTypes}">
+                                                <tr class="reviews-output-row reviews-output-row-disabled" data-output-type="${t}">
+                                                    <td class="reviews-output-type-cell">
+                                                        <label class="reviews-output-type-toggle">
+                                                            <input type="checkbox" class="reviews-output-row-enable">
+                                                            <c:choose>
+                                                                <c:when test="${t == 'STORY'}">
+                                                                    <span class="reviews-output-type-icon reviews-output-type-icon-STORY">
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+                                                                    </span>
+                                                                    <span class="reviews-output-type-copy">
+                                                                        <strong>Story</strong>
+                                                                        <span class="muted">Short vertical stories for engagement</span>
+                                                                    </span>
+                                                                </c:when>
+                                                                <c:when test="${t == 'POST'}">
+                                                                    <span class="reviews-output-type-icon reviews-output-type-icon-POST">
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                                    </span>
+                                                                    <span class="reviews-output-type-copy">
+                                                                        <strong>Post</strong>
+                                                                        <span class="muted">Images / graphics / carousels for feeds</span>
+                                                                    </span>
+                                                                </c:when>
+                                                                <c:when test="${t == 'REEL'}">
+                                                                    <span class="reviews-output-type-icon reviews-output-type-icon-REEL">
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+                                                                    </span>
+                                                                    <span class="reviews-output-type-copy">
+                                                                        <strong>Reel</strong>
+                                                                        <span class="muted">Short vertical videos for social platforms</span>
+                                                                    </span>
+                                                                </c:when>
+                                                                <c:otherwise>
+                                                                    <span class="reviews-output-type-icon reviews-output-type-icon-LONG_VIDEO">
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                                                                    </span>
+                                                                    <span class="reviews-output-type-copy">
+                                                                        <strong>Long Video</strong>
+                                                                        <span class="muted">Long-form or horizontal videos</span>
+                                                                    </span>
+                                                                </c:otherwise>
+                                                            </c:choose>
+                                                        </label>
+                                                    </td>
+                                                    <td class="reviews-output-platform-cell">
+                                                        <details class="reviews-platform-picker">
+                                                            <summary class="reviews-platform-picker-toggle">
+                                                                <span class="reviews-platform-chips"><span class="muted">Select platforms</span></span>
+                                                                <span class="reviews-platform-picker-count muted">0 selected</span>
+                                                            </summary>
+                                                            <div class="kcpc-channel-checklist reviews-output-target-checklist">
+                                                                <c:forEach var="pt" items="${activePublicationTargets}">
+                                                                    <label class="channel-check-item" data-platform="${pt.platform.platformName}">
+                                                                        <input type="checkbox" class="reviews-output-target-checkbox" value="${pt.id}"
+                                                                               data-platform="${pt.platform.platformName}"
+                                                                               data-channel="${pt.channel.channelHandle}"> ${pt.platform.platformName} / ${pt.channel.channelHandle}
+                                                                    </label>
+                                                                </c:forEach>
+                                                            </div>
+                                                        </details>
+                                                        <div class="reviews-output-platform-popovers"></div>
+                                                    </td>
+                                                </tr>
+                                            </c:forEach>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="reviews-decision-error hidden" id="ideaOutputError"></div>
+                                <input type="hidden" name="outputsJson" id="ideaOutputsJsonField" value="">
+
+                                <%-- 3-column row: Cameraperson(s) / Shoot Lead / Model(s)/Talent, one CSS grid row,
+                                     all three columns using the SAME label+control wrapper structure
+                                     (.reviews-shoot-assignment-col) so they align to the exact same top edge - no
+                                     per-field row-spanning/positioning tricks that could drift out of sync. Shoot
+                                     Lead's <select> must still stay a DOM descendant of the Cameraperson
+                                     .kcpc-model-picker (model-picker.js's refreshLeadOptions finds it via
+                                     picker.querySelector('.kcpc-lead-select'), scoped to that one picker instance) -
+                                     .reviews-shoot-assignment-camera is display:contents so its two
+                                     .reviews-shoot-assignment-col children (Cameraperson's own column, Shoot
+                                     Lead's own column) become the actual grid items while the Lead select stays
+                                     nested inside the Cameraperson picker. Model(s)/Talent is its own separate,
+                                     independently-wired .kcpc-model-picker carrying the same
+                                     .reviews-shoot-assignment-col class directly (a true sibling, not nested) -
+                                     optional, no * in the label; empty selection is already accepted by
+                                     IdeaService#approve, which only iterates planning.talentUserIds() when
+                                     non-null - unchanged. --%>
+                                <div class="reviews-shoot-assignment-grid">
+                                    <div class="kcpc-model-picker reviews-shoot-assignment-camera">
+                                        <div class="reviews-shoot-assignment-col">
+                                            <label>Initial Shoot Team (at least one Cameraperson required) *</label>
+                                            <div class="kcpc-model-input">
+                                                <div class="kcpc-model-chips"></div>
+                                                <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
+                                            </div>
+                                            <div class="kcpc-model-checklist">
+                                                <c:forEach var="cu" items="${camerapersonUsers}">
+                                                    <label class="model-check-item">
+                                                        <input type="checkbox" name="camerapersonUserIds" value="${cu.id}" data-name="${cu.fullName}"> ${cu.fullName}
+                                                        <span class="muted assignee-task-count">(<c:out value="${cu.activeTaskLabel}"/>)</span>
+                                                    </label>
+                                                </c:forEach>
+                                            </div>
+                                        </div>
+                                        <div class="reviews-shoot-assignment-col">
+                                            <label for="ideaLeadCameraperson">Shoot Lead (optional)</label>
+                                            <select name="leadCamerapersonUserId" id="ideaLeadCameraperson" class="kcpc-lead-select" disabled>
+                                                <option value="">— None —</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="kcpc-model-picker reviews-shoot-assignment-col">
+                                        <label>Model(s) / Talent</label>
+                                        <div class="kcpc-model-input">
+                                            <div class="kcpc-model-chips"></div>
+                                            <input type="text" class="kcpc-model-search" placeholder="Search model...">
+                                        </div>
+                                        <div class="kcpc-model-checklist">
+                                            <c:forEach var="mu" items="${modelUsers}">
+                                                <label class="model-check-item">
+                                                    <input type="checkbox" name="modelUserIds" value="${mu.id}" data-name="${mu.fullName}"> ${mu.fullName}
+                                                    <span class="muted assignee-task-count">(<c:out value="${mu.activeTaskLabel}"/>)</span>
+                                                </label>
+                                            </c:forEach>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <label id="idea-review-reason-label" for="idea-review-reason">Reason (mandatory for Reject; optional for Retain)</label>
                             <textarea name="reason" id="idea-review-reason" rows="3" maxlength="500" placeholder="Enter reason here..."></textarea>
                             <div class="idea-detail-reason-counter-row">
@@ -336,7 +529,7 @@
     <c:if test="${not empty contentPlanId}">
         <div class="panel">
             <h2>Deliverable</h2>
-            <p>This approved idea has moved to Planning.
+            <p>This approved idea now has an active production deliverable.
                 <c:if test="${accessClass != 'EMPLOYEE'}">
                     <a href="${pageContext.request.contextPath}/app/deliverables/${contentPlanId}">Open the deliverable &raquo;</a>
                 </c:if>
@@ -379,6 +572,8 @@
         </div>
     </div>
 </main>
+<script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/idea-detail.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
 </body>
 </html>

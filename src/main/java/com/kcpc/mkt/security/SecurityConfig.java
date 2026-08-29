@@ -110,7 +110,8 @@ public class SecurityConfig {
                 // redirects to /login unconditionally), so no request cache is needed.
                 .requestCache(rc -> rc.requestCache(new NullRequestCache()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/css/**", "/js/**", "/webjars/**", "/swagger-ui/**", "/WEB-INF/**").permitAll()
+                        .requestMatchers("/login", "/forgot-password", "/reset-password",
+                                "/css/**", "/js/**", "/webjars/**", "/swagger-ui/**", "/WEB-INF/**").permitAll()
                         // Deployment healthcheck (Docker Compose / GitHub Actions) - unauthenticated
                         // by necessity, but only ever returns the aggregate UP/DOWN status; see
                         // application.yml's management.endpoint.health.show-details.

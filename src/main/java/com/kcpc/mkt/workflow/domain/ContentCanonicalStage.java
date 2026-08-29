@@ -7,11 +7,10 @@ package com.kcpc.mkt.workflow.domain;
  * from whichever Content Detail tab happens to be selected. Distinct from {@link LifecycleStage}
  * (permission-scoping vocabulary - 7 values, no COMPLETED concept, ADMINISTRATIVE is not a content
  * stage) - this is a smaller, display/eligibility-oriented vocabulary matching the tabs Content
- * Detail actually has (Planning/Shoot/Edit/Publishing/Performance) plus the two buckets outside
- * that tab set (Completed, and everything before Planning or terminal-without-Completing).
+ * Detail actually has (Shoot/Edit/Publishing/Performance) plus the two buckets outside that tab
+ * set (Completed, and everything before Shoot Assigned or terminal-without-Completing).
  */
 public enum ContentCanonicalStage {
-    PLANNING("Planning"),
     SHOOTING("Shoot"),
     EDITING("Edit"),
     PUBLISHING("Publishing"),
@@ -34,7 +33,6 @@ public enum ContentCanonicalStage {
      * Detail tab-selection work) must reuse - never a second, parallel Status-&gt;Stage mapping. */
     public static ContentCanonicalStage forStatus(WorkflowStatus status) {
         return switch (status) {
-            case PL, PLRV, PLAP -> PLANNING;
             case SA, SIP, SRV, SAP -> SHOOTING;
             case EA, ED, ERV, EAP -> EDITING;
             case RFP, PUBG -> PUBLISHING;

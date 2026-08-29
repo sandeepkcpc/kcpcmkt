@@ -46,16 +46,25 @@ class SelfReviewConflictTest {
 
         // The submitter also holds delegated Idea Review authority, but cannot decide on their own idea.
         var selfAttempt = submitter.post("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":0.5,\"editorMark\":0.5}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":0.5,\"editorMark\":0.5,\"modelMark\":0.5}");
         assertThat(selfAttempt.statusCode()).isEqualTo(403);
         assertThat(selfAttempt.body()).contains("PERM_SELF_APPROVAL_PROHIBITED");
 
         // A different delegated reviewer may decide on it without conflict.
+        String camId = createUser(ceo, "Self Review Cam", "self-review-cam-" + unique + "@kcpcbandhani.local");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"self-review test fixture grant\"}");
         TestApiClient otherReviewer = new TestApiClient(port);
         otherReviewer.login(otherReviewerEmail, "Passw0rd!");
+        // Workflow redesign: approval carries every former Planning field and transitions straight
+        // to Shoot Assigned (SA), never PL/PLRV/PLAP.
         var decision = otherReviewer.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":0.5,\"editorMark\":0.5}");
-        assertThat(decision.get("status").asText()).isEqualTo("PL");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":0.5,\"editorMark\":0.5,\"modelMark\":0.5,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/self-review-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(decision.get("status").asText()).isEqualTo("SA");
     }
 
     private String createUser(TestApiClient ceo, String fullName, String email) throws Exception {

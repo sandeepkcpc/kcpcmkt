@@ -45,6 +45,7 @@ class ShootEditReviewParityTest {
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
     private static final String MARKETING_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000002";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     private TestApiClient ceo() throws Exception {
         TestApiClient ceo = new TestApiClient(port);
@@ -79,26 +80,23 @@ class ShootEditReviewParityTest {
      *  including) Shoot Review submission, so the caller can post a comment as the cameraperson
      *  before submitting. */
     private String[] buildToShootStarted(TestApiClient ceo, long unique) throws Exception {
-        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Parity Shoot " + unique + "\"}");
-        String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-
         String[] camIdEmail = createUser(ceo, "cam", CAMERA_PERSON_ROLE_ID, unique).split("\\|");
         String camId = camIdEmail[0];
         String camEmail = camIdEmail[1];
         grantExecutionPermission(ceo, camId, "PERM_18_SHOOT_EXECUTION");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Parity Shoot " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/parity-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+
         String planId = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow().getId().toString();
-
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/parity-" + unique + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
 
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
@@ -128,12 +126,11 @@ class ShootEditReviewParityTest {
                 .contains("data-action-key=\"REASSIGN\"").contains("data-action-key=\"CANCEL\"");
 
         String camId = fx[1];
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
         String[] editorIdEmail = createUser(ceo, "editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
         grantExecutionPermission(ceo, editorIdEmail[0], "PERM_19_EDIT_EXECUTION");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments",
-                "{\"editorUserId\":\"" + editorIdEmail[0] + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + editorIdEmail[0] + "\"],\"leadEditorUserId\":\"" + editorIdEmail[0] + "\"}");
         TestApiClient editor = new TestApiClient(port);
         editor.login(editorIdEmail[1], "Passw0rd!");
         editor.post("/api/v1/content-plans/" + planId + "/editing/start", "");
@@ -145,8 +142,9 @@ class ShootEditReviewParityTest {
                 .doesNotContain("data-action-key=\"REQUEST_REWORK_EDIT_REVIEW\"");
     }
 
-    private void verifyShootReviewParity(TestApiClient reviewer, String planId, String camFullNameFragment,
-                                          String commentText, String driveLinkFragment, String camId) throws Exception {
+    private void verifyShootReviewParity(TestApiClient ceo, TestApiClient reviewer, String planId,
+                                          String camFullNameFragment, String commentText, String driveLinkFragment,
+                                          String camId, long unique) throws Exception {
         String contentDetail = reviewer.get("/app/deliverables/" + planId).body();
         String reviewsShoot = reviewer.get("/app/reviews?tab=shoot&selectedId=" + planId).body();
 
@@ -167,8 +165,14 @@ class ShootEditReviewParityTest {
 
         // Same valid decision succeeds from Reviews, exercising the exact same
         // ShootingService#decideShootReview the Content Detail -> Shoot form itself posts to.
+        // Workflow redesign: Approve now also requires an Editor team assignment in the same call -
+        // a throwaway Editor here, unrelated to this parity test's own subject. User creation is
+        // CEO-only (UserAdminService#requireCeo), so it goes through ceo even when reviewer is MM.
+        String[] editorIdEmail = createUser(ceo, "parity-editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
+        grantExecutionPermission(ceo, editorIdEmail[0], "PERM_19_EDIT_EXECUTION");
         HttpResponse<String> approved = reviewer.postFormAjax("/app/reviews/shoot/" + planId + "/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", camId));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", camId,
+                        "editorUserIds", editorIdEmail[0], "leadEditorUserId", editorIdEmail[0]));
         assertThat(approved.statusCode()).isEqualTo(200);
     }
 
@@ -188,7 +192,7 @@ class ShootEditReviewParityTest {
                 Map.of("commentText", commentText)).statusCode()).isEqualTo(302);
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
 
-        verifyShootReviewParity(ceo, planId, "Parity cam", commentText, "parity-" + unique, camId);
+        verifyShootReviewParity(ceo, ceo, planId, "Parity cam", commentText, "parity-" + unique, camId, unique);
     }
 
     @Test
@@ -208,11 +212,12 @@ class ShootEditReviewParityTest {
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
 
         TestApiClient mm = marketingManagerReviewer(ceo, unique);
-        verifyShootReviewParity(mm, planId, "Parity cam", commentText, "parity-" + unique, camId);
+        verifyShootReviewParity(ceo, mm, planId, "Parity cam", commentText, "parity-" + unique, camId, unique);
     }
 
-    private void verifyEditReviewParity(TestApiClient reviewer, String planId, String editorFullNameFragment,
-                                         String commentText, String driveLinkFragment, String editorId) throws Exception {
+    private void verifyEditReviewParity(TestApiClient ceo, TestApiClient reviewer, String planId,
+                                         String editorFullNameFragment, String commentText, String driveLinkFragment,
+                                         String editorId, long unique) throws Exception {
         String contentDetail = reviewer.get("/app/deliverables/" + planId).body();
         String reviewsEdit = reviewer.get("/app/reviews?tab=edit&selectedId=" + planId).body();
 
@@ -228,8 +233,13 @@ class ShootEditReviewParityTest {
         assertThat(rejectedApprove.statusCode()).isEqualTo(400);
         assertThat(rejectedApprove.body()).contains("qualifying");
 
+        // Workflow redesign: Approve now also requires a Publisher assignment in the same call - a
+        // throwaway Publisher here, unrelated to this parity test's own subject. User creation is
+        // CEO-only (UserAdminService#requireCeo), so it goes through ceo even when reviewer is MM.
+        String[] pubIdEmail = createUser(ceo, "parity-publisher", PUBLISHER_ROLE_ID, unique).split("\\|");
+        grantExecutionPermission(ceo, pubIdEmail[0], "PERM_08_PUBLISHING_EXECUTION");
         HttpResponse<String> approved = reviewer.postFormAjax("/app/reviews/edit/" + planId + "/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", editorId));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", editorId, "publisherUserIds", pubIdEmail[0]));
         assertThat(approved.statusCode()).isEqualTo(200);
     }
 
@@ -242,13 +252,12 @@ class ShootEditReviewParityTest {
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
 
         String[] editorIdEmail = createUser(ceo, "editor", VIDEO_EDITOR_ROLE_ID, unique).split("\\|");
         grantExecutionPermission(ceo, editorIdEmail[0], "PERM_19_EDIT_EXECUTION");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments",
-                "{\"editorUserId\":\"" + editorIdEmail[0] + "\"}");
+        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + editorIdEmail[0] + "\"],\"leadEditorUserId\":\"" + editorIdEmail[0] + "\"}");
         TestApiClient editor = new TestApiClient(port);
         editor.login(editorIdEmail[1], "Passw0rd!");
         editor.post("/api/v1/content-plans/" + planId + "/editing/start", "");
@@ -272,7 +281,7 @@ class ShootEditReviewParityTest {
                 Map.of("commentText", commentText)).statusCode()).isEqualTo(302);
         editor.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
 
-        verifyEditReviewParity(ceo, planId, "Parity editor", commentText, "parity-" + unique, editorId);
+        verifyEditReviewParity(ceo, ceo, planId, "Parity editor", commentText, "parity-" + unique, editorId, unique);
     }
 
     @Test
@@ -292,6 +301,6 @@ class ShootEditReviewParityTest {
         editor.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
 
         TestApiClient mm = marketingManagerReviewer(ceo, unique);
-        verifyEditReviewParity(mm, planId, "Parity editor", commentText, "parity-" + unique, editorId);
+        verifyEditReviewParity(ceo, mm, planId, "Parity editor", commentText, "parity-" + unique, editorId, unique);
     }
 }

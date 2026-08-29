@@ -53,6 +53,13 @@ public class WorkflowParticipationInterceptor implements HandlerInterceptor {
         String contextPath = request.getContextPath();
         String uri = request.getRequestURI();
 
+        // Always reachable regardless of workflow participation - same as My Ideas/Submit Idea
+        // below. In practice ForcePasswordChangeInterceptor (registered ahead of this one) already
+        // redirects here before this check would even matter for a user mid-forced-change, but this
+        // keeps the rule true on its own terms too, not just as a side effect of ordering.
+        if (isUnder(uri, contextPath, "/app/change-password")) {
+            return true;
+        }
         if (isUnder(uri, contextPath, "/app/ideas")) {
             return true;
         }

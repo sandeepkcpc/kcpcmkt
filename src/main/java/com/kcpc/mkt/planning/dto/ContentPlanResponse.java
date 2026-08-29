@@ -12,12 +12,12 @@ public record ContentPlanResponse(UUID contentPlanId, UUID ideaId, String conten
                                    ContentPriority contentPriority, String skuReference, boolean skuNotApplicable,
                                    LocalDate plannedLiveDate, PlanningMode planningMode, String urgencyReason,
                                    LocalDate plannedShootDate, LocalDate plannedEditDate, String folderLink,
-                                   boolean readyForPlanningReview, WorkflowStatus status) {
+                                   boolean fullyPlanned, WorkflowStatus status) {
     public static ContentPlanResponse from(ContentPlan plan) {
         return new ContentPlanResponse(plan.getId(), plan.getIdea().getId(), plan.getContentId(),
                 plan.getCategoryText(), plan.getContentPriority(), plan.getSkuReference(), plan.isSkuNotApplicable(),
                 plan.getPlannedLiveDate(), plan.getPlanningMode(), plan.getUrgencyReason(),
                 plan.getPlannedShootDate(), plan.getPlannedEditDate(), plan.getFolderLink(),
-                plan.isReadyForPlanningReview(), plan.getWorkflowInstance().getCurrentStatusCode());
+                plan.isFullyPlanned(), plan.getWorkflowInstance().getCurrentStatusCode());
     }
 }

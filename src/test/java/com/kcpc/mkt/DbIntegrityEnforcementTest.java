@@ -68,23 +68,20 @@ class DbIntegrityEnforcementTest {
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"DB Integrity Hold Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String liveDate = LocalDate.now().plusDays(10).toString();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/dbint-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\"}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
 
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         String contentPlanId = plan.getId().toString();
 
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/dbint-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
 
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/hold", "{\"reason\":\"DB integrity test hold.\"}");
@@ -117,16 +114,21 @@ class DbIntegrityEnforcementTest {
                         + "\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
                         + CAMERA_PERSON_ROLE_ID + "\",\"creationReason\":\"db integrity test fixture\"}");
         String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"db integrity test fixture grant\"}");
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"DB Integrity Stage Comment Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
+        String liveDate = LocalDate.now().plusDays(10).toString();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/dbint-stagecmt-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         String contentPlanId = plan.getId().toString();
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
 
         var posted = ceo.postFormAjax("/app/deliverables/" + contentPlanId + "/shooting/comments",
                 java.util.Map.of("commentText", "DB integrity comment"));

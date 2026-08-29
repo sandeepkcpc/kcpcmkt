@@ -9,6 +9,8 @@ public record IdeaReviewDecisionRequest(
         @NotNull IdeaReviewDecision decision,
         String reason,
         BigDecimal cameramanMark,
-        BigDecimal editorMark
+        BigDecimal editorMark,
+        BigDecimal modelMark,
+        PlanningApprovalRequest planning
 ) {
 }

@@ -15,6 +15,18 @@
     <p><a class="btn-outline" href="${pageContext.request.contextPath}/app/admin/users">&larr; Back to Users</a></p>
     <c:if test="${not empty successMessage}"><div class="alert-success">${successMessage}</div></c:if>
     <c:if test="${not empty errorMessage}"><div class="alert-error">${errorMessage}</div></c:if>
+    <%-- Admin/CEO Password Reset: the raw temporary password is a flash attribute - present on this
+         one redirect only, never persisted/logged/shown again after this page load. --%>
+    <c:if test="${not empty temporaryPassword}">
+        <div class="alert-success admin-temp-password-box">
+            <div class="admin-temp-password-label">Temporary Password (shown once - copy and share with the employee now)</div>
+            <div class="admin-temp-password-row">
+                <code id="adminTempPasswordValue" class="admin-temp-password-value">${temporaryPassword}</code>
+                <button type="button" class="btn-outline" id="adminTempPasswordCopyBtn" data-copy-target="adminTempPasswordValue">Copy</button>
+            </div>
+            <p class="muted">The employee will be required to set their own password on next login.</p>
+        </div>
+    </c:if>
 
     <div class="admin-userdetail-top">
         <div class="panel admin-userinfo-card">
@@ -64,6 +76,17 @@
                         </label>
                         <label>Reason * <input type="text" name="reason" required></label>
                         <div class="btn-row"><button type="submit">Save Business Role</button></div>
+                    </form>
+                </details>
+
+                <details class="admin-action-toggle">
+                    <summary class="admin-action-summary admin-action-warn">&#128273; Reset Password</summary>
+                    <form method="post" action="${pageContext.request.contextPath}/app/admin/users/${targetUser.id}/reset-password">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <p class="muted">Generates a temporary password for this employee and signs them out of every
+                            active session. They will be required to set their own password on next login.</p>
+                        <label>Reason * <input type="text" name="reason" required placeholder="e.g. Employee requested reset"></label>
+                        <div class="btn-row"><button type="submit">Generate Temporary Password</button></div>
                     </form>
                 </details>
 

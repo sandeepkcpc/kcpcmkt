@@ -90,44 +90,42 @@ class PerformanceDraftAndCorrectionTest {
                 "{\"granteeUserId\":\"" + pubIdEmail[0] + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"performance draft/correction test\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review, but (V31) the Idea Review
+        // approval's own Planned Outputs grid has no Reel Type sub-selection any more - approval
+        // here carries no outputs at all, and the REEL fan-out (one PlannedOutput per Reel Type,
+        // all sharing one Publication Scope) is built afterwards via the Planning tab's own
+        // "+ Add Output" (PlanningService#addPlannedOutputs, unchanged). Transitions straight to
+        // Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"PDC Reel Variants " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review", "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pdc-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
+        String base = "/app/deliverables/" + planId;
 
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pdc-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camIdEmail[0] + "\"}");
-
-        for (String rt : reelTypes) {
-            ceo.postJson("/api/v1/content-plans/" + planId + "/outputs",
-                    "{\"outputType\":\"REEL\",\"reelType\":\"" + rt + "\",\"titleDescription\":\"Reel " + rt + "\"}");
-        }
+        assertThat(ceo.postFormMulti(base + "/outputs", java.util.Map.of(
+                "outputType", java.util.List.of("REEL"),
+                "reelTypes", java.util.Arrays.asList(reelTypes))).statusCode()).isEqualTo(302);
         var outputs = plannedOutputRepository.findByContentPlan(plan);
         assertThat(outputs).hasSize(reelTypes.length);
-        for (PlannedOutput o : outputs) {
-            ceo.postJson("/api/v1/content-plans/outputs/" + o.getId() + "/publication-scope",
-                    "{\"publicationTargetIds\":[\"" + INSTAGRAM_TARGET_ID + "\"]}");
-        }
-
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
+        UUID reelGroupId = outputs.get(0).getReelGroupId();
+        assertThat(ceo.postForm(base + "/outputs/" + reelGroupId + "/targets",
+                java.util.Map.of("publicationTargetIds", INSTAGRAM_TARGET_ID)).statusCode()).isEqualTo(302);
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camIdEmail[0] + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + edIdEmail[0] + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camIdEmail[0] + "\"],"
+                        + "\"editorUserIds\":[\"" + edIdEmail[0] + "\"],\"leadEditorUserId\":\"" + edIdEmail[0] + "\"}");
         ed.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edIdEmail[0] + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments",
-                "{\"publisherUserId\":\"" + pubIdEmail[0] + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edIdEmail[0] + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubIdEmail[0] + "\"]}");
         pub.post("/api/v1/content-plans/" + planId + "/publishing/start", "");
 
         // -3 days -> performance_due_date (= actual publication + 2 days) is already in the past,

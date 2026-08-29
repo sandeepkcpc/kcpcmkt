@@ -32,7 +32,7 @@ public class PipelineChannelStatus {
         return channelHandle;
     }
 
-    /** e.g. "PHOTOGRAPHY", "VIDEO", "REEL · SHORT" - never null. */
+    /** e.g. "STORY", "POST", "LONG_VIDEO", "REEL" - never null. */
     public String getTypeLabel() {
         return typeLabel;
     }

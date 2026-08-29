@@ -41,7 +41,7 @@ public class ShootingRestController {
     public ResponseEntity<ContentPlanResponse> decide(@PathVariable UUID id, @RequestBody ReviewDecisionRequest request,
                                                         @AuthenticationPrincipal KcpcUserPrincipal principal) {
         var plan = shootingService.decideShootReview(principal.user(), id, request.approve(), request.reason(),
-                request.qualifyingRecipientUserIds());
+                request.qualifyingRecipientUserIds(), request.editorUserIds(), request.leadEditorUserId());
         return ResponseEntity.ok(ContentPlanResponse.from(plan));
     }
 }

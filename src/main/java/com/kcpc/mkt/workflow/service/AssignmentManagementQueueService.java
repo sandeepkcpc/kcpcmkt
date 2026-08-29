@@ -28,7 +28,9 @@ import java.util.List;
  *   <li>PERM_04_SHOOT_ASSIGNMENT / PERM_06_EDIT_ASSIGNMENT: initial/current team setup, exactly the
  *       window {@link com.kcpc.mkt.planning.service.PlanningService#assignCameraperson}/
  *       {@link com.kcpc.mkt.production.service.EditingService#assignEditor} themselves enforce
- *       (Shoot: status PL; Edit: status SAP or EA).</li>
+ *       (Shoot: status SA - workflow redesign: an initial Shoot team is always already assigned at
+ *       Idea Review approval time, so this is really the "still adjustable" window, not "not yet
+ *       assigned"; Edit: status SAP or EA).</li>
  *   <li>PERM_11_REASSIGN: everything else the plan is still open for - reassignment
  *       ({@link com.kcpc.mkt.workflow.service.AdminActionService#reassign}) has no stage gate of
  *       its own beyond "not Cancelled/Completed/Rejected", so its queue-relevant window here is
@@ -75,9 +77,9 @@ public class AssignmentManagementQueueService {
                     WorkflowInstance wi = plan.getWorkflowInstance();
                     WorkflowStatus status = wi.getCurrentStatusCode();
                     List<ShootingAssignment> active = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
-                    boolean canInitialAssign = status == WorkflowStatus.PL
+                    boolean canInitialAssign = status == WorkflowStatus.SA
                             && allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, wi);
-                    boolean canReassign = status != WorkflowStatus.PL && isOpen(status)
+                    boolean canReassign = status != WorkflowStatus.SA && isOpen(status)
                             && allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, wi);
                     if (!canInitialAssign && !canReassign) {
                         return null;

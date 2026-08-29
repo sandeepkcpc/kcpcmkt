@@ -61,8 +61,8 @@ class StageDiscussionTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String camEmail = "e2e-desc-cam-" + unique + "@kcpcbandhani.local";
         String cam = createUser(ceo, "Desc Cam", camEmail, CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Desc " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Desc " + unique, cam);
 
         // CEO (native authority) can set the Description.
         HttpResponse<String> save = ceo.postFormAjax("/app/deliverables/" + planId + "/shooting/description",
@@ -87,57 +87,12 @@ class StageDiscussionTest {
         assertThat(afterUpdate.getShootDescription()).isEqualTo("Updated: also get a dupatta close-up.");
     }
 
-    /**
-     * ENG-048: a Planning Approver (PERM_03) can view and edit Shoot Instructions during Planning
-     * Review even without PERM_04 - and every edit is audited with the old and new value, never a
-     * silent overwrite.
-     */
-    @Test
-    void planningApproverWithPerm03CanEditShootInstructionsDuringReviewWithAuditedOldAndNewValue() throws Exception {
-        long unique = Instant.now().toEpochMilli();
-        TestApiClient ceo = new TestApiClient(port);
-        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String cam = createUser(ceo, "Approver Flow Cam", "e2e-approver-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
-        String reviewerEmail = "e2e-approver-reviewer-" + unique + "@kcpcbandhani.local";
-        String reviewerId = createUser(ceo, "Approver Flow Reviewer", reviewerEmail, CAMERA_PERSON_ROLE_ID);
-        ceo.post("/api/v1/admin/permission-grants",
-                "{\"granteeUserId\":\"" + reviewerId + "\",\"permission\":\"PERM_03_PLANNING_REVIEW\","
-                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"planning approver test grant\"}");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Approver Flow " + unique);
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/approver-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.postFormAjax("/app/deliverables/" + planId + "/shooting/description",
-                Map.of("description", "Front, back aur close-up shots lena."));
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-
-        // The reviewer holds PERM_03 only (no PERM_04) - can still see and edit Shoot Instructions
-        // on the Planning Review screen, per the user's explicit "Authorized Approver description
-        // edit/update bhi kar sake."
-        TestApiClient reviewerClient = new TestApiClient(port);
-        reviewerClient.login(reviewerEmail, "Passw0rd!");
-        HttpResponse<String> page = reviewerClient.get("/app/deliverables/" + planId);
-        assertThat(page.body()).contains("Shoot Instructions").contains("Front, back aur close-up shots lena.");
-
-        HttpResponse<String> update = reviewerClient.postFormAjax("/app/deliverables/" + planId + "/shooting/description",
-                Map.of("description", "Front, back, close-up aur dupatta ka close-up bhi lena."));
-        assertThat(update.statusCode()).isEqualTo(200);
-
-        ContentPlan reloaded = contentPlanRepository.findById(java.util.UUID.fromString(planId)).orElseThrow();
-        assertThat(reloaded.getShootDescription()).isEqualTo("Front, back, close-up aur dupatta ka close-up bhi lena.");
-
-        var auditEntry = systemAuditLogRepository.findAllByOrderByEventTimestampDesc().stream()
-                .filter(l -> "SHOOT_DESCRIPTION_UPDATED".equals(l.getEventType()) && reloaded.getId().equals(l.getTargetEntityId()))
-                .findFirst().orElseThrow();
-        assertThat(auditEntry.getActionReason())
-                .contains("Front, back aur close-up shots lena.")
-                .contains("Front, back, close-up aur dupatta ka close-up bhi lena.");
-        assertThat(auditEntry.getActor().getFullName()).isEqualTo("Approver Flow Reviewer");
-    }
+    // NOTE (workflow redesign): the ENG-048 "Planning Approver (PERM_03) can edit Shoot Instructions
+    // during Planning Review" test formerly here is retired, not adapted - Planning Review (PLRV/
+    // PLAP) no longer exists as an active-workflow gate, and PlanningService#requireShootDescriptionAuthority
+    // now grants Shoot Instructions edit authority to native authority or PERM_04_SHOOT_ASSIGNMENT
+    // only (the PERM_03 fallback was intentionally removed - PERM_03 has no active-workflow role any
+    // more per the redesign). There is no equivalent behavior left to test.
 
     @Test
     void shootCommentsRestrictedToActiveAssigneeOrNativeAndPersistWithCommenterAndTimestamp() throws Exception {
@@ -149,8 +104,7 @@ class StageDiscussionTest {
         grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String outsiderEmail = "e2e-cmt-outsider-" + unique + "@kcpcbandhani.local";
         createUser(ceo, "Cmt Outsider", outsiderEmail, CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Cmt " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Shoot Cmt " + unique, cam);
 
         // CEO comments.
         HttpResponse<String> ceoComment = ceo.postFormAjax("/app/deliverables/" + planId + "/shooting/comments",
@@ -190,8 +144,8 @@ class StageDiscussionTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createUser(ceo, "Edit Cmt Cam", "e2e-editcmt-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Cmt " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Edit Cmt " + unique, cam);
 
         HttpResponse<String> posted = ceo.postFormAjax("/app/deliverables/" + planId + "/shooting/comments",
                 Map.of("commentText", "Outdoor shot bhi lena?"));
@@ -228,8 +182,7 @@ class StageDiscussionTest {
         String camEmail = "e2e-owncmt-cam-" + unique + "@kcpcbandhani.local";
         String cam = createUser(ceo, "Own Cmt Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Own Cmt " + unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Own Cmt " + unique, cam);
 
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
@@ -276,16 +229,9 @@ class StageDiscussionTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         String cam = createUser(ceo, "Mix Cam", "e2e-mix-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantExecutionPermission(ceo, cam, "PERM_18_SHOOT_EXECUTION");
         String editor = createUser(ceo, "Mix Editor", "e2e-mix-ed-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Stage Mix " + unique);
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/mix-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "Stage Mix " + unique, cam);
 
         assertThat(ceo.postFormAjax("/app/deliverables/" + planId + "/shooting/comments",
                 Map.of("commentText", "Shoot-only note")).statusCode()).isEqualTo(200);
@@ -315,33 +261,34 @@ class StageDiscussionTest {
         String pubEmail = "e2e-pubdesc-pub-" + unique + "@kcpcbandhani.local";
         String pub = createUser(ceo, "Pub Publisher", pubEmail, PUBLISHER_ROLE_ID);
         grantExecutionPermission(ceo, pub, "PERM_08_PUBLISHING_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "Pub Desc " + unique);
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pubdesc-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + cam + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (priority/schedule/folder link/initial output+publication scope/shoot
+        // team) in one call and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Pub Desc " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pubdesc-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+        String planId = findContentPlanId(ideaId);
         String outputId = plannedOutputIdFor(planId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         TestApiClient camClient = new TestApiClient(port);
         camClient.login("e2e-pubdesc-cam-" + unique + "@kcpcbandhani.local", "Passw0rd!");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         camClient.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + editor + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + cam + "\"],"
+                        + "\"editorUserIds\":[\"" + editor + "\"],\"leadEditorUserId\":\"" + editor + "\"}");
         TestApiClient editorClient = new TestApiClient(port);
         editorClient.login("e2e-pubdesc-ed-" + unique + "@kcpcbandhani.local", "Passw0rd!");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         editorClient.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments", "{\"publisherUserId\":\"" + pub + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editor + "\"],"
+                        + "\"publisherUserIds\":[\"" + pub + "\"]}");
 
         // A Publisher (even the correctly assigned one) cannot set the Description - native only.
         TestApiClient pubClient = new TestApiClient(port);
@@ -380,11 +327,18 @@ class StageDiscussionTest {
         }
     }
 
-    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+    /** Workflow redesign: Idea Review approval now carries every former Planning field (including
+     * the initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA) - the
+     * given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/stagediscussion-" + title.hashCode() + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
         return findContentPlanId(ideaId);
     }
 

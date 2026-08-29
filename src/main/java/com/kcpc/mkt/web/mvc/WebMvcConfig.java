@@ -20,6 +20,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // Registration order matters: a forced password change must win over the (separate)
+        // workflow-participation restriction, so it runs first.
+        registry.addInterceptor(new ForcePasswordChangeInterceptor())
+                .addPathPatterns("/app/**");
         registry.addInterceptor(new WorkflowParticipationInterceptor(authorizationService, workspaceAccessService))
                 .addPathPatterns("/app/**");
     }

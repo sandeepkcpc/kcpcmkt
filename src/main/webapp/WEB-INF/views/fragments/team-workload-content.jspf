@@ -45,7 +45,6 @@
         <label for="twStage">Stage</label>
         <select name="stage" id="twStage">
             <option value="ALL" ${empty selectedStage || selectedStage == 'ALL' ? 'selected' : ''}>All Stages</option>
-            <option value="Planning" ${selectedStage == 'Planning' ? 'selected' : ''}>Planning</option>
             <option value="Shoot" ${selectedStage == 'Shoot' ? 'selected' : ''}>Shoot</option>
             <option value="Edit" ${selectedStage == 'Edit' ? 'selected' : ''}>Edit</option>
             <option value="Publishing" ${selectedStage == 'Publishing' ? 'selected' : ''}>Publishing</option>

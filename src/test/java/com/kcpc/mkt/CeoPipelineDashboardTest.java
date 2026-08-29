@@ -112,57 +112,49 @@ class CeoPipelineDashboardTest {
         PublicationTarget newTarget = publicationTargetRepository.findAll().stream()
                 .filter(t -> t.getTargetName().equals("Pipeline Test Target " + unique)).findFirst().orElseThrow();
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (priority/category/SKU/schedule/folder link/models/initial output+
+        // publication scope/shoot team) in one form POST and transitions straight to Shoot Assigned
+        // (SA), never PL/PLRV/PLAP.
+        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
         String ideaTitle = "Pipeline Dashboard Idea " + unique;
         HttpResponse<String> submit = ceo.postForm("/app/ideas",
                 Map.of("title", ideaTitle, "referenceLink", "https://example.com/ref-" + unique));
         assertThat(submit.statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertRedirect(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")));
+        assertRedirect(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.ofEntries(
+                Map.entry("decision", java.util.List.of("APPROVE")),
+                Map.entry("cameramanMark", java.util.List.of("1.0")),
+                Map.entry("editorMark", java.util.List.of("1.0")),
+                Map.entry("modelMark", java.util.List.of("1.0")),
+                Map.entry("contentPriority", java.util.List.of("MEDIUM")),
+                Map.entry("categoryText", java.util.List.of("Reels")),
+                Map.entry("skuReference", java.util.List.of("SKU-" + unique)),
+                Map.entry("plannedLiveDate", java.util.List.of(plannedLiveDate)),
+                Map.entry("folderLink", java.util.List.of("https://drive.example.com/pipeline-" + unique)),
+                Map.entry("modelUserIds", java.util.List.of(model1, model2, model3)),
+                Map.entry("outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
+                        + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\",\"" + newTarget.getId() + "\"]}]")),
+                Map.entry("camerapersonUserIds", java.util.List.of(cam1, cam2)))));
 
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         UUID planId = plan.getId();
         String base = "/app/deliverables/" + planId;
-
-        assertRedirect(ceo.postFormMulti(base + "/parameters", Map.of(
-                "contentPriority", java.util.List.of("MEDIUM"),
-                "categoryText", java.util.List.of("Reels"),
-                "skuReference", java.util.List.of("SKU-" + unique),
-                "folderLink", java.util.List.of("https://drive.example.com/pipeline-" + unique),
-                "modelUserIds", java.util.List.of(model1, model2, model3))));
-
-        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
-        assertRedirect(ceo.postForm(base + "/schedule/standard", Map.of("plannedLiveDate", plannedLiveDate)));
-
-        assertRedirect(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam1)));
-        assertRedirect(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", cam2)));
-
-        assertRedirect(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")));
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
-        // PlanningService.mapPublicationScope() is additive - three calls accumulate all three mappings.
-        assertRedirect(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", TARGET_INSTAGRAM_KCPC)));
-        assertRedirect(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", TARGET_YOUTUBE_KCPC)));
-        assertRedirect(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", newTarget.getId().toString())));
 
-        assertRedirect(ceo.postForm(base + "/planning-review/submit", Map.of()));
-        assertRedirect(ceo.postForm(base + "/planning-review/decision", Map.of("approve", "true")));
         assertRedirect(cam1Client.postForm(base + "/shooting/start", Map.of()));
         assertRedirect(cam1Client.postForm(base + "/shooting/review/submit", Map.of()));
         assertRedirect(ceo.postForm(base + "/shooting/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", cam1)));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", cam1,
+                        "editorUserIds", ed1, "leadEditorUserId", ed1)));
 
-        assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", ed1)));
         assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", ed2)));
         assertRedirect(ed1Client.postForm(base + "/editing/start", Map.of()));
         assertRedirect(ed1Client.postForm(base + "/editing/review/submit", Map.of()));
         assertRedirect(ceo.postForm(base + "/editing/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", ed1)));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", ed1, "publisherUserIds", pubId)));
 
-        assertRedirect(ceo.postForm(base + "/publishing-assignments", Map.of("publisherUserId", pubId)));
         assertRedirect(pubClient.postForm(base + "/publishing/start", Map.of()));
         String pastDate = LocalDate.now().minusDays(3).toString();
         // Every mapped target's publication obligation must resolve (event or N/A) before the
@@ -255,20 +247,32 @@ class CeoPipelineDashboardTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        // Workflow redesign: a Content Plan can no longer exist with nothing planned at all -
+        // Idea Review approval now requires Priority/Planned Live Date/Folder Link/at least one
+        // Cameraperson before a plan is even created. This still exercises the closest surviving
+        // "minimal" shape: SKU N/A (derived server-side from a blank skuReference, no separate
+        // checkbox), no Category, no Models, no planned outputs/targets, no publication events -
+        // proving the dashboard never breaks on a barely-planned Content ID.
+        String camEmail = "pl-minimal-cam-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "Pipeline Minimal Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+
         String ideaTitle = "Pipeline Minimal Idea " + unique;
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertRedirect(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")));
+        assertRedirect(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.of(
+                "decision", java.util.List.of("APPROVE"),
+                "cameramanMark", java.util.List.of("1.0"),
+                "editorMark", java.util.List.of("1.0"),
+                "modelMark", java.util.List.of("1.0"),
+                "contentPriority", java.util.List.of("LOW"),
+                "plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()),
+                "folderLink", java.util.List.of("https://drive.example.com/pl-minimal-" + unique),
+                "camerapersonUserIds", java.util.List.of(camId))));
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
-        String base = "/app/deliverables/" + plan.getId();
-
-        // SKU N/A (BRS-governed semantics) - now derived server-side from a blank skuReference,
-        // no separate checkbox - no shoot/edit/live dates, no assignees, no planned outputs/targets,
-        // no publication events, no Actor yet: proves the dashboard never breaks on a Content ID
-        // that has only just entered Planning.
-        assertRedirect(ceo.postForm(base + "/parameters", Map.of("contentPriority", "LOW")));
 
         HttpResponse<String> pipeline = ceo.get("/app/pipeline");
         assertThat(pipeline.statusCode()).isEqualTo(200);

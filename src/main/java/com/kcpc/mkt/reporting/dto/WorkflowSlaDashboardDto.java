@@ -6,7 +6,6 @@ import java.util.List;
 public class WorkflowSlaDashboardDto {
 
     private final List<StageHealthRow> stageHealth;
-    private final Double planningTurnaroundDays;
     private final Double shootToPublishCycleTimeDays;
     private final Double endToEndCycleTimeDays;
     private final OnTimeDeliveryResult onTimeDelivery;
@@ -16,13 +15,12 @@ public class WorkflowSlaDashboardDto {
     private final long reopenedCount;
     private final long repostPublicationCount;
 
-    public WorkflowSlaDashboardDto(List<StageHealthRow> stageHealth, Double planningTurnaroundDays,
+    public WorkflowSlaDashboardDto(List<StageHealthRow> stageHealth,
                                     Double shootToPublishCycleTimeDays, Double endToEndCycleTimeDays,
                                     OnTimeDeliveryResult onTimeDelivery, Double averageDelayDays,
                                     List<DelayAgingBucket> delayAging, OnHoldSummaryDto onHoldSummary,
                                     long reopenedCount, long repostPublicationCount) {
         this.stageHealth = stageHealth;
-        this.planningTurnaroundDays = planningTurnaroundDays;
         this.shootToPublishCycleTimeDays = shootToPublishCycleTimeDays;
         this.endToEndCycleTimeDays = endToEndCycleTimeDays;
         this.onTimeDelivery = onTimeDelivery;
@@ -35,10 +33,6 @@ public class WorkflowSlaDashboardDto {
 
     public List<StageHealthRow> getStageHealth() {
         return stageHealth;
-    }
-
-    public Double getPlanningTurnaroundDays() {
-        return planningTurnaroundDays;
     }
 
     public Double getShootToPublishCycleTimeDays() {

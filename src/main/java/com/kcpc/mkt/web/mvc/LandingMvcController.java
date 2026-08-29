@@ -90,8 +90,8 @@ public class LandingMvcController {
 
     // ENG-069: Content Pipeline KPI-card groupings - display-only, grouped by the row's own
     // friendly status label (WorkflowStatus.getStatusName()), never a new backend status.
-    private static final Set<String> PLANNING_STATUS_LABELS = statusLabels(
-            WorkflowStatus.PL, WorkflowStatus.PLRV, WorkflowStatus.PLAP);
+    // Workflow redesign: no more Planning grouping - Planning is no longer a separate active-
+    // workflow stage (see PipelineDashboardService#matchesStage).
     private static final Set<String> SHOOT_STATUS_LABELS = statusLabels(
             WorkflowStatus.SA, WorkflowStatus.SIP, WorkflowStatus.SRV, WorkflowStatus.SAP);
     private static final Set<String> EDIT_STATUS_LABELS = statusLabels(
@@ -167,13 +167,12 @@ public class LandingMvcController {
         model.addAttribute("businessRoleName", user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName());
 
         // Task visibility comes from an active assignment, never Designation/Business Role alone -
-        // and only for as long as that stage is still THIS employee's active work. Shoot
-        // Assignment is created during Planning (Stage 3), before Planning Review even starts, so
-        // an active ShootingAssignment can exist well before the plan is actually approved (hidden
-        // entirely below, status still PL/PLRV); once a stage's own review has decided and the
-        // plan has moved on to the next stage, that assignment drops out of Active Work and into
-        // Completed Work instead - own-stage summary only, never the next stage's operational
-        // detail (ENG-038).
+        // and only for as long as that stage is still THIS employee's active work. The initial
+        // Shoot Assignment is created at Idea Review approval time, atomically with the transition
+        // to Shoot Assigned, so an active ShootingAssignment always coincides with the plan already
+        // being approved; once a stage's own review has decided and the plan has moved on to the
+        // next stage, that assignment drops out of Active Work and into Completed Work instead -
+        // own-stage summary only, never the next stage's operational detail (ENG-038).
         List<ShootingAssignment> rawShootTasks = shootingAssignmentRepository.findByCamerapersonAndActiveTrue(user);
         List<EditingAssignment> rawEditTasks = editingAssignmentRepository.findByEditorAndActiveTrue(user);
         List<PublishingAssignment> rawPublishTasks = publishingAssignmentRepository.findByPublisherAndActiveTrue(user);
@@ -229,9 +228,6 @@ public class LandingMvcController {
         for (ShootingAssignment t : rawShootTasks) {
             ContentPlan plan = t.getContentPlan();
             WorkflowStatus s = plan.getWorkflowInstance().getCurrentStatusCode();
-            if (s == WorkflowStatus.PL || s == WorkflowStatus.PLRV) {
-                continue; // not visible at all yet - Planning not Approved (ENG-037)
-            }
             if (SHOOT_ACTIVE_WINDOW.contains(s)) {
                 ShootingAssignment lead = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
                         .filter(ShootingAssignment::isLead).findFirst().orElse(null);
@@ -670,8 +666,6 @@ public class LandingMvcController {
         // Pipeline dashboard KPI cards - pure summary counts over the FULL unfiltered row set (a
         // stable at-a-glance company total, independent of whatever filter is currently applied to
         // the table below) - never a separate query, never a new backend status.
-        model.addAttribute("planningCount", allRows.stream()
-                .filter(r -> PLANNING_STATUS_LABELS.contains(r.getStatus())).count());
         model.addAttribute("shootCount", allRows.stream()
                 .filter(r -> SHOOT_STATUS_LABELS.contains(r.getStatus())).count());
         model.addAttribute("editCount", allRows.stream()

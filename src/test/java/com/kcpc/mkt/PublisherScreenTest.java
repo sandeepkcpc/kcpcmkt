@@ -73,43 +73,40 @@ class PublisherScreenTest {
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"publisher screen test fixture grant\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (schedule/priority/folder link/initial output+publication scope/shoot
+        // team) and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Publisher Detail Test " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + plannedLiveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/pub-detail-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
-
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard", "{\"plannedLiveDate\":\"" + plannedLiveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/pub-detail-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
-        ceo.postJson("/api/v1/content-plans/outputs/" + output.getId() + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\"]}");
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
 
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + editorId + "\"],\"leadEditorUserId\":\"" + editorId + "\"}");
 
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + editorId + "\"}");
         TestApiClient editor = new TestApiClient(port);
         editor.login(editorEmail, "Passw0rd!");
         editor.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         editor.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
         JsonNode editApproved = ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editorId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + editorId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         assertThat(editApproved.get("status").asText()).isEqualTo("RFP");
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
 
         TestApiClient publisher = new TestApiClient(port);
         publisher.login(pubEmail, "Passw0rd!");

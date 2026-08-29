@@ -358,12 +358,10 @@ public class PipelineDashboardService {
      * DLY flag, never used here). Delegates to {@link StageDelayPolicy}, the single shared source
      * of truth also used by {@link KpiDashboardService}'s Stage Health/Overview/Average Delay -
      * see docs/KPI_DATA_RECONCILIATION_REPORT.md §1: this method used to carry its own independent,
-     * incomplete copy of this switch (missing PLAP/SAP/EAP/PP/PFUP entirely, so a plan in any of
+     * incomplete copy of this switch (missing SAP/EAP/PP/PFUP entirely, so a plan in any of
      * those statuses could never be flagged delayed here regardless of its actual date), which was
      * the entire root cause of Content Pipeline -&gt; Delayed only disagreeing with Reports -&gt; KPI
-     * Dashboard -&gt; Stage Health. Planning (PL, PLRV) still returns {@code null} (never delayed) -
-     * that part was already correct, now for the documented reason (§2: ungoverned) rather than by
-     * accidental omission.
+     * Dashboard -&gt; Stage Health.
      */
     /**
      * ENG-087: {@code public static} (was {@code private}) - same reasoning as
@@ -508,7 +506,11 @@ public class PipelineDashboardService {
     // ENG-073: Stage filter tabs - coarse groupings of the row's own friendly status text
     // (WorkflowStatus.getStatusName(), already on every PipelineRow), never a new backend status.
     // "attention" reuses the existing delay computation (ENG-069) rather than any status text.
-    private static final java.util.Set<String> STAGE_PLANNING = java.util.Set.of("Planning", "Planning Review", "Planning Approved");
+    // Workflow redesign: there is no more "planning" stage tab on this screen (Planning is no
+    // longer a separate active-workflow stage, and a new Content Plan is never observably in it) -
+    // but "planning" is kept as an explicit, always-empty case (rather than falling into the
+    // `default -> true` "show everything" branch) so a stale/direct `?stage=planning` link degrades
+    // to "no results" instead of silently behaving like "all".
     private static final java.util.Set<String> STAGE_SHOOT = java.util.Set.of("Shoot Assigned", "Shoot In Progress", "Shoot Review", "Shoot Approved");
     private static final java.util.Set<String> STAGE_EDIT = java.util.Set.of("Edit Assigned", "Editing", "Edit Review", "Edit Approved");
     private static final java.util.Set<String> STAGE_PUBLISHING = java.util.Set.of("Ready for Publishing", "Publishing");
@@ -517,7 +519,7 @@ public class PipelineDashboardService {
     private boolean matchesStage(PipelineRow row, String stage) {
         return switch (stage.toLowerCase()) {
             case "attention" -> row.isDelayed();
-            case "planning" -> STAGE_PLANNING.contains(row.getStatus());
+            case "planning" -> false;
             case "shoot" -> STAGE_SHOOT.contains(row.getStatus());
             case "edit" -> STAGE_EDIT.contains(row.getStatus());
             case "publishing" -> STAGE_PUBLISHING.contains(row.getStatus());

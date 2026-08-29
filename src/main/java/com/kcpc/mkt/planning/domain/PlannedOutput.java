@@ -64,12 +64,9 @@ public class PlannedOutput extends BaseEntity {
         setTypeAndReelType(outputType, reelType);
     }
 
-    /** ERD-CON-008/054: Reel Type mandatory only for REEL, must be NULL otherwise. */
+    /** ERD-CON-008/054: Reel Type is optional for REEL (a REEL output with no Reel Type is
+     * valid), must be NULL for every other Output Type. */
     public final void setTypeAndReelType(OutputType outputType, ReelType reelType) {
-        if (outputType == OutputType.REEL && reelType == null) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Reel Type is mandatory when output type is Reel (ERD-CON-008/AC-024.1)");
-        }
         if (outputType != OutputType.REEL && reelType != null) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
                     "Reel Type must be blank for non-Reel output types (ERD-CON-008)");

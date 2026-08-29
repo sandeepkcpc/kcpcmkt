@@ -46,19 +46,12 @@
                 <span class="field-hint">Add any reference link that supports your idea.</span>
             </div>
 
-            <label for="additionalNote">Additional Note <span class="optional-mark">(Optional)</span></label>
-            <input type="text" id="additionalNote" name="additionalNote"
-                   placeholder="Add any additional note"
-                   value="${fn:escapeXml(additionalNote)}">
-            <div class="field-hint-row">
-                <span class="field-hint">Any extra information that might help in understanding your idea.</span>
-            </div>
-
             <label for="notesRemarks">Idea Description / Details <span class="optional-mark">(Optional)</span></label>
-            <textarea id="notesRemarks" name="notesRemarks" rows="4" maxlength="500"
-                      placeholder="Describe your idea in more detail (what, why, how, target audience, key points etc.)"><c:out value="${notesRemarks}"/></textarea>
+            <textarea id="notesRemarks" name="notesRemarks" rows="4"
+                      placeholder="Describe your idea in more detail (what, why, how, target audience, key points, full script etc. - no length limit)"><c:out value="${notesRemarks}"/></textarea>
             <div class="field-hint-row">
-                <span class="char-counter" data-counter-for="notesRemarks">0 / 500</span>
+                <span class="field-hint"></span>
+                <span class="char-counter" data-counter-for="notesRemarks">0 characters</span>
             </div>
 
             <div class="idea-submit-actions">

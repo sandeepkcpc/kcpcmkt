@@ -19,9 +19,6 @@
     <a class="pipeline-stage-tab attention ${stageParam == 'attention' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=attention&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
         <span class="pipeline-stage-icon">&#9888;</span> Needs Attention <span class="pipeline-stage-count">${attentionDelayedCount}</span>
     </a>
-    <a class="pipeline-stage-tab ${stageParam == 'planning' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=planning&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
-        <span class="pipeline-stage-icon">&#128203;</span> Planning <span class="pipeline-stage-count">${planningCount}</span>
-    </a>
     <a class="pipeline-stage-tab ${stageParam == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=shoot&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
         <span class="pipeline-stage-icon">&#128247;</span> Shoot <span class="pipeline-stage-count">${shootCount}</span>
     </a>
@@ -185,9 +182,6 @@
                     <td class="pipeline-col-status" data-col="status">
                         <div class="pipeline-status-cell">
                             <c:choose>
-                                <c:when test="${row.status == 'Planning' or row.status == 'Planning Review' or row.status == 'Planning Approved'}">
-                                    <span class="pipeline-status-badge stage-planning"><c:out value="${row.status}"/></span>
-                                </c:when>
                                 <c:when test="${row.status == 'Shoot Assigned' or row.status == 'Shoot In Progress' or row.status == 'Shoot Review' or row.status == 'Shoot Approved'}">
                                     <span class="pipeline-status-badge stage-shoot"><c:out value="${row.status}"/></span>
                                 </c:when>

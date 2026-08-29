@@ -91,7 +91,7 @@ class WorkflowVariantsE2ETest {
 
         // A rejected idea's review gate is closed - a second decision attempt is an invalid transition.
         HttpResponse<String> secondDecision = ceo.post("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0}");
         assertThat(secondDecision.statusCode()).isEqualTo(409);
     }
 
@@ -100,6 +100,9 @@ class WorkflowVariantsE2ETest {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+
+        String camId = createUser(ceo, "Retain Flow Cam", "e2e-retain-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantShootExecutionPermission(ceo, camId);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Retain Flow " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -111,38 +114,32 @@ class WorkflowVariantsE2ETest {
         JsonNode reopened = ceo.postJson("/api/v1/ideas/" + ideaId + "/reopen", "");
         assertThat(reopened.get("status").asText()).isEqualTo("PA");
 
+        // Workflow redesign: Idea Review approval carries every former Planning field and transitions
+        // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
-        assertThat(approved.get("status").asText()).isEqualTo("PL");
-    }
-
-    @Test
-    void planningReviewReworkReturnsToPlanningThenApproves() throws Exception {
-        long unique = Instant.now().toEpochMilli();
-        TestApiClient ceo = new TestApiClient(port);
-        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
-        String camId = createUser(ceo, "Rework Camera", "e2e-rework-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        grantShootExecutionPermission(ceo, camId);
-
-        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Rework Flow " + unique);
-        preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
-
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        HttpResponse<String> missingReason = ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision",
-                "{\"approve\":false}");
-        assertThat(missingReason.statusCode()).isEqualTo(400);
-
-        JsonNode reworked = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision",
-                "{\"approve\":false,\"reason\":\"Folder link is broken, please fix\"}");
-        assertThat(reworked.get("status").asText()).isEqualTo("PL");
-
-        // Resubmit without any further changes - parameters are still complete - and approve.
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        JsonNode approved = ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision",
-                "{\"approve\":true}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/retain-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
     }
 
+    // NOTE (workflow redesign): the "Planning Review rework" test formerly here is retired, not
+    // adapted - Planning Review (PLRV/PLAP) no longer exists as an active-workflow gate; a Content
+    // Plan is now created already fully planned inside IdeaService#approve and transitions straight
+    // to Shoot Assigned. There is no more "submit for Planning Review, get sent back to Planning,
+    // fix, resubmit, approve" cycle to test - Idea Review itself (APPROVE/REJECT/RETAIN, tested
+    // above) has no analogous "request rework" outcome. The equivalent rework-cycle behavior at a
+    // still-live review gate (first-pass vs. rework denominators) is covered by
+    // KpiDashboardServiceTest#firstPassApprovalVsReworkCycleAreDistinguished (Shoot Review) and
+    // HighPriorityEdgeCaseTest#qualifyingCamerapersonListNeverShowsDuplicatesAfterAReworkCycle.
+
+    /**
+     * Workflow redesign: {@code /schedule/standard}/{@code /schedule/urgent} are no longer the
+     * initial-planning endpoints (that validation now lives inline in IdeaService#approve) - they
+     * remain live as the Reschedule path for an ALREADY-existing plan (no status gate), so this now
+     * exercises the exact same BRS-REQ-093 boundary on that reschedule path instead.
+     */
     @Test
     void standardScheduleExactly5DayBoundaryAndUrgentScheduleBelowIt() throws Exception {
         long unique = Instant.now().toEpochMilli();
@@ -178,10 +175,7 @@ class WorkflowVariantsE2ETest {
         grantShootExecutionPermission(ceo, camId);
         TestApiClient cam = loginNewClient(camEmail);
 
-        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Hold Flow " + unique);
-        preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
+        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Hold Flow " + unique, camId);
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
 
         HttpResponse<String> holdResponse = ceo.post("/api/v1/content-plans/" + contentPlanId + "/hold",
@@ -222,8 +216,7 @@ class WorkflowVariantsE2ETest {
         grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, "Due Date Flow " + unique, camId, edId);
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, "Due Date Flow " + unique, camId, edId, pubId);
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
         String outputId = findPlannedOutputId(contentPlanId);
 
@@ -258,31 +251,32 @@ class WorkflowVariantsE2ETest {
         grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Multi-Target Flow " + unique);
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/na-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (including the initial output with TWO publication targets mapped) and
+        // transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Multi-Target Flow " + unique + "\"}");
+        String ideaId = idea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/na-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        String contentPlanId = findContentPlanId(ideaId);
         String outputId = findPlannedOutputId(contentPlanId);
-        // Two publication targets mapped for this single output.
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}");
-
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/
+        // Edit Review Approve calls themselves.
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         // Publish live to Target 1 only - scope is not yet resolved (Target 2 still pending).
@@ -348,30 +342,32 @@ class WorkflowVariantsE2ETest {
         grantEditExecutionPermission(ceo, edId);
         grantPublishingPermission(ceo, pubId);
 
-        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Checklist Flow " + unique);
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/checklist-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (including the initial output with TWO publication targets mapped) and
+        // transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        JsonNode checklistIdea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Checklist Flow " + unique + "\"}");
+        String checklistIdeaId = checklistIdea.get("ideaId").asText();
+        ceo.postJson("/api/v1/ideas/" + checklistIdeaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/checklist-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+        String contentPlanId = findContentPlanId(checklistIdeaId);
         String outputId = findPlannedOutputId(contentPlanId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}");
-
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/
+        // Edit Review Approve calls themselves.
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
 
         // Checklist page: both pairs Pending before anything is recorded, Submit disabled by default.
@@ -672,51 +668,57 @@ class WorkflowVariantsE2ETest {
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e workflow-variants editor grant\"}");
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - this
+     * default overload creates a throwaway one (irrelevant to the caller's assertions) so plain
+     * "just give me an approved plan" call sites don't need to care. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String camId = createUser(ceo, "Default Cam " + unique, "wve-default-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grantShootExecutionPermission(ceo, camId);
+        return approveIdeaAndGetContentPlanId(ceo, title, camId);
+    }
+
+    /** Workflow redesign: Idea Review approval carries every former Planning field (including the
+     * initial Shoot Team and initial Output/Publication Scope) in one call and transitions straight
+     * to Shoot Assigned (SA), never PL/PLRV/PLAP - the given cameraperson must already hold an
+     * active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/wve-" + Instant.now().toEpochMilli() + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         return findContentPlanId(ideaId);
     }
 
-    private void preparePlanningParameters(TestApiClient ceo, String contentPlanId, String camId, String liveDate) throws Exception {
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/" + contentPlanId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camId + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-        String outputId = findPlannedOutputId(contentPlanId);
-        ceo.postJson("/api/v1/content-plans/outputs/" + outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}");
-    }
-
-    /** ENG-043: {@code cam}/{@code ed} must already be logged in as the actively assigned Cameraperson/Editor. */
+    /** ENG-043: {@code cam}/{@code ed} must already be logged in as the actively assigned Cameraperson/Editor.
+     * Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/Edit
+     * Review Approve calls themselves (see ShootingService#decideShootReview/EditingService#
+     * decideEditReview) - {@code pubId} must already hold PERM_08, same as before this redesign. */
     private String advanceToReadyForPublishing(TestApiClient ceo, TestApiClient cam, TestApiClient ed, String title,
-                                                String camId, String edId) throws Exception {
-        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, title);
-        preparePlanningParameters(ceo, contentPlanId, camId, LocalDate.now().plusDays(10).toString());
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/submit", "");
-        ceo.post("/api/v1/content-plans/" + contentPlanId + "/planning-review/decision", "{\"approve\":true}");
+                                                String camId, String edId, String pubId) throws Exception {
+        String contentPlanId = approveIdeaAndGetContentPlanId(ceo, title, camId);
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/assignments", "{\"editorUserId\":\"" + edId + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + contentPlanId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}");
         return contentPlanId;
     }
 
     /** ENG-043: {@code pub} must already be logged in as the actively assigned Publisher, with PERM_08 granted. */
     private String driveToCompleted(TestApiClient ceo, TestApiClient cam, TestApiClient ed, TestApiClient pub,
                                      String title, String camId, String edId, String pubId) throws Exception {
-        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, title, camId, edId);
-        ceo.postJson("/api/v1/content-plans/" + contentPlanId + "/publishing/assignments", "{\"publisherUserId\":\"" + pubId + "\"}");
+        String contentPlanId = advanceToReadyForPublishing(ceo, cam, ed, title, camId, edId, pubId);
         pub.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
         String outputId = findPlannedOutputId(contentPlanId);
         String pastTimestamp = Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS).toString();

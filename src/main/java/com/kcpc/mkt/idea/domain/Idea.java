@@ -83,6 +83,12 @@ public class Idea extends BaseEntity {
         return notesRemarks;
     }
 
+    /** See {@code IdeaService#updateDescription} - the prior value is preserved via
+     *  {@link IdeaDescriptionCorrection} before this overwrite, never lost. */
+    public void updateNotesRemarks(String notesRemarks) {
+        this.notesRemarks = notesRemarks;
+    }
+
     public String getAdditionalNote() {
         return additionalNote;
     }

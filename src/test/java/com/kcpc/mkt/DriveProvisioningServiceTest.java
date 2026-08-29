@@ -105,12 +105,20 @@ class DriveProvisioningServiceTest {
 
     /** Approves a fresh idea (real HTTP, same as every other E2E test in this suite) and returns
      * the resulting ContentPlan - automatic Drive provisioning has already run synchronously by
-     * the time this returns (@TransactionalEventListener AFTER_COMMIT fires in-thread). */
+     * the time this returns (@TransactionalEventListener AFTER_COMMIT fires in-thread). Workflow
+     * redesign: approval carries every former Planning field in one call and transitions straight
+     * to Shoot Assigned (SA) - Folder Link is omitted here since Drive auto-provisioning is enabled
+     * for this test class (app.drive.enabled=true), so IdeaService#approve does not require it. */
     private ContentPlan approveNewIdea(TestApiClient ceo, String title) throws Exception {
+        String camId = createUser(ceo, "Drive Test Cam " + Instant.now().toEpochMilli(),
+                "drive-cam-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local", HR_MANAGER_ROLE_ID);
+        grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         return contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
     }
@@ -282,7 +290,8 @@ class DriveProvisioningServiceTest {
         long unique = Instant.now().toEpochMilli();
         ContentPlan plan = approveNewIdea(ceo(), "Existing Flow Unaffected " + unique);
         assertThat(plan.getContentId()).isNotBlank();
-        assertThat(plan.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("PL");
+        // Workflow redesign: approval transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        assertThat(plan.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("SA");
     }
 
     // ================================================================== Folder Link Management (PERM_13)

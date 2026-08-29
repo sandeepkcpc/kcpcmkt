@@ -1,0 +1,13 @@
+<%-- Idea Description note icon - just the trigger button, placed wherever each page's own layout
+     needs it; fragments/idea-description-modal.jspf (the actual overlay/edit form) is a separate
+     include since it doesn't need precise placement. Both read the SAME caller-set variables - see
+     that file's header comment for what to <c:set> before including either one.
+
+     Shown whenever a description exists, OR unconditionally when the caller sets
+     ideaDescModalAlwaysShow (Reviews Workspace's "Reviewing Idea" card - the icon is always
+     visible there, opening a clean "No description added yet." empty state when there's nothing
+     to show; idea-detail.jsp leaves this unset, keeping its own icon conditional as before). --%>
+<c:if test="${not empty ideaDescModalIdea.notesRemarks or ideaDescModalAlwaysShow}">
+    <button type="button" class="script-description-icon-btn ${ideaDescModalTriggerClass}"
+            id="scriptDescriptionOpen" aria-label="View Idea Description" title="View Idea Description">&#128221;</button>
+</c:if>

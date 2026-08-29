@@ -53,6 +53,50 @@
         decisionField.addEventListener('change', updateReasonLabel);
     }
 
+    // --- Planning Details block (workflow redesign: only relevant for Approve) ---------------
+    var planningFields = document.getElementById('idea-review-planning-fields');
+    var plannedLiveDateInput = form.querySelector('[name="plannedLiveDate"]');
+    var planningModeSelect = document.getElementById('idea-review-planning-mode');
+    var shootDateLabel = document.getElementById('idea-review-shoot-date-label');
+    var editDateLabel = document.getElementById('idea-review-edit-date-label');
+    var urgencyReasonLabel = document.getElementById('idea-review-urgency-reason-label');
+
+    function updatePlanningVisibility() {
+        if (!planningFields || !decisionField) {
+            return;
+        }
+        var isApprove = decisionField.value === 'APPROVE';
+        planningFields.classList.toggle('hidden', !isApprove);
+        if (plannedLiveDateInput) {
+            plannedLiveDateInput.required = isApprove;
+        }
+    }
+
+    function updatePlanningModeFields() {
+        if (!planningModeSelect) {
+            return;
+        }
+        var isUrgent = planningModeSelect.value === 'URGENT';
+        [shootDateLabel, editDateLabel, urgencyReasonLabel].forEach(function (label) {
+            if (label) {
+                label.classList.toggle('planning-field-required', isUrgent);
+            }
+        });
+        var urgencyReasonInput = urgencyReasonLabel ? urgencyReasonLabel.querySelector('input') : null;
+        if (urgencyReasonInput) {
+            urgencyReasonInput.required = isUrgent;
+        }
+    }
+
+    if (decisionField) {
+        decisionField.addEventListener('change', updatePlanningVisibility);
+        updatePlanningVisibility();
+    }
+    if (planningModeSelect) {
+        planningModeSelect.addEventListener('change', updatePlanningModeFields);
+        updatePlanningModeFields();
+    }
+
     function updateReasonCounter() {
         var counter = form.querySelector('.char-counter[data-counter-for="idea-review-reason"]');
         if (!counter || !reasonField) {
@@ -76,4 +120,250 @@
             updateReasonCounter();
         }, 0);
     });
+
+    // --- Planned Outputs grid --------------------------------------------------------------
+    // Same one-row-per-Output-Type design as Reviews -> Ideas -> Approve (reviews-workspace.js),
+    // scoped to this page's own real <form> instead of an AJAX-swapped region. This is a plain
+    // server-rendered <form method="post">, so the grid's checked-row state is serialized into
+    // the hidden #ideaOutputsJsonField just before native submission - IdeaMvcController#decide
+    // reads it the same way ReviewsMvcController#decideIdea already does.
+    function contextPath() {
+        var script = document.querySelector('script[src*="idea-detail.js"]');
+        if (!script) {
+            return '';
+        }
+        var src = script.getAttribute('src');
+        var idx = src.indexOf('/js/idea-detail.js');
+        return idx > 0 ? src.slice(0, idx) : '';
+    }
+
+    var OUTPUT_PLATFORM_ICON_FILES = {
+        Instagram: 'instagram.svg', Facebook: 'facebook.svg', YouTube: 'youtube.svg',
+        Threads: 'threads.svg', Moj: 'moj.svg', TikTok: 'tiktok.svg'
+    };
+
+    function outputPlatformIconSrc(platformName) {
+        return contextPath() + '/icons/platforms/' + (OUTPUT_PLATFORM_ICON_FILES[platformName] || 'generic.svg');
+    }
+
+    function outputRows() {
+        return Array.prototype.slice.call(form.querySelectorAll('.reviews-output-row'));
+    }
+
+    function clearOutputError() {
+        var box = document.getElementById('ideaOutputError');
+        if (box) {
+            box.classList.add('hidden');
+            box.textContent = '';
+        }
+    }
+
+    function closeOutputPopover(row) {
+        var container = row.querySelector('.reviews-output-platform-popovers');
+        if (container) {
+            container.innerHTML = '';
+            delete container.dataset.openPlatform;
+        }
+    }
+
+    function renderOutputChips(row) {
+        var chipsBox = row.querySelector('.reviews-platform-chips');
+        var countBox = row.querySelector('.reviews-platform-picker-count');
+        if (!chipsBox) {
+            return;
+        }
+        var checked = row.querySelectorAll('.reviews-output-target-checkbox:checked');
+        chipsBox.innerHTML = '';
+        if (checked.length === 0) {
+            var placeholder = document.createElement('span');
+            placeholder.className = 'muted';
+            placeholder.textContent = 'Select platforms';
+            chipsBox.appendChild(placeholder);
+            if (countBox) {
+                countBox.textContent = '0 selected';
+            }
+            return;
+        }
+        var countByPlatform = {};
+        var order = [];
+        checked.forEach(function (cb) {
+            var platform = cb.getAttribute('data-platform');
+            if (!(platform in countByPlatform)) {
+                countByPlatform[platform] = 0;
+                order.push(platform);
+            }
+            countByPlatform[platform]++;
+        });
+        order.forEach(function (platform) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'reviews-output-platform-chip';
+            chip.dataset.platform = platform;
+            var icon = document.createElement('img');
+            icon.className = 'scope-target-icon';
+            icon.src = outputPlatformIconSrc(platform);
+            icon.alt = '';
+            icon.width = 14;
+            icon.height = 14;
+            chip.appendChild(icon);
+            chip.appendChild(document.createTextNode('\u00d7' + countByPlatform[platform]));
+            chipsBox.appendChild(chip);
+        });
+        if (countBox) {
+            countBox.textContent = checked.length + ' selected';
+        }
+    }
+
+    function syncOutputRowState(row) {
+        var enableCb = row.querySelector('.reviews-output-row-enable');
+        var enabled = !!(enableCb && enableCb.checked);
+        row.classList.toggle('reviews-output-row-disabled', !enabled);
+        if (!enabled) {
+            row.querySelectorAll('.reviews-output-target-checkbox').forEach(function (cb) {
+                cb.checked = false;
+            });
+            var details = row.querySelector('.reviews-platform-picker');
+            if (details) {
+                details.open = false;
+            }
+            renderOutputChips(row);
+            closeOutputPopover(row);
+        }
+    }
+
+    function toggleOutputPlatformPopover(row, platform) {
+        var container = row.querySelector('.reviews-output-platform-popovers');
+        if (!container) {
+            return;
+        }
+        if (container.dataset.openPlatform === platform) {
+            closeOutputPopover(row);
+            return;
+        }
+        container.innerHTML = '';
+        container.dataset.openPlatform = platform;
+
+        var typeLabel = row.dataset.outputType;
+
+        var channels = [];
+        row.querySelectorAll('.reviews-output-target-checkbox:checked').forEach(function (cb) {
+            if (cb.getAttribute('data-platform') === platform) {
+                channels.push(cb.getAttribute('data-channel'));
+            }
+        });
+
+        var popover = document.createElement('div');
+        popover.className = 'reviews-platform-popover';
+
+        var header = document.createElement('div');
+        header.className = 'reviews-platform-popover-header';
+        var title = document.createElement('div');
+        title.className = 'reviews-platform-popover-title';
+        var titleIcon = document.createElement('img');
+        titleIcon.className = 'scope-target-icon';
+        titleIcon.src = outputPlatformIconSrc(platform);
+        titleIcon.alt = '';
+        titleIcon.width = 16;
+        titleIcon.height = 16;
+        title.appendChild(titleIcon);
+        title.appendChild(document.createTextNode(platform + ' (' + channels.length + ')'));
+        header.appendChild(title);
+        var published = document.createElement('span');
+        published.className = 'reviews-platform-popover-published';
+        published.textContent = '0/' + channels.length + ' published';
+        header.appendChild(published);
+        popover.appendChild(header);
+
+        var table = document.createElement('table');
+        table.className = 'reviews-platform-popover-table';
+        var thead = document.createElement('thead');
+        var headRow = document.createElement('tr');
+        ['Type', 'Channel', 'Status', 'Link'].forEach(function (label) {
+            var th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        var tbody = document.createElement('tbody');
+        channels.forEach(function (channel) {
+            var tr = document.createElement('tr');
+            var typeTd = document.createElement('td');
+            typeTd.textContent = typeLabel;
+            var channelTd = document.createElement('td');
+            channelTd.textContent = '@' + channel;
+            var statusTd = document.createElement('td');
+            var pill = document.createElement('span');
+            pill.className = 'status-pill status-pending';
+            pill.textContent = 'Pending';
+            statusTd.appendChild(pill);
+            var linkTd = document.createElement('td');
+            linkTd.textContent = '-';
+            tr.appendChild(typeTd);
+            tr.appendChild(channelTd);
+            tr.appendChild(statusTd);
+            tr.appendChild(linkTd);
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        popover.appendChild(table);
+        container.appendChild(popover);
+    }
+
+    if (document.getElementById('ideaOutputsGrid')) {
+        form.addEventListener('change', function (event) {
+            var enableCb = event.target.closest('.reviews-output-row-enable');
+            if (enableCb) {
+                syncOutputRowState(enableCb.closest('.reviews-output-row'));
+                return;
+            }
+            var targetCb = event.target.closest('.reviews-output-target-checkbox');
+            if (targetCb) {
+                var targetRow = targetCb.closest('.reviews-output-row');
+                renderOutputChips(targetRow);
+                closeOutputPopover(targetRow);
+            }
+        });
+
+        form.addEventListener('click', function (event) {
+            var chip = event.target.closest('.reviews-output-platform-chip');
+            if (chip) {
+                // Prevents the click from also toggling the parent <details> (the chip sits
+                // inside its <summary>) - only the popover should open/close here.
+                event.preventDefault();
+                toggleOutputPlatformPopover(chip.closest('.reviews-output-row'), chip.dataset.platform);
+            }
+        });
+
+        form.addEventListener('submit', function (event) {
+            if (decisionField && decisionField.value !== 'APPROVE') {
+                return; // Planned Outputs is only relevant/visible for Approve.
+            }
+            clearOutputError();
+            var outputs = [];
+            outputRows().forEach(function (row) {
+                var enableCb = row.querySelector('.reviews-output-row-enable');
+                if (!enableCb || !enableCb.checked) {
+                    return;
+                }
+                var publicationTargetIds = [];
+                row.querySelectorAll('.reviews-output-target-checkbox:checked').forEach(function (cb) {
+                    publicationTargetIds.push(cb.value);
+                });
+                // reelTypes/outputTitleDescription: the V31 redesign dropped both fields from
+                // this grid - always sent empty/blank so the outputsJson shape
+                // PlanningOutputRequest still expects stays unchanged (backend DTO untouched).
+                outputs.push({
+                    outputType: row.dataset.outputType,
+                    reelTypes: [],
+                    outputTitleDescription: '',
+                    publicationTargetIds: publicationTargetIds
+                });
+            });
+            var jsonField = document.getElementById('ideaOutputsJsonField');
+            if (jsonField) {
+                jsonField.value = JSON.stringify(outputs);
+            }
+        });
+    }
 })();

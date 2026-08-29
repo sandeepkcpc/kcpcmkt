@@ -72,12 +72,29 @@ class PipelineAjaxPartialTest {
         assertThat(fullEmpty).contains("Showing 0 of 0 entries");
         assertThat(ajaxEmpty).contains("Showing 0 of 0 entries");
 
+        var camUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Ajax Partial Cam\",\"email\":\"ajax-partial-cam-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000004\","
+                        + "\"creationReason\":\"ajax partial test fixture\"}");
+        String camId = camUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"ajax partial test fixture grant\"}");
         String ideaTitle = "Ajax Partial Test " + unique;
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                java.util.Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")).statusCode())
+        // Workflow redesign: Idea Review approval carries every former Planning field and transitions
+        // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", java.util.Map.of(
+                "decision", java.util.List.of("APPROVE"),
+                "cameramanMark", java.util.List.of("1.0"),
+                "editorMark", java.util.List.of("1.0"),
+                "modelMark", java.util.List.of("1.0"),
+                "contentPriority", java.util.List.of("HIGH"),
+                "plannedLiveDate", java.util.List.of(java.time.LocalDate.now().plusDays(10).toString()),
+                "folderLink", java.util.List.of("https://drive.example.com/ajax-partial-" + unique),
+                "camerapersonUserIds", java.util.List.of(camId))).statusCode())
                 .isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         ceo.postJson("/api/v1/content-plans/" + plan.getId() + "/parameters",

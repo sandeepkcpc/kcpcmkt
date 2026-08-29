@@ -21,9 +21,7 @@
         </tbody>
     </table>
     <p class="muted kpi-footnote">Within SLA % is a point-in-time snapshot ((Active - Delayed) / Active) - historical
-        delivery compliance is shown separately below (On-Time Delivery / cycle time). Planning shows "-" for
-        Delayed and Within SLA % because no approved Planning-stage delay rule exists yet, not because Planning
-        is never late - see docs/KPI_DATA_RECONCILIATION_REPORT.md.</p>
+        delivery compliance is shown separately below (On-Time Delivery / cycle time).</p>
 
     <h3 class="reports-kpi-group-title" style="font-size:0.88rem;margin-top:1rem;">Within SLA % by Stage</h3>
     <%-- Same withinSlaPercent values as the table above, drawn as bars - never a separate
@@ -49,12 +47,6 @@
 </div>
 
 <div class="kpi-cards kpi-cards-3">
-    <div class="kpi-card kpi-underreview">
-        <div class="kpi-card-body">
-            <span class="kpi-card-title">Planning Turnaround Time</span>
-            <span class="kpi-card-count">${kcpc:days(workflowSla.planningTurnaroundDays)}</span>
-        </div>
-    </div>
     <div class="kpi-card kpi-underreview">
         <div class="kpi-card-body">
             <span class="kpi-card-title">Shoot-to-Publish Cycle Time</span>

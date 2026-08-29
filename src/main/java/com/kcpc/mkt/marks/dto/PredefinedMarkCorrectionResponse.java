@@ -12,8 +12,10 @@ public record PredefinedMarkCorrectionResponse(
         UUID supersedesCorrectionId,
         BigDecimal priorCamerapersonMark,
         BigDecimal priorEditorMark,
+        BigDecimal priorModelMark,
         BigDecimal newCamerapersonMark,
         BigDecimal newEditorMark,
+        BigDecimal newModelMark,
         String correctionReason,
         UUID correctedByUserId,
         Instant correctedAt) {
@@ -25,8 +27,10 @@ public record PredefinedMarkCorrectionResponse(
                 c.getSupersedesCorrection() != null ? c.getSupersedesCorrection().getId() : null,
                 c.getPriorCamerapersonMark(),
                 c.getPriorEditorMark(),
+                c.getPriorModelMark(),
                 c.getNewCamerapersonMark(),
                 c.getNewEditorMark(),
+                c.getNewModelMark(),
                 c.getCorrectionReason(),
                 c.getCorrectedBy().getId(),
                 c.getCorrectedAt());

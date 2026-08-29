@@ -185,9 +185,40 @@
                                 <label id="reviewsPlanReasonLabel" for="reviewsPlanReason">Reason (mandatory for Request Rework)</label>
                                 <textarea id="reviewsPlanReason" rows="3" maxlength="500" placeholder="Describe required changes..."></textarea>
                                 <div class="idea-detail-reason-counter-row"><span class="char-counter" data-counter-for="reviewsPlanReason">0 / 500</span></div>
+
+                                <%-- Publisher Assignment: shown only when Approve is selected - same fold-in
+                                     pattern as Shoot Review's Editor Assignment (see reviews-shoot.jspf), but
+                                     Publisher(s) only - no Lead concept for Publishing (explicit product
+                                     decision - see ENG-036/ENG-044). Hidden by default; toggled by
+                                     reviews-workspace.js. --%>
+                                <div class="hidden" id="reviewsNextTeamFields">
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">1</span> Publisher Assignment</h3>
+                                        <div class="kcpc-model-picker">
+                                            <label>Publisher(s) *</label>
+                                            <div class="kcpc-model-input">
+                                                <div class="kcpc-model-chips"></div>
+                                                <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
+                                            </div>
+                                            <div class="kcpc-model-checklist">
+                                                <c:forEach var="pu" items="${publisherCandidateUsers}">
+                                                    <label class="model-check-item">
+                                                        <input type="checkbox" name="nextTeamUserIds" value="${pu.id}" data-name="${pu.fullName}"> ${pu.fullName}
+                                                        <span class="muted assignee-task-count">(<c:out value="${pu.activeTaskLabel}"/>)</span>
+                                                    </label>
+                                                </c:forEach>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="reviews-plan-decision-buttons">
-                                    <button type="button" class="reviews-decision-btn reviews-decision-rework" data-approve="false">&#8635; Request Rework</button>
-                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-approve="true">&#10003; Approve Edit</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-rework" data-decision="REWORK">&#8635; Request Rework</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-approve" data-decision="APPROVE">&#10003; Approve Edit</button>
+                                </div>
+                                <div class="reviews-decision-confirm-bar hidden" id="reviewsPlanConfirmBar">
+                                    <button type="button" class="btn-outline" id="reviewsPlanCancelBtn">Cancel</button>
+                                    <button type="button" class="reviews-decision-confirm-btn" id="reviewsPlanConfirmBtn">Confirm</button>
                                 </div>
                                 <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
                             </div>

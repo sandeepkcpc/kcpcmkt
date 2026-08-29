@@ -141,7 +141,10 @@ class ActionCenterEligibilityTest {
         f.ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/submit", "");
     }
 
-    /** Idea -&gt; Planning (status PL), Shoot team already assigned, ready for planning-review/submit. */
+    /** Workflow redesign: Idea Review approval now carries every former Planning field (including
+     * the initial Shoot Team and initial Output/Publication Scope) in one call and transitions
+     * straight to Shoot Assigned (SA) - there is no more separate Planning/Planning Review resting
+     * state to stop at. */
     private Fixture setupPlanning(long unique) throws Exception {
         Fixture f = new Fixture();
         f.ceo = ceo();
@@ -161,54 +164,45 @@ class ActionCenterEligibilityTest {
         f.pub = new TestApiClient(port);
         f.pub.login(pubEmail, "Passw0rd!");
 
+        String liveDate = LocalDate.now().plusDays(10).toString();
         JsonNode idea = f.ceo.postJson("/api/v1/ideas", "{\"title\":\"Action Center Fixture " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
-        f.ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        JsonNode approved = f.ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"folderLink\":\"https://drive.example.com/ace-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\","
+                        + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
+                        + "\"camerapersonUserIds\":[\"" + f.camId + "\"]}}");
+        assertThat(approved.get("status").asText()).isEqualTo("SA");
         f.contentPlanId = findContentPlanId(ideaId);
-
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + liveDate + "\"}");
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/ace-" + unique + "\"}");
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + f.camId + "\"}");
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
         f.outputId = findPlannedOutputId(f.contentPlanId);
-        f.ceo.postJson("/api/v1/content-plans/outputs/" + f.outputId + "/publication-scope",
-                "{\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}");
         return f;
     }
 
-    /** PL -&gt; SA (Planning Review submitted and approved). */
-    private void submitAndApprovePlanning(Fixture f) throws Exception {
-        f.ceo.post("/api/v1/content-plans/" + f.contentPlanId + "/planning-review/submit", "");
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/planning-review/decision", "{\"approve\":true}");
-    }
-
-    /** SA -&gt; SAP (full Shoot cycle, Shoot Review approved). */
+    /** SA -&gt; EA (full Shoot cycle, Shoot Review approved - workflow redesign: Editor team
+     * assignment now folds directly into this same Approve call, so the plan lands on EA
+     * directly, never resting at SAP - see ShootingService#decideShootReview). */
     private void runShootCycle(Fixture f) throws Exception {
         f.cam.post("/api/v1/content-plans/" + f.contentPlanId + "/shooting/start", "");
         f.cam.post("/api/v1/content-plans/" + f.contentPlanId + "/shooting/review/submit", "");
         f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + f.camId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + f.camId + "\"],"
+                        + "\"editorUserIds\":[\"" + f.edId + "\"],\"leadEditorUserId\":\"" + f.edId + "\"}");
     }
 
-    /** SAP -&gt; RFP (Editor assigned - auto SAP-&gt;EA - full Edit cycle, Edit Review approved). */
+    /** EA -&gt; RFP (full Edit cycle, Edit Review approved - workflow redesign: Publisher team
+     * assignment now folds directly into this same Approve call - see EditingService#decideEditReview). */
     private void assignAndRunEditCycle(Fixture f) throws Exception {
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/editing/assignments",
-                "{\"editorUserId\":\"" + f.edId + "\"}");
         f.ed.post("/api/v1/content-plans/" + f.contentPlanId + "/editing/start", "");
         f.ed.post("/api/v1/content-plans/" + f.contentPlanId + "/editing/review/submit", "");
         f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + f.edId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + f.edId + "\"],"
+                        + "\"publisherUserIds\":[\"" + f.pubId + "\"]}");
     }
 
-    /** RFP -&gt; PUBG (Publisher assigned, Publisher started publishing). */
+    /** RFP -&gt; PUBG (Publisher already assigned via the Edit Review fold-in above, Publisher started publishing). */
     private void startPublishing(Fixture f) throws Exception {
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/publishing/assignments",
-                "{\"publisherUserId\":\"" + f.pubId + "\"}");
         f.pub.post("/api/v1/content-plans/" + f.contentPlanId + "/publishing/start", "");
     }
 
@@ -225,31 +219,35 @@ class ActionCenterEligibilityTest {
         return client.get("/app/deliverables/" + contentPlanId).body();
     }
 
-    // ================================================================== Planning
+    // ================================================================== Shoot Assigned (workflow
+    // redesign: Planning is no longer a separate resting stage - Idea Review approval lands
+    // directly on Shoot Assigned (SA, canonical stage "Shoot"), which is now the first resting
+    // stage where Reschedule/Cancel/Reassign visibility can be observed before Shoot execution
+    // itself has started.)
 
     @Test
-    void planning_rescheduleAndCancelVisible() throws Exception {
+    void shootAssigned_rescheduleAndCancelVisible() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
         String page = contentDetailBody(f.ceo, f.contentPlanId);
 
-        assertThat(page).as("Current Stage must resolve to the canonical Planning label").contains(">Planning<");
+        assertThat(page).as("Current Stage must resolve to the canonical Shoot label").contains(">Shoot<");
         assertThat(hasActionButton(page, "RESCHEDULE", "Reschedule"))
-                .as("CEO native authority + Planning is reschedulable -> Reschedule visible").isTrue();
+                .as("CEO native authority + not-closed is reschedulable -> Reschedule visible").isTrue();
         assertThat(hasActionButton(page, "CANCEL", "Cancel"))
-                .as("CEO native authority + Planning is cancellable -> Cancel visible").isTrue();
+                .as("CEO native authority + not-closed is cancellable -> Cancel visible").isTrue();
     }
 
     @Test
-    void planning_reassignVisibleWithActiveShootAssignment_andTaskStageOptionFilteredToShooting() throws Exception {
+    void shootAssigned_reassignVisibleWithActiveShootAssignment_andTaskStageOptionFilteredToShooting() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
         String page = contentDetailBody(f.ceo, f.contentPlanId);
 
         assertThat(hasActionButton(page, "REASSIGN", "Reassign"))
-                .as("Active ShootingAssignment made during Planning -> Reassign visible").isTrue();
+                .as("Active ShootingAssignment made at Idea Review approval -> Reassign visible").isTrue();
         String taskStageSelect = reassignTaskStageSelectHtml(page);
-        assertThat(taskStageSelect).as("Only SHOOTING is an eligible Task Stage while still Planning")
+        assertThat(taskStageSelect).as("Only SHOOTING is an eligible Task Stage before Shoot execution starts")
                 .contains("<option value=\"SHOOTING\">SHOOTING</option>")
                 .doesNotContain("<option value=\"EDITING\">EDITING</option>");
     }
@@ -260,7 +258,6 @@ class ActionCenterEligibilityTest {
     void shoot_reassignVisibleWithActiveShootAssignment() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         f.cam.post("/api/v1/content-plans/" + f.contentPlanId + "/shooting/start", "");
 
         String page = contentDetailBody(f.ceo, f.contentPlanId);
@@ -276,12 +273,10 @@ class ActionCenterEligibilityTest {
     void edit_reassignVisibleWithActiveEditAssignment_shootTaskStageNoLongerOffered() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
+        // runShootCycle already folds in the Editor team assignment (lands directly on EA,
+        // canonical stage Edit) - stop there, do not run the full Edit cycle, we only need to
+        // observe the Edit-canonical window.
         runShootCycle(f);
-        // Assign the editor only (SAP -> EA, canonical stage Edit) and stop there - do not run the
-        // full Edit cycle, we only need to observe the Edit-canonical window.
-        f.ceo.postJson("/api/v1/content-plans/" + f.contentPlanId + "/editing/assignments",
-                "{\"editorUserId\":\"" + f.edId + "\"}");
 
         String page = contentDetailBody(f.ceo, f.contentPlanId);
         assertThat(page).contains(">Edit<");
@@ -300,7 +295,6 @@ class ActionCenterEligibilityTest {
     void publishing_reassignHiddenDespiteStillHavingActiveShootAndEditAssignments() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);
@@ -319,7 +313,6 @@ class ActionCenterEligibilityTest {
     void performance_noStaleShootOrEditReassignCarriedForward() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);
@@ -355,7 +348,6 @@ class ActionCenterEligibilityTest {
     void permissionAlone_doesNotShowReassignOnAnInvalidStage() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);
@@ -377,7 +369,6 @@ class ActionCenterEligibilityTest {
     void completed_ordinaryAdminActionsAbsent_reopenForPublishingVisibleWhenEligible() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);
@@ -400,7 +391,6 @@ class ActionCenterEligibilityTest {
     void cancel_stillHiddenAfterReopenBecauseTheDeliverableWasEverCompleted() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);
@@ -423,7 +413,6 @@ class ActionCenterEligibilityTest {
     void backendRejectsReassignOnThePublishingStageEvenForNativeAuthority() throws Exception {
         long unique = Instant.now().toEpochMilli();
         Fixture f = setupPlanning(unique);
-        submitAndApprovePlanning(f);
         runShootCycle(f);
         assignAndRunEditCycle(f);
         startPublishing(f);

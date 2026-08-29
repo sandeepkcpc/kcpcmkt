@@ -66,7 +66,7 @@ public class IdeaRestController {
                                                 @Valid @RequestBody IdeaReviewDecisionRequest request,
                                                 @AuthenticationPrincipal KcpcUserPrincipal principal) {
         Idea idea = ideaService.decide(principal.user(), ideaId, request.decision(), request.reason(),
-                request.cameramanMark(), request.editorMark());
+                request.cameramanMark(), request.editorMark(), request.modelMark(), request.planning());
         return ResponseEntity.ok(IdeaResponse.from(idea));
     }
 
@@ -83,7 +83,7 @@ public class IdeaRestController {
             @PathVariable UUID ideaId, @Valid @RequestBody CorrectPredefinedMarksRequest request,
             @AuthenticationPrincipal KcpcUserPrincipal principal) {
         var correction = ideaService.correctPredefinedMarks(principal.user(), ideaId, request.newCamerapersonMarks(),
-                request.newEditorMarks(), request.correctionReason());
+                request.newEditorMarks(), request.newModelMarks(), request.correctionReason());
         return ResponseEntity.ok(PredefinedMarkCorrectionResponse.from(correction));
     }
 }

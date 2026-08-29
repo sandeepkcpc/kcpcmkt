@@ -8,7 +8,6 @@ import com.kcpc.mkt.planning.dto.AssignCameramanRequest;
 import com.kcpc.mkt.planning.dto.ContentPlanParametersRequest;
 import com.kcpc.mkt.planning.dto.ContentPlanResponse;
 import com.kcpc.mkt.planning.dto.PlannedOutputRequest;
-import com.kcpc.mkt.planning.dto.PlanningReviewDecisionRequest;
 import com.kcpc.mkt.planning.dto.PublicationScopeRequest;
 import com.kcpc.mkt.planning.dto.SetShootLeadRequest;
 import com.kcpc.mkt.planning.dto.StandardScheduleRequest;
@@ -126,17 +125,7 @@ public class ContentPlanRestController {
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/{id}/planning-review/submit")
-    public ResponseEntity<Void> submitReview(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        planningService.submitPlanningReview(principal.user(), id);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/{id}/planning-review/decision")
-    public ResponseEntity<ContentPlanResponse> decideReview(@PathVariable UUID id,
-                                                              @RequestBody PlanningReviewDecisionRequest request,
-                                                              @AuthenticationPrincipal KcpcUserPrincipal principal) {
-        ContentPlan plan = planningService.decidePlanningReview(principal.user(), id, request.approve(), request.reason());
-        return ResponseEntity.ok(ContentPlanResponse.from(plan));
-    }
+    // NOTE (workflow redesign): /planning-review/submit and /planning-review/decision are removed -
+    // Planning Review (PLRV/PLAP) is no longer a separate active-workflow gate; a Content Plan is
+    // now created already fully planned inside IdeaService#approve (see PlanningApprovalRequest).
 }

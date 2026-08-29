@@ -251,20 +251,18 @@ public class PlanningService {
      * creates one separate PlannedOutput per selected type - not one output with multiple types -
      * so each can later be completed, targeted and tracked independently. All outputs created by
      * one such submission share a single reelGroupId so they render as one grouped row and are
-     * made to share one common Publication Target set (see {@link #mapPublicationScope}).
+     * made to share one common Publication Target set (see {@link #mapPublicationScope}). Reel
+     * Type is optional: a REEL output submitted with none selected creates a single PlannedOutput
+     * with a NULL Reel Type, same as any other Output Type.
      */
     @Transactional
     public List<PlannedOutput> addPlannedOutputs(User user, UUID contentPlanId, OutputType outputType,
                                                   List<ReelType> reelTypes, String titleDescription) {
         ContentPlan plan = requireContentPlan(contentPlanId);
         requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
-        List<ReelType> typesToCreate = outputType == OutputType.REEL
-                ? (reelTypes == null ? List.of() : reelTypes.stream().distinct().toList())
+        List<ReelType> typesToCreate = outputType == OutputType.REEL && reelTypes != null && !reelTypes.isEmpty()
+                ? reelTypes.stream().distinct().toList()
                 : java.util.Collections.singletonList(null);
-        if (typesToCreate.isEmpty()) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Select at least one Reel Type when Output Type is Reel (ERD-CON-008/AC-024.1)");
-        }
         UUID sharedGroupId = UuidV7.generate();
         List<PlannedOutput> created = new java.util.ArrayList<>();
         for (ReelType reelType : typesToCreate) {
@@ -323,13 +321,9 @@ public class PlanningService {
         PlannedOutput anyMember = currentMembers.get(0);
         requirePlanningExecutionAuthority(user, anyMember.getContentPlan().getWorkflowInstance());
 
-        List<ReelType> desiredTypes = outputType == OutputType.REEL
-                ? (reelTypes == null ? List.of() : reelTypes.stream().distinct().toList())
+        List<ReelType> desiredTypes = outputType == OutputType.REEL && reelTypes != null && !reelTypes.isEmpty()
+                ? reelTypes.stream().distinct().toList()
                 : java.util.Collections.singletonList(null);
-        if (desiredTypes.isEmpty()) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Select at least one Reel Type when Output Type is Reel (ERD-CON-008/AC-024.1)");
-        }
 
         List<PublicationTarget> sharedTargets = mappingRepository.findByPlannedOutput(anyMember).stream()
                 .map(PlannedOutputPublicationTargetMapping::getPublicationTarget).toList();
@@ -422,17 +416,20 @@ public class PlanningService {
     }
 
     /**
-     * BRS-REQ-022: initial shooting assignment during Planning, Permission #4, one or more Camerapersons.
-     * Idempotent: re-assigning a Cameraperson who already holds an active assignment on this plan returns
-     * the existing row rather than inserting a duplicate (the chip-picker UI can safely re-POST a
-     * still-checked box).
+     * BRS-REQ-022: additional shooting assignment(s) alongside the initial Shoot Team already set
+     * at Idea Review approval time (workflow redesign - see IdeaService#approve), Permission #4,
+     * one or more Camerapersons. Idempotent: re-assigning a Cameraperson who already holds an
+     * active assignment on this plan returns the existing row rather than inserting a duplicate
+     * (the chip-picker UI can safely re-POST a still-checked box). Window is now Shoot Assigned
+     * (SA) - the direct equivalent of the old Planning-only window, re-pointed to the status a
+     * fresh plan now actually rests at before Shoot execution begins.
      */
     @Transactional
     public ShootingAssignment assignCameraperson(User assigner, UUID contentPlanId, User cameraperson) {
         ContentPlan plan = requireContentPlan(contentPlanId);
-        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.PL) {
+        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.SA) {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Initial shooting assignment is only valid during Planning (Stage 3)");
+                    "Shooting assignment can only be changed before Shoot execution begins (Shoot Assigned)");
         }
         authorizationService.requireAuthority(assigner, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, plan.getWorkflowInstance());
@@ -453,13 +450,13 @@ public class PlanningService {
         return assignment;
     }
 
-    /** Removes an active shooting assignment, mirroring the same Stage-3/Permission #4 window as assign. */
+    /** Removes an active shooting assignment, mirroring the same Shoot-Assigned/Permission #4 window as assign. */
     @Transactional
     public void removeCameraperson(User actor, UUID contentPlanId, UUID camerapersonUserId) {
         ContentPlan plan = requireContentPlan(contentPlanId);
-        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.PL) {
+        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.SA) {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Shooting assignment can only be removed during Planning (Stage 3)");
+                    "Shooting assignment can only be removed before Shoot execution begins (Shoot Assigned)");
         }
         authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, plan.getWorkflowInstance());
@@ -482,9 +479,9 @@ public class PlanningService {
     @Transactional
     public void setShootLead(User actor, UUID contentPlanId, UUID camerapersonUserId) {
         ContentPlan plan = requireContentPlan(contentPlanId);
-        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.PL) {
+        if (plan.getWorkflowInstance().getCurrentStatusCode() != WorkflowStatus.SA) {
             throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Shoot Lead can only be set during Planning (Stage 3)");
+                    "Shoot Lead can only be set before Shoot execution begins (Shoot Assigned)");
         }
         authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, plan.getWorkflowInstance());
@@ -550,146 +547,26 @@ public class PlanningService {
 
     /**
      * ENG-048: Shoot Instructions is editable by whoever holds Shoot Assignment authority
-     * (PERM_04, unchanged - see {@code updateShootDescription}'s original javadoc) OR whoever
-     * holds Planning Review authority (PERM_03) - a Planning Approver needs to be able to correct
-     * the Cameraperson team's instructions at approval time without also needing PERM_04, per the
-     * user's explicit "Authorized Approver description edit/update bhi kar sake."
+     * (PERM_04, unchanged - see {@code updateShootDescription}'s original javadoc), or native
+     * CEO/MM authority. The former PERM_03 (Planning Review) fallback was removed alongside
+     * Planning Review itself (workflow redesign) - the reviewer who now sets up the Shoot team at
+     * Idea Review time already holds PERM_01, and correcting instructions afterward is squarely a
+     * PERM_04 concern like every other Shoot-assignment-adjacent action.
      */
     private void requireShootDescriptionAuthority(User actor, WorkflowInstance workflowInstance) {
         if (authorizationService.hasNativeAuthority(actor)) {
             return;
         }
-        boolean hasAssignmentAuthority;
-        try {
-            authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
-                    LifecycleStage.PLANNING, workflowInstance);
-            hasAssignmentAuthority = true;
-        } catch (DomainException e) {
-            hasAssignmentAuthority = false;
-        }
-        if (hasAssignmentAuthority) {
-            return;
-        }
-        authorizationService.requireAuthority(actor, OperationalPermission.PERM_03_PLANNING_REVIEW,
+        authorizationService.requireAuthority(actor, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT,
                 LifecycleStage.PLANNING, workflowInstance);
     }
 
-    /** ERD-CON-026: Stage-3 parameters must be complete before Planning Review submission. */
-    @Transactional
-    public ReviewCycle submitPlanningReview(User submitter, UUID contentPlanId) {
-        ContentPlan plan = requireContentPlan(contentPlanId);
-        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
-        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.PL) {
-            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Planning Review can only be submitted while the deliverable is in Planning");
-        }
-        requirePlanningExecutionAuthority(submitter, workflowInstance);
-        if (!plan.isReadyForPlanningReview()) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "Planning parameters are incomplete: Content Priority, Planned Live/Shoot/Edit Dates and "
-                            + "Drive Link are all mandatory before Planning Review submission (ERD-CON-026)");
-        }
-        // Shoot Assignment now lives exclusively in the Shoot tab (its own dedicated, immediately-
-        // effective endpoints - see assignShootTeam/removeCameraperson/setShootLead) and Planning
-        // submission never creates/removes/overwrites it. This is the fail-fast half of that split:
-        // validate the already-persisted Shoot setup is complete before allowing submission, rather
-        // than letting an unassigned plan reach Planning Review and only fail later at approval
-        // (decidePlanningReview already has the same "at least one Cameraperson" check for defense
-        // in depth once a plan is already under review).
-        if (shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).isEmpty()) {
-            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                    "At least one Cameraperson must be assigned in the Shoot tab before Planning Review can be submitted");
-        }
-        int cycleNumber = nextCycleNumber(workflowInstance, GateType.PLANNING_REVIEW);
-        ReviewCycle cycle = reviewCycleRepository.save(
-                new ReviewCycle(workflowInstance, GateType.PLANNING_REVIEW, cycleNumber, submitter));
-        workflowService.transition(workflowInstance, WorkflowStatus.PLRV, submitter, Optional.empty(),
-                "SUBMIT_PLANNING_REVIEW", null);
-        auditService.record(submitter, Optional.empty(), "PLANNING", "PLANNING_REVIEW_SUBMITTED", "content_plans",
-                plan.getId(), null);
-        return cycle;
-    }
-
-    /**
-     * ENG-045 superseded (permission-driven workflow: Shoot Assignment moved to be exclusively
-     * managed from the Shoot tab, via its own dedicated, immediately-effective endpoints -
-     * assignShootTeam/removeCameraperson/setShootLead - so a PERM_04-only delegated employee has a
-     * working entry point, not just a canPlanningExecute+PERM_04 combination). Planning submission
-     * therefore no longer creates, updates, or removes Shoot Assignment from Planning-form request
-     * data - it only saves Planning Details and submits for review; {@link #submitPlanningReview}
-     * validates the already-persisted Shoot setup is complete and rejects submission otherwise. If
-     * Planning Details save fails, nothing is submitted (same atomicity as before for that part);
-     * Shoot Assignment itself is no longer part of this transaction at all, since it is already
-     * durably saved (or not) independently the moment it was made in the Shoot tab.
-     */
-    @Transactional
-    public ReviewCycle savePlanAssignAndSubmit(User submitter, UUID contentPlanId, String categoryText,
-                                                ContentPriority priority, String skuReference, boolean skuNotApplicable,
-                                                List<TalentSelection> talentSelections, String folderLink,
-                                                PlanningMode planningMode, LocalDate plannedLiveDate,
-                                                LocalDate shootDate, LocalDate editDate, String urgencyReason) {
-        savePlan(submitter, contentPlanId, categoryText, priority, skuReference, skuNotApplicable, talentSelections,
-                folderLink, planningMode, plannedLiveDate, shootDate, editDate, urgencyReason);
-        return submitPlanningReview(submitter, contentPlanId);
-    }
-
-    /**
-     * Permission #3. Self-review barrier governs the review DECISION, not submission - a
-     * preparer may still submit their own plan (see class docs / SAD §"Round-3.2 traceability").
-     */
-    @Transactional
-    public ContentPlan decidePlanningReview(User reviewer, UUID contentPlanId, boolean approve, String reason) {
-        ContentPlan plan = requireContentPlan(contentPlanId);
-        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
-        if (workflowInstance.getCurrentStatusCode() != WorkflowStatus.PLRV) {
-            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
-                    "Planning Review decisions are only valid while under review");
-        }
-        Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(reviewer,
-                OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, workflowInstance);
-        boolean isPreparer = planningPreparerRepository.findByContentPlan(plan).stream()
-                .anyMatch(p -> p.getPreparer().getId().equals(reviewer.getId()));
-        if (actingGrant.isPresent() && isPreparer) {
-            throw DomainException.forbidden(ErrorCode.PERM_SELF_APPROVAL_PROHIBITED,
-                    "Cannot make a review decision on a plan you prepared");
-        }
-
-        List<ReviewCycle> cycles = reviewCycleRepository
-                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, GateType.PLANNING_REVIEW);
-        ReviewCycle cycle = cycles.stream().filter(c -> c.getDecidedAt() == null).findFirst()
-                .orElseThrow(() -> DomainException.notFound("No pending Planning Review submission found"));
-
-        if (approve) {
-            List<ShootingAssignment> activeAssignments = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
-            if (activeAssignments.isEmpty()) {
-                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                        "At least one Cameraperson must be assigned before Planning Review can be approved");
-            }
-            cycle.decide(reviewer, "APPROVED", null, actingGrant.orElse(null));
-            reviewCycleRepository.save(cycle);
-            workflowService.transition(workflowInstance, WorkflowStatus.PLAP, reviewer, actingGrant,
-                    "APPROVE_PLANNING", null);
-            workflowService.transition(workflowInstance, WorkflowStatus.SA, reviewer, actingGrant,
-                    "ACTIVATE_SHOOTING", null);
-            auditService.record(reviewer, actingGrant, "PLANNING", "PLANNING_APPROVED", "content_plans",
-                    plan.getId(), null);
-        } else {
-            if (reason == null || reason.isBlank()) {
-                throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
-                        "A rework reason is mandatory (ERD-CON-059)");
-            }
-            cycle.decide(reviewer, "REQUEST_REWORK", reason, actingGrant.orElse(null));
-            reviewCycleRepository.save(cycle);
-            workflowService.transition(workflowInstance, WorkflowStatus.PL, reviewer, actingGrant,
-                    "REQUEST_REWORK_PLANNING", reason);
-            auditService.record(reviewer, actingGrant, "PLANNING", "PLANNING_REWORK_REQUESTED", "content_plans",
-                    plan.getId(), reason);
-        }
-        return plan;
-    }
-
-    private int nextCycleNumber(WorkflowInstance workflowInstance, GateType gateType) {
-        return reviewCycleRepository.findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, gateType)
-                .stream().findFirst().map(c -> c.getCycleNumber() + 1).orElse(1);
-    }
+    // NOTE (workflow redesign): Planning Review has been eliminated as a separate active-workflow
+    // gate, and PL/PLRV/PLAP are gone entirely from WorkflowStatus/workflow_concepts (fresh
+    // deployment, no legacy data to preserve). A Content Plan is now created already fully planned
+    // (Category/Priority/Schedule/Folder Link/Outputs/Publication Scope/Models/initial Shoot Team)
+    // and transitions straight PA -> SA, all inside IdeaService#approve (the single combined
+    // "Idea Review + Planning Details" action, governed by PERM_01_IDEA_REVIEW alone).
+    // submitPlanningReview/savePlanAssignAndSubmit/decidePlanningReview (formerly here) are removed
+    // entirely, not merely disabled.
 }

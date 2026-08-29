@@ -44,6 +44,7 @@ class AssignmentManagementQueueTest {
 
     private static final String HR_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000003";
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
 
     @Test
     void perm04OnlyHrCanReachDeliverableDetailAndMyWorkWithoutAnyExecutionPermission() throws Exception {
@@ -71,69 +72,69 @@ class AssignmentManagementQueueTest {
         assertThat(hr.get("/app/deliverables/" + planId).statusCode()).isEqualTo(302);
     }
 
+    /**
+     * Workflow redesign: the initial Shoot Team is now assigned atomically at Idea Review approval
+     * time, landing directly on Shoot Assigned (SA) - so a PERM_04 holder's queue row shows "Manage
+     * Assignment" from the very start (never "Set Up Shoot Team", since a team already exists the
+     * moment the plan exists). The PERM_04 initial-assignment window is now SA specifically; moving
+     * past it (Start Shoot, SA -&gt; SIP) is what closes it for a PERM_04-only holder.
+     */
     @Test
-    void shootQueueShowsPlanDuringPlanningForPerm04HolderAndDropsOutOncePastPlanningWithoutPerm11() throws Exception {
+    void shootQueueShowsPlanAtShootAssignedForPerm04HolderAndDropsOutOncePastThatWindowWithoutPerm11() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = ceo();
         String email = "aq-hr-queue-" + unique + "@kcpcbandhani.local";
         String hrId = createUser(ceo, "AQ Queue HR", email, HR_MANAGER_ROLE_ID);
         grant(ceo, hrId, "PERM_04_SHOOT_ASSIGNMENT");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Queue Flow " + unique);
+        String camEmail = "aq-queue-cam-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "AQ Queue Cam", camEmail, CAMERA_PERSON_ROLE_ID);
+        grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Queue Flow " + unique, camId);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         TestApiClient hr = loginNewClient(email);
         HttpResponse<String> myWork = hr.get("/app/my-work");
         assertThat(myWork.statusCode()).isEqualTo(200);
-        assertThat(myWork.body()).as("Appears in the Shoot queue while status is Planning and PERM_04 is held")
-                .contains(plan.getContentId()).contains("Set Up Shoot Team");
+        assertThat(myWork.body()).as("Appears in the Shoot queue at Shoot Assigned (SA) while PERM_04 is held")
+                .contains(plan.getContentId()).contains("Manage Assignment");
 
-        // Assign a Cameraperson (still status PL) - the row stays, but the action label changes
-        // since a team already exists.
-        String camId = createUser(ceo, "AQ Queue Cam", "aq-queue-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
-        grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        HttpResponse<String> myWorkAfterAssign = hr.get("/app/my-work");
-        assertThat(myWorkAfterAssign.body()).contains(plan.getContentId()).contains("Manage Assignment");
+        // Move the plan past the SA window (Start Shoot) - PERM_04 alone no longer authorizes any
+        // Shoot assignment action, so the row must drop out of the PERM_04 holder's queue
+        // automatically (never a hard-coded status filter - see AssignmentManagementQueueService).
+        TestApiClient cam = loginNewClient(camEmail);
+        cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
 
-        // Move the plan past Planning (Planning Review submit + approve) - PERM_04 alone no longer
-        // authorizes any Shoot assignment action, so the row must drop out of the PERM_04 holder's
-        // queue automatically (never a hard-coded status filter - see
-        // AssignmentManagementQueueService).
-        preparePlanningAndSubmit(ceo, planId, unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision",
-                "{\"approve\":true}");
-
-        HttpResponse<String> myWorkAfterApproval = hr.get("/app/my-work");
-        assertThat(myWorkAfterApproval.body()).as("PERM_04-only holder loses this row once the Planning window has closed")
+        HttpResponse<String> myWorkAfterStart = hr.get("/app/my-work");
+        assertThat(myWorkAfterStart.body()).as("PERM_04-only holder loses this row once the SA window has closed")
                 .doesNotContain(plan.getContentId() + "</td>");
     }
 
     @Test
-    void shootQueueShowsPlanForPerm11HolderOncePastPlanningWindow() throws Exception {
+    void shootQueueShowsPlanForPerm11HolderOncePastShootAssignedWindow() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = ceo();
         String email = "aq-hr-reassign-" + unique + "@kcpcbandhani.local";
         String hrId = createUser(ceo, "AQ Reassign HR", email, HR_MANAGER_ROLE_ID);
         grant(ceo, hrId, "PERM_11_REASSIGN");
-        String camId = createUser(ceo, "AQ Reassign Cam", "aq-reassign-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String camEmail = "aq-reassign-cam-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "AQ Reassign Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
 
-        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Reassign Flow " + unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Reassign Flow " + unique, camId);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
 
         TestApiClient hr = loginNewClient(email);
-        // Still status PL - PERM_11 alone (no PERM_04) does not authorize the Shoot
+        // Still status SA - PERM_11 alone (no PERM_04) does not authorize the Shoot
         // initial-assignment window, so the row must NOT appear in the SHOOT queue yet (PERM_11 has
         // no stage gate of its own, so it may legitimately still appear in the Edit reassign queue -
         // scope this assertion to the Shoot section specifically, not the whole page).
         assertThat(shootSection(hr.get("/app/my-work").body())).doesNotContain(plan.getContentId() + "</td>");
 
-        preparePlanningAndSubmit(ceo, planId, unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
+        TestApiClient cam = loginNewClient(camEmail);
+        cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
 
-        HttpResponse<String> myWorkAfterApproval = hr.get("/app/my-work");
-        assertThat(shootSection(myWorkAfterApproval.body())).as("PERM_11 holder now sees it - status moved past the PERM_04 initial-setup window")
+        HttpResponse<String> myWorkAfterStart = hr.get("/app/my-work");
+        assertThat(shootSection(myWorkAfterStart.body())).as("PERM_11 holder now sees it - status moved past the PERM_04 initial-setup window")
                 .contains(plan.getContentId()).contains("Reassign Team");
     }
 
@@ -153,26 +154,32 @@ class AssignmentManagementQueueTest {
         String hrId = createUser(ceo, "AQ Edit HR", email, HR_MANAGER_ROLE_ID);
         grant(ceo, hrId, "PERM_06_EDIT_ASSIGNMENT");
 
-        String camId = createUser(ceo, "AQ Edit Flow Cam", "aq-edit-flow-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        String camEmail = "aq-edit-flow-cam-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "AQ Edit Flow Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
-        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Edit Flow " + unique);
+        String planId = approveIdeaAndGetContentPlanId(ceo, "AQ Edit Flow " + unique, camId);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
 
         TestApiClient hr = loginNewClient(email);
         assertThat(hr.get("/app/my-work").body()).as("Not yet in the Edit queue - Shoot hasn't been approved")
                 .doesNotContain(plan.getContentId() + "</td>");
 
-        ceo.post("/api/v1/content-plans/" + planId + "/shooting-assignments", "{\"cameramanUserId\":\"" + camId + "\"}");
-        preparePlanningAndSubmit(ceo, planId, unique);
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
-        TestApiClient cam = loginNewClient("aq-edit-flow-cam-" + unique + "@kcpcbandhani.local");
+        TestApiClient cam = loginNewClient(camEmail);
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
+        // Workflow redesign: Editor team assignment now folds directly into this same Approve call
+        // (ShootingService#decideShootReview) - the plan lands on EA (not a resting SAP) with an
+        // Editor already assigned, but the "SAP or EA" queue window (AssignmentManagementQueueService)
+        // still surfaces it for a PERM_06 holder, since the Edit team stays adjustable at EA too.
+        String editEmail = "aq-edit-flow-editor-" + unique + "@kcpcbandhani.local";
+        String editId = createUser(ceo, "AQ Edit Flow Editor", editEmail, VIDEO_EDITOR_ROLE_ID);
+        grant(ceo, editId, "PERM_19_EDIT_EXECUTION");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"]}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camId + "\"],"
+                        + "\"editorUserIds\":[\"" + editId + "\"],\"leadEditorUserId\":\"" + editId + "\"}");
 
         HttpResponse<String> myWork = hr.get("/app/my-work");
-        assertThat(myWork.body()).as("Now Shoot-Approved - the Edit queue picks it up for the PERM_06 holder")
+        assertThat(myWork.body()).as("Now Edit-Assigned - the Edit queue still picks it up for the PERM_06 holder")
                 .contains(plan.getContentId()).contains("Set Up Edit Team");
     }
 
@@ -219,7 +226,7 @@ class AssignmentManagementQueueTest {
                 .doesNotContain("data-tab=\"timeline\">Timeline</button>");
         // The lifecycle stepper is a separate, always-full read-only element - unaffected by tab
         // scoping (still shows all six stage labels regardless of which tabs are visible).
-        assertThat(body).contains("content-detail-step-label\">Planning</span>")
+        assertThat(body).contains("content-detail-step-label\">Idea Review</span>")
                 .contains("content-detail-step-label\">Publishing</span>");
     }
 
@@ -231,12 +238,14 @@ class AssignmentManagementQueueTest {
 
         HttpResponse<String> page = ceo.get("/app/deliverables/" + planId);
         String body = page.body();
-        assertThat(body).contains("data-tab=\"planning\">Planning</button>")
-                .contains("data-tab=\"shoot\">Shoot</button>")
+        // Workflow redesign: the Planning tab is gone entirely (Planning is no longer a separate
+        // stage) - CEO's full tab set is now Overview/Shoot/Edit/Publishing/Performance/Timeline.
+        assertThat(body).contains("data-tab=\"shoot\">Shoot</button>")
                 .contains("data-tab=\"edit\">Edit</button>")
                 .contains("data-tab=\"publishing\">Publishing</button>")
                 .contains("data-tab=\"performance\">Performance</button>")
                 .contains("data-tab=\"timeline\">Timeline</button>");
+        assertThat(body).doesNotContain("data-tab=\"planning\">Planning</button>");
         assertThat(body).contains("Back to Pipeline").doesNotContain("Back to My Work");
     }
 
@@ -311,24 +320,29 @@ class AssignmentManagementQueueTest {
         }
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - this
+     * default overload creates a throwaway one (irrelevant to the caller's assertions) so plain
+     * "just give me a Shoot-Assigned plan" call sites don't need to care. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+        String camId = createUser(ceo, "AQ Default Cam " + Instant.now().toEpochMilli(),
+                "aq-default-cam-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        return approveIdeaAndGetContentPlanId(ceo, title, camId);
+    }
+
+    /** Workflow redesign: Idea Review approval carries every former Planning field (including the
+     * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
+     * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
+    private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/aq-" + Instant.now().toEpochMilli() + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         return plan.getId().toString();
-    }
-
-    private void preparePlanningAndSubmit(TestApiClient ceo, String planId, long unique) throws Exception {
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/aq-" + unique + "\"}");
-        HttpResponse<String> submit = ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        if (submit.statusCode() != 200) {
-            throw new IllegalStateException("Planning review submit failed: " + submit.statusCode() + " " + submit.body());
-        }
     }
 }

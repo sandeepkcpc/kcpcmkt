@@ -9,5 +9,6 @@ import java.math.BigDecimal;
 public record CorrectPredefinedMarksRequest(
         @NotNull BigDecimal newCamerapersonMarks,
         @NotNull BigDecimal newEditorMarks,
+        @NotNull BigDecimal newModelMarks,
         @NotBlank String correctionReason) {
 }

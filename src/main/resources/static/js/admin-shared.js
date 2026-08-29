@@ -41,4 +41,44 @@
         }
         panel.classList.toggle('hidden');
     });
+
+    // Admin/CEO Password Reset: one-click copy of the just-generated temporary password (shown
+    // once, as a flash message) so the CEO doesn't have to manually select/copy the text.
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-copy-target]');
+        if (!button) {
+            return;
+        }
+        var source = document.getElementById(button.getAttribute('data-copy-target'));
+        if (!source) {
+            return;
+        }
+        var text = source.textContent.trim();
+        var originalLabel = button.textContent;
+        function showCopied() {
+            button.textContent = 'Copied!';
+            window.setTimeout(function () {
+                button.textContent = originalLabel;
+            }, 1500);
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(showCopied);
+        } else {
+            // Fallback for a plain-HTTP (non-secure) context, where the Clipboard API is
+            // unavailable - a hidden, briefly-focused textarea + the legacy copy command.
+            var scratch = document.createElement('textarea');
+            scratch.value = text;
+            scratch.style.position = 'fixed';
+            scratch.style.opacity = '0';
+            document.body.appendChild(scratch);
+            scratch.focus();
+            scratch.select();
+            try {
+                document.execCommand('copy');
+                showCopied();
+            } finally {
+                document.body.removeChild(scratch);
+            }
+        }
+    });
 })();

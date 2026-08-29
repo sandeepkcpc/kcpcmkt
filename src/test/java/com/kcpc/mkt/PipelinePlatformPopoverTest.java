@@ -88,31 +88,27 @@ class PipelinePlatformPopoverTest {
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")).statusCode())
-                .isEqualTo(302);
+        String skuTag = "ppt-sku-" + unique;
+        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (priority/SKU/schedule/folder link/initial output+publication scope/shoot
+        // team) in one form POST and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.ofEntries(
+                Map.entry("decision", java.util.List.of("APPROVE")),
+                Map.entry("cameramanMark", java.util.List.of("1.0")),
+                Map.entry("editorMark", java.util.List.of("1.0")),
+                Map.entry("modelMark", java.util.List.of("1.0")),
+                Map.entry("contentPriority", java.util.List.of("MEDIUM")),
+                Map.entry("skuReference", java.util.List.of(skuTag)),
+                Map.entry("plannedLiveDate", java.util.List.of(plannedLiveDate)),
+                Map.entry("folderLink", java.util.List.of("https://drive.example.com/ppt-" + unique)),
+                Map.entry("outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
+                        + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\"]}]")),
+                Map.entry("camerapersonUserIds", java.util.List.of(camId)))).statusCode()).isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         String planId = plan.getId().toString();
         String base = "/app/deliverables/" + planId;
-        String skuTag = "ppt-sku-" + unique;
-
-        assertThat(ceo.postFormMulti(base + "/parameters", Map.of(
-                "contentPriority", java.util.List.of("MEDIUM"),
-                "skuReference", java.util.List.of(skuTag),
-                "folderLink", java.util.List.of("https://drive.example.com/ppt-" + unique))).statusCode()).isEqualTo(302);
-        assertThat(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")).statusCode()).isEqualTo(302);
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
-        assertThat(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", TARGET_INSTAGRAM_KCPC)).statusCode()).isEqualTo(302);
-        assertThat(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", TARGET_YOUTUBE_KCPC)).statusCode()).isEqualTo(302);
-
-        assertThat(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", camId)).statusCode()).isEqualTo(302);
-        String plannedLiveDate = LocalDate.now().plusDays(10).toString();
-        assertThat(ceo.postForm(base + "/schedule/standard", Map.of("plannedLiveDate", plannedLiveDate)).statusCode())
-                .isEqualTo(302);
-        assertThat(ceo.postForm(base + "/planning-review/submit", Map.of()).statusCode()).isEqualTo(302);
-        assertThat(ceo.postForm(base + "/planning-review/decision", Map.of("approve", "true")).statusCode()).isEqualTo(302);
 
         // Confirm the workflow actually advanced (a 302 alone doesn't prove success - a validation
         // failure also redirects, just with a flash error message) before driving further.
@@ -123,26 +119,23 @@ class PipelinePlatformPopoverTest {
         cam.login(camEmail, "Passw0rd!");
         assertThat(cam.postForm(base + "/shooting/start", Map.of()).statusCode()).isEqualTo(302);
         assertThat(cam.postForm(base + "/shooting/review/submit", Map.of()).statusCode()).isEqualTo(302);
+        // Workflow redesign: Editor team assignment now folds directly into this same Approve call
+        // (ShootingService#decideShootReview) - SRV goes straight to EA, no resting SAP.
         assertThat(ceo.postForm(base + "/shooting/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", camId)).statusCode()).isEqualTo(302);
-        // SAP is a resting status - Editor Assignment (below) is what triggers SAP->EA, the same
-        // way Shoot Assignment triggers PLAP->SA.
-        assertThat(contentPlanRepository.findById(plan.getId()).orElseThrow()
-                .getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("SAP");
-
-        assertThat(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", edId)).statusCode()).isEqualTo(302);
+                Map.of("approve", "true", "qualifyingRecipientUserIds", camId,
+                        "editorUserIds", edId, "leadEditorUserId", edId)).statusCode()).isEqualTo(302);
         assertThat(contentPlanRepository.findById(plan.getId()).orElseThrow()
                 .getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("EA");
         TestApiClient editor = new TestApiClient(port);
         editor.login(edEmail, "Passw0rd!");
         assertThat(editor.postForm(base + "/editing/start", Map.of()).statusCode()).isEqualTo(302);
         assertThat(editor.postForm(base + "/editing/review/submit", Map.of()).statusCode()).isEqualTo(302);
+        // Same fold-in, Publisher team assignment now folds into Edit Review Approve.
         assertThat(ceo.postForm(base + "/editing/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", edId)).statusCode()).isEqualTo(302);
+                Map.of("approve", "true", "qualifyingRecipientUserIds", edId,
+                        "publisherUserIds", pubId)).statusCode()).isEqualTo(302);
         assertThat(contentPlanRepository.findById(plan.getId()).orElseThrow()
                 .getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("RFP");
-
-        assertThat(ceo.postForm(base + "/publishing-assignments", Map.of("publisherUserId", pubId)).statusCode()).isEqualTo(302);
         TestApiClient publisher = new TestApiClient(port);
         publisher.login(pubEmail, "Passw0rd!");
         assertThat(publisher.postForm(base + "/publishing/start", Map.of()).statusCode()).isEqualTo(302);

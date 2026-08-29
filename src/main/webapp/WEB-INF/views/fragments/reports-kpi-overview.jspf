@@ -51,7 +51,7 @@
             <div class="kpi-card-title-row"><span class="kpi-card-title">Rework Rate (All Stages)</span></div>
             <span class="kpi-card-count"><c:choose><c:when test="${empty overview.reworkRatePercent}">-</c:when>
                 <c:otherwise>${overview.reworkRatePercent}%</c:otherwise></c:choose></span>
-            <span class="kpi-card-subtitle">Planning + Shoot + Edit review cycles</span>
+            <span class="kpi-card-subtitle">Shoot + Edit review cycles</span>
         </div>
     </div>
     <div class="kpi-card kpi-underreview">
@@ -59,7 +59,7 @@
         <div class="kpi-card-body">
             <div class="kpi-card-title-row"><span class="kpi-card-title">Pending Reviews</span></div>
             <span class="kpi-card-count">${overview.pendingReviews}</span>
-            <span class="kpi-card-subtitle">Idea / Planning / Shoot / Edit gates</span>
+            <span class="kpi-card-subtitle">Idea / Shoot / Edit gates</span>
         </div>
     </div>
     <div class="kpi-card kpi-delayed">

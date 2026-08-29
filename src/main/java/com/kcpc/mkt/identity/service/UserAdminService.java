@@ -13,6 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +23,8 @@ import java.util.UUID;
  */
 @Service
 public class UserAdminService {
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final BusinessRoleRepository businessRoleRepository;
@@ -102,6 +105,42 @@ public class UserAdminService {
         userRepository.save(user);
         auditService.record(ceo, Optional.empty(), "USER_ADMIN", "BUSINESS_ROLE_CHANGED", "users", user.getId(), reason);
         return user;
+    }
+
+    /**
+     * Admin/CEO Password Reset (KCPC CPL's primary reset path - see PasswordResetService's own
+     * javadoc for why: no email/SMS infra, small fixed employee base, CEO already administers every
+     * account). Generates a fresh temporary password, forces the employee to change it on next
+     * login ({@link User#requirePasswordChangeOnNextLogin()}), and immediately revokes every
+     * currently-active session for that user - the same "reset invalidates active sessions"
+     * guarantee the self-service email-link reset already provides
+     * ({@code PasswordResetService#confirmReset}), never a second/weaker implementation of it.
+     * Returns the raw temporary password so the caller (AdminMvcController) can display it to the
+     * CEO exactly once, to copy and share out-of-band - it is never logged, and only its BCrypt
+     * hash is ever persisted.
+     */
+    @Transactional
+    public String resetPasswordByAdmin(User ceo, UUID userId, String reason) {
+        requireCeo(ceo);
+        requireReason(reason);
+        User user = requireUser(userId);
+        String temporaryPassword = generateTemporaryPassword();
+        user.changePasswordHash(passwordEncoder.encode(temporaryPassword));
+        user.requirePasswordChangeOnNextLogin();
+        userRepository.save(user);
+        tokenRegistryService.revokeAllActiveSessionsForUser(user);
+        auditService.record(ceo, Optional.empty(), "USER_ADMIN", "PASSWORD_RESET_BY_ADMIN", "users", user.getId(), reason);
+        return temporaryPassword;
+    }
+
+    /** {@code TEMP-######-KCPC}: readable/dictatable over phone or chat for the CEO's "generate,
+     * then copy & share" workflow, with a 6-digit (not 4-digit) random segment - a meaningfully
+     * larger, still practically shareable, search space (1,000,000 combinations), since this app
+     * has no login rate-limiting yet and a guessable temporary credential deserves real entropy,
+     * not just the smallest number that "looks right" in a mockup. */
+    private static String generateTemporaryPassword() {
+        int number = SECURE_RANDOM.nextInt(1_000_000);
+        return String.format("TEMP-%06d-KCPC", number);
     }
 
     private User requireUser(UUID userId) {

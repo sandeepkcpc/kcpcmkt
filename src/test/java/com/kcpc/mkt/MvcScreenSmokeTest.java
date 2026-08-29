@@ -99,50 +99,48 @@ class MvcScreenSmokeTest {
                 .filter(i -> i.getTitle().equals("MVC Smoke Test " + unique)).findFirst().orElseThrow();
         assertOk(ceo.get("/app/ideas/" + idea.getId()));
 
-        HttpResponse<String> approve = ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0"));
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field (priority/schedule/folder link/initial output+publication scope/shoot
+        // team) in one form POST and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String liveDate = LocalDate.now().plusDays(10).toString();
+        HttpResponse<String> approve = ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.of(
+                "decision", List.of("APPROVE"),
+                "cameramanMark", List.of("1.0"),
+                "editorMark", List.of("1.0"),
+                "modelMark", List.of("1.0"),
+                "contentPriority", List.of("MEDIUM"),
+                "plannedLiveDate", List.of(liveDate),
+                "folderLink", List.of("https://drive.example.com/mvc-" + unique),
+                "outputsJson", List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
+                        + PUBLICATION_TARGET_ID + "\"]}]"),
+                "camerapersonUserIds", List.of(camId)));
         assertThat(approve.statusCode()).isEqualTo(302);
 
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         UUID planId = plan.getId();
         String base = "/app/deliverables/" + planId;
-        assertOk(ceo.get(base)); // PL
-
-        String liveDate = LocalDate.now().plusDays(10).toString();
-        assertRedirect(ceo.postForm(base + "/parameters",
-                Map.of("contentPriority", "MEDIUM", "folderLink", "https://drive.example.com/mvc-" + unique)));
-        assertRedirect(ceo.postForm(base + "/schedule/standard", Map.of("plannedLiveDate", liveDate)));
-        assertRedirect(ceo.postForm(base + "/shooting-assignments", Map.of("cameramanUserId", camId)));
-        assertRedirect(ceo.postForm(base + "/outputs", Map.of("outputType", "PHOTOGRAPHY")));
-
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
-        assertRedirect(ceo.postForm(base + "/outputs/" + output.getReelGroupId() + "/targets",
-                Map.of("publicationTargetIds", PUBLICATION_TARGET_ID)));
-
-        assertRedirect(ceo.postForm(base + "/planning-review/submit", Map.of()));
-        assertOk(ceo.get(base)); // PLRV
-        assertRedirect(ceo.postForm(base + "/planning-review/decision", Map.of("approve", "true")));
         assertOk(ceo.get(base)); // SA
 
         assertRedirect(cam.postForm(base + "/shooting/start", Map.of()));
         assertOk(ceo.get(base)); // SIP
         assertRedirect(cam.postForm(base + "/shooting/review/submit", Map.of()));
         assertOk(ceo.get(base)); // SRV
+        // Workflow redesign: Editor/Publisher team assignment now folds directly into the Shoot/
+        // Edit Review Approve call itself (ShootingService#decideShootReview/EditingService#
+        // decideEditReview) - SRV goes straight to EA (no resting SAP).
         assertRedirect(ceo.postForm(base + "/shooting/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", camId)));
-        assertOk(ceo.get(base)); // SAP
-
-        assertRedirect(ceo.postForm(base + "/editing/assignments", Map.of("editorUserId", edId)));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", camId,
+                        "editorUserIds", edId, "leadEditorUserId", edId)));
         assertOk(ceo.get(base)); // EA
         assertRedirect(ed.postForm(base + "/editing/start", Map.of()));
         assertOk(ceo.get(base)); // ED
         assertRedirect(ed.postForm(base + "/editing/review/submit", Map.of()));
         assertOk(ceo.get(base)); // ERV
         assertRedirect(ceo.postForm(base + "/editing/review/decision",
-                Map.of("approve", "true", "qualifyingRecipientUserIds", edId)));
+                Map.of("approve", "true", "qualifyingRecipientUserIds", edId, "publisherUserIds", pubId)));
         assertOk(ceo.get(base)); // RFP
 
-        assertRedirect(ceo.postForm(base + "/publishing-assignments", Map.of("publisherUserId", pubId)));
         assertRedirect(pub.postForm(base + "/publishing/start", Map.of()));
         assertOk(ceo.get(base)); // PUBG
 

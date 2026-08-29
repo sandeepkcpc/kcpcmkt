@@ -88,11 +88,9 @@ public class KpiService {
                 + "r.reviewer.businessRole.accessClassCode = com.kcpc.mkt.identity.domain.AccessClass.CEO_OWNER");
 
         long productionReviews = count("select count(r) from ReviewCycle r where r.decidedAt is not null and "
-                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.PLANNING_REVIEW, "
-                + "com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
+                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
         long reworkReviews = count("select count(r) from ReviewCycle r where r.decision = 'REQUEST_REWORK' and "
-                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.PLANNING_REVIEW, "
-                + "com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
+                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
         BigDecimal reworkRate = rate(reworkReviews, productionReviews);
 
         long everStarted = count("select count(w) from WorkflowInstance w");
@@ -196,8 +194,8 @@ public class KpiService {
         LocalDate periodEnd = endDate != null ? endDate : YearMonth.now(BUSINESS_ZONE).atEndOfMonth();
 
         // KPI-008: production tasks completed per employee - Shoot/Edit Mark attributions
-        // (qualifying-contributor completion evidence) plus Planning plans this employee
-        // prepared that were approved (PLAP) in the period.
+        // (qualifying-contributor completion evidence) plus Content Plans this employee prepared
+        // that were approved (reached SA) in the period.
         Map<String, Long> employeeProductivity = new LinkedHashMap<>();
         groupCounts("select u.full_name, count(*) from personal_mark_attributions pma "
                         + "join users u on u.user_id = pma.recipient_user_id "
@@ -207,7 +205,7 @@ public class KpiService {
                         + "join users u on u.user_id = pp.preparer_user_id "
                         + "join workflow_transition_history wth on wth.workflow_instance_id = "
                         + "  (select cp.workflow_instance_id from content_plans cp where cp.content_plan_id = pp.content_plan_id) "
-                        + "  and wth.to_status_code = 'PLAP' "
+                        + "  and wth.to_status_code = 'SA' "
                         + "where wth.transition_timestamp::date between :from and :to group by u.full_name",
                 Map.of("from", periodStart, "to", periodEnd)).forEach((k, v) -> employeeProductivity.merge(k, v, Long::sum));
         out.add(KpiValue.distribution("KPI-008", "Employee Productivity (period)", "PRODUCTIVITY", employeeProductivity));
@@ -245,19 +243,20 @@ public class KpiService {
                 + "e.eventType = com.kcpc.mkt.publishing.domain.PublicationEventType.ORIGINAL");
         out.add(KpiValue.scalar("KPI-012", "Published Content", "CONTENT_UNITS", String.valueOf(publishedContent)));
 
-        // ENG-027: "produced and approved" = the output's parent plan has passed Planning Review
-        // approval (reached SA or later) - the gate outputs are approved through.
+        // ENG-027: "produced and approved" = the output's parent plan has passed Idea Review
+        // approval (every Content Plan is created already at SA or later).
         long reelsProduced = scalarLong("select count(*) from planned_outputs po join content_plans cp "
-                + "on cp.content_plan_id = po.content_plan_id join workflow_instances wi "
-                + "on wi.workflow_instance_id = cp.workflow_instance_id "
-                + "where po.output_type = 'REEL' and wi.current_status_code not in ('PL','PLRV')");
+                + "on cp.content_plan_id = po.content_plan_id "
+                + "where po.output_type = 'REEL'");
         out.add(KpiValue.scalar("KPI-013", "Reels Produced", "CONTENT_UNITS", String.valueOf(reelsProduced)));
 
-        long photographyProduced = scalarLong("select count(*) from planned_outputs po join content_plans cp "
-                + "on cp.content_plan_id = po.content_plan_id join workflow_instances wi "
-                + "on wi.workflow_instance_id = cp.workflow_instance_id "
-                + "where po.output_type = 'PHOTOGRAPHY' and wi.current_status_code not in ('PL','PLRV')");
-        out.add(KpiValue.scalar("KPI-014", "Photography Produced", "CONTENT_UNITS", String.valueOf(photographyProduced)));
+        // V31: PHOTOGRAPHY was retired and split into STORY/POST (both "static/image" content,
+        // the closest replacement for what this KPI originally counted) - counting both keeps
+        // KPI-014's original intent instead of silently going to zero.
+        long storyOrPostProduced = scalarLong("select count(*) from planned_outputs po join content_plans cp "
+                + "on cp.content_plan_id = po.content_plan_id "
+                + "where po.output_type IN ('STORY', 'POST')");
+        out.add(KpiValue.scalar("KPI-014", "Story/Post Produced", "CONTENT_UNITS", String.valueOf(storyOrPostProduced)));
 
         out.add(KpiValue.distribution("KPI-015", "Publication Distribution", "CONTENT_UNITS", groupCounts(
                 "select p.platform_name || ' / ' || cc.channel_handle, count(*) from actual_publication_events e "
@@ -305,11 +304,9 @@ public class KpiService {
         out.add(KpiValue.scalar("KPI-023", "Approvals by CEO", "APPROVAL_REVIEW", String.valueOf(approvalsByCeo)));
 
         long productionReviews = count("select count(r) from ReviewCycle r where r.decidedAt is not null and "
-                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.PLANNING_REVIEW, "
-                + "com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
+                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
         long reworkReviews = count("select count(r) from ReviewCycle r where r.decision = 'REQUEST_REWORK' and "
-                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.PLANNING_REVIEW, "
-                + "com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
+                + "r.gateType in (com.kcpc.mkt.workflow.domain.GateType.SHOOT_REVIEW, com.kcpc.mkt.workflow.domain.GateType.EDIT_REVIEW)");
         out.add(KpiValue.scalar("KPI-024", "Rework Rate", "APPROVAL_REVIEW", formatPercent(rate(reworkReviews, productionReviews))));
 
         return out;

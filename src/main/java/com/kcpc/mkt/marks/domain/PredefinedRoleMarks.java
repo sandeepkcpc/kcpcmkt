@@ -44,6 +44,9 @@ public class PredefinedRoleMarks extends BaseEntity {
     @Column(name = "predefined_editor_mark", nullable = false, precision = 3, scale = 1)
     private BigDecimal predefinedEditorMark;
 
+    @Column(name = "predefined_model_mark", nullable = false, precision = 3, scale = 1)
+    private BigDecimal predefinedModelMark;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "set_by_user_id", nullable = false)
     private User setBy;
@@ -55,12 +58,15 @@ public class PredefinedRoleMarks extends BaseEntity {
     protected PredefinedRoleMarks() {
     }
 
-    public PredefinedRoleMarks(ContentPlan contentPlan, BigDecimal cameramanMark, BigDecimal editorMark, User setBy) {
+    public PredefinedRoleMarks(ContentPlan contentPlan, BigDecimal cameramanMark, BigDecimal editorMark,
+                                BigDecimal modelMark, User setBy) {
         requireControlled(cameramanMark, "Cameraperson Mark");
         requireControlled(editorMark, "Editor Mark");
+        requireControlled(modelMark, "Model Mark");
         this.contentPlan = contentPlan;
         this.predefinedCameramanMark = cameramanMark;
         this.predefinedEditorMark = editorMark;
+        this.predefinedModelMark = modelMark;
         this.setBy = setBy;
     }
 
@@ -83,15 +89,21 @@ public class PredefinedRoleMarks extends BaseEntity {
         return predefinedEditorMark;
     }
 
+    public BigDecimal getPredefinedModelMark() {
+        return predefinedModelMark;
+    }
+
     public User getSetBy() {
         return setBy;
     }
 
     /** API-OP-033: updates the active values in place; the correction ledger preserves the history. */
-    public void applyCorrection(BigDecimal newCamerapersonMark, BigDecimal newEditorMark) {
+    public void applyCorrection(BigDecimal newCamerapersonMark, BigDecimal newEditorMark, BigDecimal newModelMark) {
         requireControlled(newCamerapersonMark, "Cameraperson Mark");
         requireControlled(newEditorMark, "Editor Mark");
+        requireControlled(newModelMark, "Model Mark");
         this.predefinedCameramanMark = newCamerapersonMark;
         this.predefinedEditorMark = newEditorMark;
+        this.predefinedModelMark = newModelMark;
     }
 }

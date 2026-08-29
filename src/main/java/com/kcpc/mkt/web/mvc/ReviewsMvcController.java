@@ -7,19 +7,21 @@ import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.idea.domain.Idea;
 import com.kcpc.mkt.idea.domain.IdeaReviewDecision;
+import com.kcpc.mkt.idea.dto.PlanningApprovalRequest;
 import com.kcpc.mkt.idea.repository.IdeaRepository;
 import com.kcpc.mkt.idea.service.IdeaService;
+import com.kcpc.mkt.masterdata.domain.PublicationTarget;
+import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
+import com.kcpc.mkt.planning.domain.ContentPriority;
 import com.kcpc.mkt.planning.domain.OutputType;
-import com.kcpc.mkt.planning.domain.PlannedOutput;
-import com.kcpc.mkt.planning.domain.ReelType;
+import com.kcpc.mkt.planning.domain.PlanningMode;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
-import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
-import com.kcpc.mkt.planning.repository.PlanningPreparerRepository;
-import com.kcpc.mkt.planning.service.PlanningService;
+import com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService;
 import com.kcpc.mkt.production.domain.EditingExecutionParticipant;
 import com.kcpc.mkt.production.domain.ShootingExecutionParticipant;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
@@ -67,7 +69,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Manager Reviews Workspace: one page, four pending-review queues (Ideas/Planning/Shoot/Edit - no
+ * Manager Reviews Workspace: one page, three pending-review queues (Ideas/Shoot/Edit - no
  * Publishing tab, it has no review gate). Every decision here calls the EXACT SAME
  * application/service-layer methods the existing Idea Detail (IdeaMvcController) and Content
  * Detail (DeliverableMvcController) pages already use - this controller only adds a second,
@@ -87,56 +89,60 @@ public class ReviewsMvcController {
     private final IdeaService ideaService;
     private final ContentPlanRepository contentPlanRepository;
     private final PipelineDashboardService pipelineDashboardService;
-    private final PlanningService planningService;
     private final ShootingService shootingService;
     private final EditingService editingService;
     private final AuthorizationService authorizationService;
     private final com.kcpc.mkt.workflow.repository.ReviewCycleRepository reviewCycleRepository;
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
-    private final PlanningPreparerRepository planningPreparerRepository;
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final ShootingExecutionParticipantRepository shootingParticipantRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final EditingExecutionParticipantRepository editingParticipantRepository;
-    private final PlannedOutputRepository plannedOutputRepository;
     private final ContentPlanTalentEntryRepository talentEntryRepository;
     private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
     private final com.kcpc.mkt.identity.repository.UserRepository userRepository;
+    private final AssigneeWorkloadCountService assigneeWorkloadCountService;
+    private final PublicationTargetRepository publicationTargetRepository;
+    private final OperationalEligibilityService operationalEligibilityService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public ReviewsMvcController(IdeaRepository ideaRepository, IdeaService ideaService,
                                  ContentPlanRepository contentPlanRepository, PipelineDashboardService pipelineDashboardService,
-                                 PlanningService planningService, ShootingService shootingService, EditingService editingService,
+                                 ShootingService shootingService, EditingService editingService,
                                  AuthorizationService authorizationService,
                                  com.kcpc.mkt.workflow.repository.ReviewCycleRepository reviewCycleRepository,
                                  WorkflowTransitionHistoryRepository transitionHistoryRepository,
-                                 PlanningPreparerRepository planningPreparerRepository,
                                  ShootingAssignmentRepository shootingAssignmentRepository,
                                  ShootingExecutionParticipantRepository shootingParticipantRepository,
                                  EditingAssignmentRepository editingAssignmentRepository,
                                  EditingExecutionParticipantRepository editingParticipantRepository,
-                                 PlannedOutputRepository plannedOutputRepository,
                                  ContentPlanTalentEntryRepository talentEntryRepository,
                                  com.kcpc.mkt.discussion.service.StageCommentService stageCommentService,
-                                 com.kcpc.mkt.identity.repository.UserRepository userRepository) {
+                                 com.kcpc.mkt.identity.repository.UserRepository userRepository,
+                                 AssigneeWorkloadCountService assigneeWorkloadCountService,
+                                 PublicationTargetRepository publicationTargetRepository,
+                                 OperationalEligibilityService operationalEligibilityService,
+                                 com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.ideaRepository = ideaRepository;
         this.ideaService = ideaService;
         this.contentPlanRepository = contentPlanRepository;
         this.pipelineDashboardService = pipelineDashboardService;
-        this.planningService = planningService;
         this.shootingService = shootingService;
         this.editingService = editingService;
         this.authorizationService = authorizationService;
         this.reviewCycleRepository = reviewCycleRepository;
         this.transitionHistoryRepository = transitionHistoryRepository;
-        this.planningPreparerRepository = planningPreparerRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.shootingParticipantRepository = shootingParticipantRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.editingParticipantRepository = editingParticipantRepository;
-        this.plannedOutputRepository = plannedOutputRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.stageCommentService = stageCommentService;
         this.userRepository = userRepository;
+        this.assigneeWorkloadCountService = assigneeWorkloadCountService;
+        this.publicationTargetRepository = publicationTargetRepository;
+        this.operationalEligibilityService = operationalEligibilityService;
+        this.objectMapper = objectMapper;
     }
 
     private static boolean isAjax(String requestedWith) {
@@ -169,41 +175,35 @@ public class ReviewsMvcController {
         // buildXxxTab() call below still independently enforces with the real stage/item context.
         boolean nativeAuthority = authorizationService.hasNativeAuthority(user);
         boolean canViewIdeasTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_01_IDEA_REVIEW);
-        boolean canViewPlanningTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_03_PLANNING_REVIEW);
         boolean canViewShootTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_05_SHOOT_REVIEW);
         boolean canViewEditTab = nativeAuthority || authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_07_EDIT_REVIEW);
         if (user.resolvedAccessClass() == AccessClass.EMPLOYEE
-                && !(canViewIdeasTab || canViewPlanningTab || canViewShootTab || canViewEditTab)) {
+                && !(canViewIdeasTab || canViewShootTab || canViewEditTab)) {
             return "redirect:/app/home";
         }
         // A direct URL to a tab this viewer isn't authorized for falls back to one they are,
         // rather than silently rendering it.
         boolean requestedTabAllowed = switch (tab) {
-            case "planning" -> canViewPlanningTab;
             case "shoot" -> canViewShootTab;
             case "edit" -> canViewEditTab;
             default -> canViewIdeasTab;
         };
         if (!requestedTabAllowed) {
-            tab = canViewIdeasTab ? "ideas" : canViewPlanningTab ? "planning" : canViewShootTab ? "shoot" : "edit";
+            tab = canViewIdeasTab ? "ideas" : canViewShootTab ? "shoot" : "edit";
         }
         model.addAttribute("user", user);
         model.addAttribute("activeTab", tab);
         model.addAttribute("canViewIdeasTab", canViewIdeasTab);
-        model.addAttribute("canViewPlanningTab", canViewPlanningTab);
         model.addAttribute("canViewShootTab", canViewShootTab);
         model.addAttribute("canViewEditTab", canViewEditTab);
 
         List<Idea> pendingIdeas = ideaRepository.findByWorkflowInstance_CurrentStatusCodeOrderBySubmittedAtAsc(WorkflowStatus.PA);
         List<ContentPlan> allPlans = contentPlanRepository.findAllWithPreparedByOrderByCreatedAtDesc();
         model.addAttribute("ideasPendingCount", pendingIdeas.size());
-        model.addAttribute("planningPendingCount", countByStatus(allPlans, WorkflowStatus.PLRV));
         model.addAttribute("shootPendingCount", countByStatus(allPlans, WorkflowStatus.SRV));
         model.addAttribute("editPendingCount", countByStatus(allPlans, WorkflowStatus.ERV));
 
         switch (tab) {
-            case "planning" -> buildPlanTab(user, allPlans, WorkflowStatus.PLRV, GateType.PLANNING_REVIEW,
-                    OperationalPermission.PERM_03_PLANNING_REVIEW, q, mode, priority, false, selectedId, page, pageSize, model);
             case "shoot" -> buildPlanTab(user, allPlans, WorkflowStatus.SRV, GateType.SHOOT_REVIEW,
                     OperationalPermission.PERM_05_SHOOT_REVIEW, q, null, null, delayedOnly, selectedId, page, pageSize, model);
             case "edit" -> buildPlanTab(user, allPlans, WorkflowStatus.ERV, GateType.EDIT_REVIEW,
@@ -289,10 +289,30 @@ public class ReviewsMvcController {
         String latestTrigger = lifecycle.isEmpty() ? null : lifecycle.get(0).getTriggerCommand();
         String label = IdeaMvcController.statusLabel(idea.getWorkflowInstance().getCurrentStatusCode(), latestTrigger);
         model.addAttribute("selectedIdea", idea);
+        // CEO/Marketing Manager only (native authority) - see IdeaService#updateDescription. Same
+        // gate as IdeaMvcController#detail's identical attribute for idea-detail.jsp's own modal.
+        model.addAttribute("canEditIdeaDescription", authorizationService.hasNativeAuthority(user));
         model.addAttribute("ideaStatusLabel", label);
         model.addAttribute("ideaStatusCssClass", IdeaMvcController.statusCssClass(label));
         model.addAttribute("ideaStatusHistory", IdeaMvcController.toHistoryEvents(lifecycle));
         model.addAttribute("canDecideSelected", retainedView ? canReopenIdea(user, idea) : canDecideIdea(user, idea));
+
+        // Workflow redesign: Planning's former input set is collected right here, in the same
+        // Approve flow, mirroring IdeaMvcController#detail's identical block exactly.
+        if (!retainedView) {
+            model.addAttribute("priorities", ContentPriority.values());
+            model.addAttribute("planningModes", PlanningMode.values());
+            model.addAttribute("outputTypes", OutputType.values());
+            model.addAttribute("modelUsers", assigneeWorkloadCountService.withModelCounts(
+                    userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
+            model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
+                    operationalEligibilityService.shootExecutionCandidates(idea.getWorkflowInstance())));
+            List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
+            model.addAttribute("activePublicationTargets", activeTargets);
+            model.addAttribute("activePlatformNames", activeTargets.stream()
+                    .map(t -> t.getPlatform().getPlatformName()).distinct().sorted().toList());
+            model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
+        }
     }
 
     private List<WorkflowTransitionHistory> ideaLifecycleHistoryDesc(Idea idea) {
@@ -315,14 +335,53 @@ public class ReviewsMvcController {
         }
     }
 
+    /**
+     * Workflow redesign: Approve now carries the full merged Planning-details set (Category,
+     * Priority, Schedule, Folder Link, Outputs, Publication Scope, Models, initial Shoot Team) right
+     * here - the exact same param list/DTO-construction {@code IdeaMvcController#decide} already
+     * uses, just AJAX rather than a full-page form POST. Reject and Retain need no planning data.
+     */
     @PostMapping("/ideas/{id}/decision")
     public ResponseEntity<?> decideIdea(@PathVariable UUID id, @RequestParam IdeaReviewDecision decision,
                                          @RequestParam(required = false) String reason,
                                          @RequestParam(required = false) BigDecimal cameramanMark,
                                          @RequestParam(required = false) BigDecimal editorMark,
+                                         @RequestParam(required = false) BigDecimal modelMark,
+                                         @RequestParam(required = false) String categoryText,
+                                         @RequestParam(required = false) ContentPriority contentPriority,
+                                         @RequestParam(required = false) String skuReference,
+                                         @RequestParam(required = false) PlanningMode planningMode,
+                                         @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate plannedLiveDate,
+                                         @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate shootDate,
+                                         @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate editDate,
+                                         @RequestParam(required = false) String urgencyReason,
+                                         @RequestParam(required = false) String folderLink,
+                                         @RequestParam(required = false) List<UUID> modelUserIds,
+                                         @RequestParam(required = false) String outputsJson,
+                                         @RequestParam(required = false) List<UUID> camerapersonUserIds,
+                                         @RequestParam(required = false) UUID leadCamerapersonUserId,
                                          @AuthenticationPrincipal KcpcUserPrincipal principal, HttpServletRequest request) {
+        // SKU Reference has no separate "N/A" checkbox in the UI - leaving it blank simply IS N/A,
+        // mirrors IdeaMvcController#decide exactly.
+        boolean skuNotApplicable = skuReference == null || skuReference.isBlank();
+        // Unlike IdeaMvcController#decide's single set of output @RequestParams, this panel's
+        // Planned Outputs table can hold any number of output groups - the JS serializes its
+        // in-memory table state to JSON rather than trying to encode a variable-length list as
+        // indexed form params (which Spring @RequestParam binding does not support).
+        List<com.kcpc.mkt.idea.dto.PlanningOutputRequest> outputs;
         try {
-            ideaService.decide(principal.user(), id, decision, reason, cameramanMark, editorMark);
+            outputs = outputsJson == null || outputsJson.isBlank() ? List.of()
+                    : objectMapper.readValue(outputsJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<com.kcpc.mkt.idea.dto.PlanningOutputRequest>>() { });
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return ResponseEntity.badRequest().body(Map.of("status", "error", "message", "Planned Outputs could not be read."));
+        }
+        PlanningApprovalRequest planning = decision != IdeaReviewDecision.APPROVE ? null : new PlanningApprovalRequest(
+                categoryText, contentPriority, skuReference, skuNotApplicable, planningMode, plannedLiveDate,
+                shootDate, editDate, urgencyReason, folderLink, modelUserIds, outputs,
+                camerapersonUserIds, leadCamerapersonUserId);
+        try {
+            ideaService.decide(principal.user(), id, decision, reason, cameramanMark, editorMark, modelMark, planning);
             return ResponseEntity.ok(Map.of("status", "ok"));
         } catch (DomainException e) {
             return ajaxError(e, request);
@@ -413,21 +472,17 @@ public class ReviewsMvcController {
         model.addAttribute("reviewHistory", reviewHistory(plan, gateType));
         model.addAttribute("pendingSubmittedAt", pendingSubmittedAt(plan, gateType));
 
-        if (gateType == GateType.PLANNING_REVIEW) {
-            List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
-            Map<OutputType, Long> countsByType = outputs.stream()
-                    .collect(Collectors.groupingBy(PlannedOutput::getOutputType, Collectors.counting()));
-            List<ReelType> reelTypes = outputs.stream().map(PlannedOutput::getReelType)
-                    .filter(Objects::nonNull).distinct().sorted().toList();
-            model.addAttribute("outputCountsByType", countsByType);
-            model.addAttribute("outputReelTypes", reelTypes);
-            model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
-            model.addAttribute("shootingAssignments", shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
-        } else if (gateType == GateType.SHOOT_REVIEW) {
+        if (gateType == GateType.SHOOT_REVIEW) {
             model.addAttribute("shootingAssignments", shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
             model.addAttribute("talentEntries", talentEntryRepository.findByContentPlan(plan));
             model.addAttribute("qualifyingParticipants", dedupeByUser(
                     shootingParticipantRepository.findByContentPlan(plan), ShootingExecutionParticipant::getCameraperson));
+            // Approve & Assign Editor: the Editor Assignment section shown alongside the Approve
+            // decision needs the exact same permission-driven candidate list (PERM_19, not Business
+            // Role) as the standalone Assign Editor(s) action already uses - see
+            // OperationalEligibilityService/DeliverableMvcController#view.
+            model.addAttribute("editorCandidateUsers", assigneeWorkloadCountService.withEditCounts(
+                    operationalEligibilityService.editExecutionCandidates(plan.getWorkflowInstance())));
             // Manager review-consistency fix: Reviews -> Shoot must show the exact same Shoot
             // Comments thread as Content Detail -> Shoot (same StageCommentService call, same
             // canCommentOnShoot rule as DeliverableMvcController#view - never a second, reduced
@@ -442,6 +497,10 @@ public class ReviewsMvcController {
                     editingParticipantRepository.findByContentPlan(plan), EditingExecutionParticipant::getEditor));
             model.addAttribute("canSeeEditDescription",
                     allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
+            // Approve & Assign Publisher: same reasoning as editorCandidateUsers above, PERM_08
+            // execution-eligible candidates (mirrors the standalone Assign Publisher(s) action).
+            model.addAttribute("publisherCandidateUsers", assigneeWorkloadCountService.withPublishingCounts(
+                    operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance())));
             // Same review-consistency fix as Shoot above, for Edit.
             boolean canCommentOnEdit = nativeAuthority || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
                     .stream().anyMatch(a -> a.getEditor().getId().equals(user.getId()));
@@ -450,25 +509,16 @@ public class ReviewsMvcController {
         }
     }
 
-    @PostMapping("/planning/{id}/decision")
-    public ResponseEntity<?> decidePlanning(@PathVariable UUID id, @RequestParam boolean approve,
-                                             @RequestParam(required = false) String reason,
-                                             @AuthenticationPrincipal KcpcUserPrincipal principal, HttpServletRequest request) {
-        try {
-            planningService.decidePlanningReview(principal.user(), id, approve, reason);
-            return ResponseEntity.ok(Map.of("status", "ok"));
-        } catch (DomainException e) {
-            return ajaxError(e, request);
-        }
-    }
-
     @PostMapping("/shoot/{id}/decision")
     public ResponseEntity<?> decideShoot(@PathVariable UUID id, @RequestParam boolean approve,
                                           @RequestParam(required = false) String reason,
                                           @RequestParam(required = false) List<UUID> qualifyingRecipientUserIds,
+                                          @RequestParam(required = false) List<UUID> editorUserIds,
+                                          @RequestParam(required = false) UUID leadEditorUserId,
                                           @AuthenticationPrincipal KcpcUserPrincipal principal, HttpServletRequest request) {
         try {
-            shootingService.decideShootReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds);
+            shootingService.decideShootReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds,
+                    editorUserIds, leadEditorUserId);
             return ResponseEntity.ok(Map.of("status", "ok"));
         } catch (DomainException e) {
             return ajaxError(e, request);
@@ -479,9 +529,11 @@ public class ReviewsMvcController {
     public ResponseEntity<?> decideEdit(@PathVariable UUID id, @RequestParam boolean approve,
                                          @RequestParam(required = false) String reason,
                                          @RequestParam(required = false) List<UUID> qualifyingRecipientUserIds,
+                                         @RequestParam(required = false) List<UUID> publisherUserIds,
                                          @AuthenticationPrincipal KcpcUserPrincipal principal, HttpServletRequest request) {
         try {
-            editingService.decideEditReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds);
+            editingService.decideEditReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds,
+                    publisherUserIds);
             return ResponseEntity.ok(Map.of("status", "ok"));
         } catch (DomainException e) {
             return ajaxError(e, request);
@@ -501,8 +553,6 @@ public class ReviewsMvcController {
 
     private boolean isParticipant(ContentPlan plan, GateType gateType, User user) {
         return switch (gateType) {
-            case PLANNING_REVIEW -> planningPreparerRepository.findByContentPlan(plan).stream()
-                    .anyMatch(p -> p.getPreparer().getId().equals(user.getId()));
             case SHOOT_REVIEW -> shootingParticipantRepository.findByContentPlan(plan).stream()
                     .anyMatch(p -> p.getCameraperson().getId().equals(user.getId()));
             case EDIT_REVIEW -> editingParticipantRepository.findByContentPlan(plan).stream()
@@ -513,7 +563,6 @@ public class ReviewsMvcController {
 
     private LifecycleStage lifecycleStageFor(GateType gateType) {
         return switch (gateType) {
-            case PLANNING_REVIEW -> LifecycleStage.PLANNING;
             case SHOOT_REVIEW -> LifecycleStage.SHOOTING;
             case EDIT_REVIEW -> LifecycleStage.EDITING;
             default -> throw new IllegalArgumentException("Unsupported review gate: " + gateType);

@@ -45,6 +45,13 @@ public class User extends BaseEntity {
     @Column(name = "deactivated_at")
     private Instant deactivatedAt;
 
+    /** Set whenever the CEO issues a temporary password (Admin/CEO Password Reset); cleared once
+     * the employee actually sets their own new password. Never checked by any authorization rule
+     * beyond gating navigation to the forced Change Password screen (ForcePasswordChangeInterceptor) -
+     * the account itself remains fully active/usable for login throughout. */
+    @Column(name = "password_change_required", nullable = false)
+    private boolean passwordChangeRequired = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -86,6 +93,17 @@ public class User extends BaseEntity {
         this.passwordHash = newHash;
     }
 
+    /** Admin/CEO Password Reset: the employee must change their password before doing anything
+     * else on their next login. */
+    public void requirePasswordChangeOnNextLogin() {
+        this.passwordChangeRequired = true;
+    }
+
+    /** The employee has now set their own password - the forced-change screen no longer applies. */
+    public void clearPasswordChangeRequirement() {
+        this.passwordChangeRequired = false;
+    }
+
     public String getFullName() {
         return fullName;
     }
@@ -110,6 +128,10 @@ public class User extends BaseEntity {
 
     public Instant getDeactivatedAt() {
         return deactivatedAt;
+    }
+
+    public boolean isPasswordChangeRequired() {
+        return passwordChangeRequired;
     }
 
     public Instant getCreatedAt() {

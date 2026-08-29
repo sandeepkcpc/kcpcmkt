@@ -26,7 +26,6 @@ import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputPublicationTargetMappingRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
-import com.kcpc.mkt.planning.repository.PlanningPreparerRepository;
 import com.kcpc.mkt.planning.service.PlanningService;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.EditingExecutionParticipantRepository;
@@ -102,7 +101,6 @@ public class DeliverableMvcController {
     private final PlannedOutputPublicationTargetMappingRepository mappingRepository;
     private final PublicationTargetNaRecordRepository naRecordRepository;
     private final PublicationTargetRepository publicationTargetRepository;
-    private final PlanningPreparerRepository planningPreparerRepository;
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final ShootingExecutionParticipantRepository shootingParticipantRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
@@ -141,7 +139,6 @@ public class DeliverableMvcController {
                                      PlannedOutputPublicationTargetMappingRepository mappingRepository,
                                      PublicationTargetNaRecordRepository naRecordRepository,
                                      PublicationTargetRepository publicationTargetRepository,
-                                     PlanningPreparerRepository planningPreparerRepository,
                                      ShootingAssignmentRepository shootingAssignmentRepository,
                                      ShootingExecutionParticipantRepository shootingParticipantRepository,
                                      EditingAssignmentRepository editingAssignmentRepository,
@@ -175,7 +172,6 @@ public class DeliverableMvcController {
         this.mappingRepository = mappingRepository;
         this.naRecordRepository = naRecordRepository;
         this.publicationTargetRepository = publicationTargetRepository;
-        this.planningPreparerRepository = planningPreparerRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.shootingParticipantRepository = shootingParticipantRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -419,7 +415,6 @@ public class DeliverableMvcController {
                 && status != WorkflowStatus.COMP && status != WorkflowStatus.CAN);
 
         // Pending review cycles per gate (drives read-only vs review-gate rendering).
-        model.addAttribute("pendingPlanningReview", pendingCycle(plan, GateType.PLANNING_REVIEW));
         model.addAttribute("pendingShootReview", pendingCycle(plan, GateType.SHOOT_REVIEW));
         model.addAttribute("pendingEditReview", pendingCycle(plan, GateType.EDIT_REVIEW));
         // ENG-058: Rework Feedback block on the Shoot panel - the reason text ONLY if the most
@@ -433,22 +428,16 @@ public class DeliverableMvcController {
         // CEO/Marketing Manager's native (blanket, ungranted) authority is exempt, so a preparer
         // who happens to be CEO/Marketing Manager can still decide their own submission.
         boolean nativeAuthority = authorizationService.hasNativeAuthority(user);
-        boolean isPreparer = planningPreparerRepository.findByContentPlan(plan).stream()
-                .anyMatch(p -> p.getPreparer().getId().equals(user.getId()));
         boolean isShootParticipant = shootingParticipantRepository.findByContentPlan(plan).stream()
                 .anyMatch(p -> p.getCameraperson().getId().equals(user.getId()));
         boolean isEditParticipant = editingParticipantRepository.findByContentPlan(plan).stream()
                 .anyMatch(p -> p.getEditor().getId().equals(user.getId()));
-        boolean planningSelfReviewBlocked = isPreparer && !nativeAuthority;
         boolean shootSelfReviewBlocked = isShootParticipant && !nativeAuthority;
         boolean editSelfReviewBlocked = isEditParticipant && !nativeAuthority;
 
         // Permission-gated visibility flags - server re-validates unconditionally on every POST.
         model.addAttribute("canPlanningExecute", allowed(user, OperationalPermission.PERM_02_PLANNING_EXECUTION, LifecycleStage.PLANNING, plan));
         model.addAttribute("canAssignCameraperson", allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan));
-        boolean canDecidePlanning = allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan) && !planningSelfReviewBlocked;
-        model.addAttribute("canDecidePlanningReview", canDecidePlanning);
-        model.addAttribute("planningSelfReviewBlocked", planningSelfReviewBlocked);
 
         // ENG-043: Start/Submit are hands-on execution, not management - restricted to an actively
         // assigned Cameraperson/Editor/Publisher only. CEO/MM's native authority deliberately does
@@ -487,11 +476,12 @@ public class DeliverableMvcController {
         // native-only, matching ENG-044); comment authorship matches whoever's currently the
         // active assignee for that stage (or native), mirrored server-side in
         // StageCommentService#requireCommentAuthority - these flags are UI-visibility only.
-        // ENG-048: Shoot Instructions is ALSO editable by a Planning Approver (PERM_03), not just
-        // PERM_04, mirrored in PlanningService#requireShootDescriptionAuthority - so it can be
-        // shown/edited on the Planning Review Decision screen too, not only during Planning itself.
-        model.addAttribute("canEditShootDescription", allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan)
-                || allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan));
+        // Workflow redesign: Shoot Instructions used to also be editable by a Planning Approver
+        // for the (now-removed) Planning Review Decision screen. PlanningService#requireShootDescriptionAuthority
+        // was simplified to drop that fallback, so this UI flag matches it (native authority or
+        // PERM_04 only).
+        model.addAttribute("canEditShootDescription",
+                allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan));
         model.addAttribute("canEditEditDescription", allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
         model.addAttribute("canEditPublishingDescription", nativeAuthority);
         boolean canCommentOnShoot = nativeAuthority || shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
@@ -575,9 +565,6 @@ public class DeliverableMvcController {
         // authority/participation on THIS plan - never the full Overview..Timeline set for every
         // viewer regardless of what they can do. The lifecycle stepper (always full, read-only
         // orientation) is deliberately untouched by this - it never gates on any of these flags.
-        boolean canSeePlanningTab = nativeAuthority
-                || allowed(user, OperationalPermission.PERM_02_PLANNING_EXECUTION, LifecycleStage.PLANNING, plan)
-                || allowed(user, OperationalPermission.PERM_03_PLANNING_REVIEW, LifecycleStage.PLANNING, plan);
         boolean canSeeShootTab = nativeAuthority
                 || allowed(user, OperationalPermission.PERM_04_SHOOT_ASSIGNMENT, LifecycleStage.PLANNING, plan)
                 || allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan)
@@ -603,17 +590,15 @@ public class DeliverableMvcController {
         // never implied just because the viewer can see some other stage tab.
         boolean canSeeTimeline = nativeAuthority
                 || allowed(user, OperationalPermission.PERM_16_AUDIT_HISTORY_VIEW, LifecycleStage.ADMINISTRATIVE, plan);
-        model.addAttribute("canSeePlanningTab", canSeePlanningTab);
         model.addAttribute("canSeeShootTab", canSeeShootTab);
         model.addAttribute("canSeeEditTab", canSeeEditTab);
         model.addAttribute("canSeePublishingTab", canSeePublishingTab);
         model.addAttribute("canSeePerformanceTab", canSeePerformanceTab);
         model.addAttribute("canSeeTimeline", canSeeTimeline);
         // Requested tab falls back to Overview (always visible) if this viewer can't actually see it -
-        // e.g. a stale/direct ?tab=planning link for an HR employee with no Planning authority.
+        // e.g. a stale/direct ?tab=shoot link for someone with no Shoot authority.
         String requestedTab = (String) model.getAttribute("activeTab");
         boolean requestedTabVisible = switch (requestedTab) {
-            case "planning" -> canSeePlanningTab;
             case "shoot" -> canSeeShootTab;
             case "edit" -> canSeeEditTab;
             case "publishing" -> canSeePublishingTab;
@@ -720,17 +705,14 @@ public class DeliverableMvcController {
 
     /**
      * ENG-082: combined Review Feedback History for the CEO/MM management shell - every DECIDED
-     * cycle across Planning, Shoot, and Edit (never Publishing - no review gate exists for it),
-     * newest first. Reuses {@link ShootFeedbackEntry} (already gate-agnostic in shape) with its
-     * ENG-082 {@code reviewStage}/{@code cycleNumber} fields identifying which gate/cycle each row
-     * is - the same reviewer-batch-fetch and lead-detection pattern already used by
-     * {@link #addShootTaskDetailAttributes}/{@link #addEditTaskDetailAttributes}, just merging all
-     * three gates instead of one.
+     * cycle across Shoot and Edit (never Publishing - no review gate exists for it), newest first.
+     * Reuses {@link ShootFeedbackEntry} (already gate-agnostic in shape) with its ENG-082
+     * {@code reviewStage}/{@code cycleNumber} fields identifying which gate/cycle each row is - the
+     * same reviewer-batch-fetch and lead-detection pattern already used by
+     * {@link #addShootTaskDetailAttributes}/{@link #addEditTaskDetailAttributes}, just merging both
+     * gates instead of one.
      */
     private List<ShootFeedbackEntry> buildReviewFeedbackHistory(ContentPlan plan) {
-        List<ReviewCycle> planningDecided = reviewCycleRepository
-                .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.PLANNING_REVIEW)
-                .stream().filter(c -> c.getDecidedAt() != null).toList();
         List<ReviewCycle> shootDecided = reviewCycleRepository
                 .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.SHOOT_REVIEW)
                 .stream().filter(c -> c.getDecidedAt() != null).toList();
@@ -738,7 +720,7 @@ public class DeliverableMvcController {
                 .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(plan.getWorkflowInstance(), GateType.EDIT_REVIEW)
                 .stream().filter(c -> c.getDecidedAt() != null).toList();
 
-        java.util.Set<UUID> reviewerIds = java.util.stream.Stream.of(planningDecided, shootDecided, editDecided)
+        java.util.Set<UUID> reviewerIds = java.util.stream.Stream.of(shootDecided, editDecided)
                 .flatMap(List::stream).map(ReviewCycle::getReviewer).filter(java.util.Objects::nonNull)
                 .map(User::getId).collect(java.util.stream.Collectors.toSet());
         Map<UUID, User> reviewersById = reviewerIds.isEmpty() ? Map.of()
@@ -753,7 +735,6 @@ public class DeliverableMvcController {
         UUID editLeadId = editLead == null ? null : editLead.getEditor().getId();
 
         List<ShootFeedbackEntry> combined = new ArrayList<>();
-        combined.addAll(toFeedbackEntries(planningDecided, "Planning Review", null, reviewersById));
         combined.addAll(toFeedbackEntries(shootDecided, "Shoot Review", shootLeadId, reviewersById));
         combined.addAll(toFeedbackEntries(editDecided, "Edit Review", editLeadId, reviewersById));
         return combined.stream()
@@ -804,20 +785,16 @@ public class DeliverableMvcController {
         List<com.kcpc.mkt.web.mvc.dto.AvailableAction> actions = new ArrayList<>();
         Map<String, Object> attrs = model.asMap();
 
-        // Primary: whichever review gate is currently pending decision for this user. Planning
-        // Review is a plain boolean decision (PlanningService#decidePlanningReview takes no extra
-        // selection), so its Action Center form is genuinely complete and stays here. Shoot/Edit
-        // Review are NOT plain boolean decisions - approval requires selecting at least one
-        // qualifying final Cameraperson/Editor (ShootingService#decideShootReview,
-        // EditingService#decideEditReview both throw VALIDATION_FAILED without one), and that
-        // selection control only exists in the Shoot/Edit tabs' own canonical review UI - never
-        // duplicated here. Exposing APPROVE_SHOOT_REVIEW/APPROVE_EDIT_REVIEW here would be a
-        // dead-end action that always 400s, so Shoot/Edit review decisions live exclusively in
-        // their own stage tab (Content Detail -> Shoot/Edit, and Reviews -> Shoot/Edit).
-        if (Boolean.TRUE.equals(attrs.get("canDecidePlanningReview")) && status == WorkflowStatus.PLRV) {
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("APPROVE_PLANNING_REVIEW", "Approve Planning", "primary", "primary", false));
-            actions.add(new com.kcpc.mkt.web.mvc.dto.AvailableAction("REQUEST_REWORK_PLANNING_REVIEW", "Request Rework", "danger", "primary", true));
-        }
+        // Primary: whichever review gate is currently pending decision for this user. Workflow
+        // redesign: Planning Review (PLRV/PLAP) is no longer a reachable status for a new plan, so
+        // there is no Planning Review entry here any more. Shoot/Edit Review are NOT plain boolean
+        // decisions - approval requires selecting at least one qualifying final Cameraperson/Editor
+        // (ShootingService#decideShootReview, EditingService#decideEditReview both throw
+        // VALIDATION_FAILED without one), and that selection control only exists in the Shoot/Edit
+        // tabs' own canonical review UI - never duplicated here. Exposing
+        // APPROVE_SHOOT_REVIEW/APPROVE_EDIT_REVIEW here would be a dead-end action that always
+        // 400s, so Shoot/Edit review decisions live exclusively in their own stage tab (Content
+        // Detail -> Shoot/Edit, and Reviews -> Shoot/Edit).
 
         // Other actions - permission flags the old admin-actions bar used, ANDed with the actual
         // AvailableActionService eligibility rule for each action (never permission alone) - the
@@ -1176,80 +1153,11 @@ public class DeliverableMvcController {
         return skuReference == null || skuReference.isBlank();
     }
 
-    /** Single-form Planning submission: Parameters + Schedule (Standard or Urgent) in one POST. */
-    @PostMapping("/plan")
-    public String savePlan(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
-                            @RequestParam(required = false) ContentPriority contentPriority,
-                            @RequestParam(required = false) String skuReference,
-                            @RequestParam(required = false) List<UUID> modelUserIds,
-                            @RequestParam(required = false) String folderLink,
-                            @RequestParam PlanningMode planningMode,
-                            @RequestParam LocalDate plannedLiveDate,
-                            @RequestParam(required = false) LocalDate shootDate,
-                            @RequestParam(required = false) LocalDate editDate,
-                            @RequestParam(required = false) String urgencyReason,
-                            @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
-        List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
-        try {
-            planningService.savePlan(principal.user(), id, categoryText, contentPriority, skuReference,
-                    isSkuBlank(skuReference), talentSelections, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
-                    urgencyReason);
-            ra.addFlashAttribute("successMessage", "Plan saved.");
-        } catch (DomainException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
-        }
-        return redirect(id);
-    }
-
-    /**
-     * Planning Workspace UI has one form and one button: Planning Details is
-     * {@code <form id="planning-details-form">} with no submit button of its own; the single
-     * "Submit for Planning Review" button at the bottom of the page references it via the HTML5
-     * {@code form="..."} attribute. Shoot Assignment is no longer part of this form or this request
-     * at all - it is managed exclusively (and takes effect immediately) from the Shoot tab's own
-     * dedicated endpoints, so a PERM_04-only delegated employee has a working entry point too, not
-     * just a canPlanningExecute+PERM_04 combination. This endpoint only saves Planning Details and
-     * submits for review; {@link PlanningService#submitPlanningReview} rejects the submission (with
-     * a clear message pointing back to the Shoot tab) if Shoot setup isn't already complete.
-     */
-    /**
-     * ENG-051: AJAX-aware so a validation failure (e.g. Urgency Reason missing for an Urgent plan)
-     * doesn't force a full-page redirect that discards everything else the user had filled in -
-     * planning-submit.js submits this via fetch first and only lets the browser navigate on success;
-     * the plain-form fallback (no JS) still works exactly as before, redirect and all.
-     */
-    @PostMapping("/plan-submit")
-    public Object savePlanAndSubmit(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
-                                     @RequestParam(required = false) ContentPriority contentPriority,
-                                     @RequestParam(required = false) String skuReference,
-                                     @RequestParam(required = false) List<UUID> modelUserIds,
-                                     @RequestParam(required = false) String folderLink,
-                                     @RequestParam PlanningMode planningMode,
-                                     @RequestParam LocalDate plannedLiveDate,
-                                     @RequestParam(required = false) LocalDate shootDate,
-                                     @RequestParam(required = false) LocalDate editDate,
-                                     @RequestParam(required = false) String urgencyReason,
-                                     @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
-                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
-                                     jakarta.servlet.http.HttpServletRequest request) {
-        List<TalentSelection> talentSelections = resolveTalentSelections(modelUserIds);
-        try {
-            planningService.savePlanAssignAndSubmit(principal.user(), id, categoryText, contentPriority, skuReference,
-                    isSkuBlank(skuReference), talentSelections, folderLink, planningMode, plannedLiveDate, shootDate, editDate,
-                    urgencyReason);
-            if (isAjax(requestedWith)) {
-                return ResponseEntity.ok().build();
-            }
-            ra.addFlashAttribute("successMessage", "Plan saved and submitted for Planning Review.");
-        } catch (DomainException e) {
-            if (isAjax(requestedWith)) {
-                return ResponseEntity.status(e.getHttpStatus()).body(com.kcpc.mkt.common.error.ApiErrorResponse.of(
-                        e.getErrorCode(), "Nothing was saved: " + e.getMessage(), request.getRequestURI()));
-            }
-            ra.addFlashAttribute("errorMessage", "Nothing was saved: " + e.getMessage());
-        }
-        return redirect(id);
-    }
+    // NOTE (workflow redesign): the old single-form Planning submission ("/plan" savePlan and
+    // "/plan-submit" savePlanAssignAndSubmit -> Planning Review) is removed - a Content Plan is now
+    // created already fully planned inside IdeaService#approve, so there is no more "save Planning
+    // Details, then separately submit for Planning Review" step. Ongoing edits to already-planned
+    // fields still go through updateParameters/setStandardSchedule/setUrgentSchedule below.
 
     @PostMapping("/parameters")
     public String updateParameters(@PathVariable UUID id, @RequestParam(required = false) String categoryText,
@@ -1628,31 +1536,6 @@ public class DeliverableMvcController {
         return redirect(id);
     }
 
-    @PostMapping("/planning-review/submit")
-    public String submitPlanningReview(@PathVariable UUID id, @AuthenticationPrincipal KcpcUserPrincipal principal,
-                                        RedirectAttributes ra) {
-        try {
-            planningService.submitPlanningReview(principal.user(), id);
-            ra.addFlashAttribute("successMessage", "Submitted for Planning Review.");
-        } catch (DomainException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
-        }
-        return redirect(id);
-    }
-
-    @PostMapping("/planning-review/decision")
-    public String decidePlanningReview(@PathVariable UUID id, @RequestParam boolean approve,
-                                        @RequestParam(required = false) String reason,
-                                        @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
-        try {
-            planningService.decidePlanningReview(principal.user(), id, approve, reason);
-            ra.addFlashAttribute("successMessage", "Planning Review decision recorded.");
-        } catch (DomainException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
-        }
-        return redirect(id);
-    }
-
     // -------------------------------------------------------------- Shoot
 
     @PostMapping("/shooting/start")
@@ -1683,9 +1566,12 @@ public class DeliverableMvcController {
     public String decideShootReview(@PathVariable UUID id, @RequestParam boolean approve,
                                      @RequestParam(required = false) String reason,
                                      @RequestParam(required = false) List<UUID> qualifyingRecipientUserIds,
+                                     @RequestParam(required = false) List<UUID> editorUserIds,
+                                     @RequestParam(required = false) UUID leadEditorUserId,
                                      @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            shootingService.decideShootReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds);
+            shootingService.decideShootReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds,
+                    editorUserIds, leadEditorUserId);
             ra.addFlashAttribute("successMessage", "Shoot Review decision recorded.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());
@@ -1932,9 +1818,11 @@ public class DeliverableMvcController {
     public String decideEditReview(@PathVariable UUID id, @RequestParam boolean approve,
                                     @RequestParam(required = false) String reason,
                                     @RequestParam(required = false) List<UUID> qualifyingRecipientUserIds,
+                                    @RequestParam(required = false) List<UUID> publisherUserIds,
                                     @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            editingService.decideEditReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds);
+            editingService.decideEditReview(principal.user(), id, approve, reason, qualifyingRecipientUserIds,
+                    publisherUserIds);
             ra.addFlashAttribute("successMessage", "Edit Review decision recorded.");
         } catch (DomainException e) {
             ra.addFlashAttribute("errorMessage", e.getMessage());

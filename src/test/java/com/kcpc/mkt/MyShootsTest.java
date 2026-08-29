@@ -53,20 +53,15 @@ class MyShootsTest {
         String model3 = createUser(ceo, "Riya Verma " + unique, model3Email, MODEL_ROLE_ID);
 
         // Upcoming plan: model1 + model2, future planned shoot date (standard schedule).
-        ContentPlan upcomingPlan = createApprovedPlan(ceo, "My Shoots Upcoming Idea " + unique);
+        ContentPlan upcomingPlan = createApprovedPlan(ceo, "My Shoots Upcoming Idea " + unique,
+                java.util.List.of(model1, model2));
         String upcomingBase = "/app/deliverables/" + upcomingPlan.getId();
-        assertRedirect(ceo.postFormMulti(upcomingBase + "/parameters", Map.of(
-                "contentPriority", java.util.List.of("MEDIUM"),
-                "modelUserIds", java.util.List.of(model1, model2))));
         String futureLiveDate = LocalDate.now().plusDays(20).toString();
         assertRedirect(ceo.postForm(upcomingBase + "/schedule/standard", Map.of("plannedLiveDate", futureLiveDate)));
 
         // Past plan: model1 only, explicit past shoot date (urgent schedule).
-        ContentPlan pastPlan = createApprovedPlan(ceo, "My Shoots Past Idea " + unique);
+        ContentPlan pastPlan = createApprovedPlan(ceo, "My Shoots Past Idea " + unique, java.util.List.of(model1));
         String pastBase = "/app/deliverables/" + pastPlan.getId();
-        assertRedirect(ceo.postFormMulti(pastBase + "/parameters", Map.of(
-                "contentPriority", java.util.List.of("MEDIUM"),
-                "modelUserIds", java.util.List.of(model1))));
         String pastShootDate = LocalDate.now().minusDays(5).toString();
         String pastEditDate = LocalDate.now().minusDays(2).toString();
         String futureLiveDate2 = LocalDate.now().plusDays(3).toString();
@@ -89,7 +84,9 @@ class MyShootsTest {
         assertThat(body).contains(upcomingPlan.getContentId());
         assertThat(body).contains("Neha Kapoor " + unique); // other talent on the upcoming plan
         assertThat(body).doesNotContain("Aisha Sharma " + unique + "</td>"); // never lists self as "Other Talent"
-        assertThat(body).contains(">Planning<"); // raw WorkflowStatus name - still PL, planning review was never submitted
+        // Workflow redesign: approval now lands directly on Shoot Assigned (SA) - raw WorkflowStatus
+        // name, never a friendly per-stage relabel (a Model isn't executing a specific stage).
+        assertThat(body).contains(">Shoot Assigned<");
 
         // Past tab: this plan's row too - model1 is linked, shoot date is in the past.
         assertThat(body).contains(pastPlan.getContentId());
@@ -115,12 +112,29 @@ class MyShootsTest {
         assertThat(camMyWork.body()).contains(">My Work<").doesNotContain(">My Shoots<");
     }
 
-    private ContentPlan createApprovedPlan(TestApiClient ceo, String ideaTitle) throws Exception {
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson and now
+     * also carries Model(s)/Talent directly - a throwaway cameraperson keeps this out of the
+     * caller's own model-specific assertions. */
+    private ContentPlan createApprovedPlan(TestApiClient ceo, String ideaTitle, java.util.List<String> modelUserIds) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String camId = createUser(ceo, "My Shoots Default Cam " + unique, "ms-default-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"my shoots test fixture grant\"}");
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertRedirect(ceo.postForm("/app/ideas/" + idea.getId() + "/review",
-                Map.of("decision", "APPROVE", "cameramanMark", "1.0", "editorMark", "1.0")));
+        java.util.Map<String, java.util.List<String>> reviewParams = new java.util.HashMap<>();
+        reviewParams.put("decision", java.util.List.of("APPROVE"));
+        reviewParams.put("cameramanMark", java.util.List.of("1.0"));
+        reviewParams.put("editorMark", java.util.List.of("1.0"));
+        reviewParams.put("modelMark", java.util.List.of("1.0"));
+        reviewParams.put("contentPriority", java.util.List.of("MEDIUM"));
+        reviewParams.put("plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()));
+        reviewParams.put("folderLink", java.util.List.of("https://drive.example.com/my-shoots-" + unique));
+        reviewParams.put("camerapersonUserIds", java.util.List.of(camId));
+        reviewParams.put("modelUserIds", modelUserIds);
+        assertRedirect(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", reviewParams));
         return contentPlanRepository.findByIdea(idea).orElseThrow();
     }
 

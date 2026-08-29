@@ -12,6 +12,13 @@
  * scratch on every change, same approach as assignment-picker.js's refreshLeadOptions), so picking
  * a Lead is always restricted to people currently selected, with no separate save step - everything
  * submits together with the checkboxes when the surrounding form is submitted.
+ *
+ * Exposed as window.initModelPickers(root) - the initial full-page load below calls it with
+ * `document`; the Reviews Workspace (an AJAX partial-swap page, reviews-workspace.js) calls it
+ * again with the freshly-swapped region on every load, since a picker inserted via
+ * `region.innerHTML = html` after this script's own initial run would otherwise never get wired up.
+ * Re-running is safe: initPicker() only ever attaches listeners to elements inside the given root,
+ * never touches anything outside it, and a root with no `.kcpc-model-picker` is a no-op.
  */
 (function () {
     function initPicker(picker) {
@@ -134,8 +141,13 @@
         refreshLeadOptions();
     }
 
-    var pickers = document.querySelectorAll('.kcpc-model-picker');
-    for (var p = 0; p < pickers.length; p++) {
-        initPicker(pickers[p]);
+    function initModelPickers(root) {
+        var pickers = (root || document).querySelectorAll('.kcpc-model-picker');
+        for (var p = 0; p < pickers.length; p++) {
+            initPicker(pickers[p]);
+        }
     }
+
+    window.initModelPickers = initModelPickers;
+    initModelPickers(document);
 })();

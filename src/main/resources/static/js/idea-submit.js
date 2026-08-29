@@ -83,10 +83,20 @@
         counter.classList.toggle('char-counter-near-limit', length >= limit * 0.9 && length < limit);
     }
 
+    // Idea Description / Details (notesRemarks) has no length limit - unlimited-length script
+    // content is a supported use case, so this only ever shows a running count, never a cap.
+    function setUnboundedCounter(field) {
+        var counter = form.querySelector('.char-counter[data-counter-for="' + field.id + '"]');
+        if (!counter) {
+            return;
+        }
+        counter.textContent = field.value.length + ' characters';
+    }
+
     setCounter(titleField, 120);
-    setCounter(notesRemarksField, 500);
+    setUnboundedCounter(notesRemarksField);
     titleField.addEventListener('input', function () { setCounter(titleField, 120); });
-    notesRemarksField.addEventListener('input', function () { setCounter(notesRemarksField, 500); });
+    notesRemarksField.addEventListener('input', function () { setUnboundedCounter(notesRemarksField); });
 
     form.addEventListener('submit', function (event) {
         var titleOk = validateTitle();
@@ -115,7 +125,7 @@
             clearFieldError(titleField);
             clearFieldError(referenceLinkField);
             setCounter(titleField, 120);
-            setCounter(notesRemarksField, 500);
+            setUnboundedCounter(notesRemarksField);
         }, 0);
     });
 })();

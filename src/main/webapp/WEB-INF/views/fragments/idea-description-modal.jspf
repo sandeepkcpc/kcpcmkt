@@ -1,0 +1,60 @@
+<%-- Idea Description view/edit modal (the note-icon trigger button is a separate include,
+     fragments/idea-description-modal-trigger.jspf, since each page places it in its own layout).
+     Shared by idea-detail.jsp (a real <form>, plain POST/redirect) and the Reviews Workspace's
+     identical panel (reviews-ideas.jspf, AJAX via script-description-modal.js) - the caller sets
+     these variables with <c:set> immediately before including this fragment:
+       ideaDescModalIdea      - the Idea entity (.id / .title / .notesRemarks)
+       ideaDescModalCanEdit   - boolean, CEO/Marketing Manager only (native authority - see
+                                IdeaService#updateDescription, which enforces this independently)
+       ideaDescModalAjax      - boolean, true only for the Reviews Workspace's AJAX-swapped copy
+       ideaDescModalAlwaysShow - boolean, optional; when true the modal renders even with no
+                                description yet (read-only view shows "No description added yet."
+                                instead of blank) - set by the Reviews Workspace's "Reviewing Idea"
+                                card only; idea-detail.jsp leaves this unset, keeping its own icon/
+                                modal conditional on a description already existing, as before.
+
+     This is a VIEW+EDIT of an existing (or, with ideaDescModalAlwaysShow, possibly not-yet-
+     existing) description - the original submitted text is never lost on Save:
+     IdeaService#updateDescription preserves the prior/new pair in an append-only
+     idea_description_corrections row before updating the Idea's own field. The inline value next
+     to the note icon (wherever the caller renders it) stays a short preview, never the raw
+     unlimited-length text itself - only this modal ever shows the complete text. --%>
+<c:if test="${not empty ideaDescModalIdea.notesRemarks or ideaDescModalAlwaysShow}">
+    <div class="kcpc-modal-overlay hidden" id="scriptDescriptionModalOverlay">
+        <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="scriptDescriptionModalTitle">
+            <div class="kcpc-modal-header">
+                <h3 id="scriptDescriptionModalTitle">&#128221; <c:out value="${ideaDescModalIdea.title}"/></h3>
+                <div class="script-description-modal-actions">
+                    <c:if test="${ideaDescModalCanEdit}">
+                        <button type="button" class="script-description-icon-btn" id="scriptDescriptionEditToggle"
+                                aria-label="Edit Idea Description" title="Edit Idea Description">&#9998;</button>
+                    </c:if>
+                    <button type="button" class="kcpc-modal-close" id="scriptDescriptionModalClose" aria-label="Close">&times;</button>
+                </div>
+            </div>
+            <div class="kcpc-modal-body">
+                <pre class="script-description-text" id="scriptDescriptionViewBody"><c:choose><c:when test="${not empty ideaDescModalIdea.notesRemarks}"><c:out value="${ideaDescModalIdea.notesRemarks}"/></c:when><c:otherwise>No description added yet.</c:otherwise></c:choose></pre>
+
+                <c:if test="${ideaDescModalCanEdit}">
+                    <form method="post" class="script-description-edit-form hidden" id="scriptDescriptionEditForm"
+                          action="${pageContext.request.contextPath}/app/ideas/${ideaDescModalIdea.id}/description"
+                          data-ajax="${ideaDescModalAjax}">
+                        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                        <label>Description
+                            <textarea name="description" id="scriptDescriptionEditTextarea" rows="6"><c:out value="${ideaDescModalIdea.notesRemarks}"/></textarea>
+                        </label>
+                        <label>Update Reason *
+                            <textarea name="correctionReason" id="scriptDescriptionReasonTextarea" rows="2"
+                                      placeholder="Why are you changing this?"></textarea>
+                        </label>
+                        <div class="reviews-decision-error hidden" id="scriptDescriptionEditError"></div>
+                        <div class="script-description-edit-actions">
+                            <button type="button" class="btn-outline" id="scriptDescriptionEditCancel">Cancel</button>
+                            <button type="submit">Save Changes</button>
+                        </div>
+                    </form>
+                </c:if>
+            </div>
+        </div>
+    </div>
+</c:if>

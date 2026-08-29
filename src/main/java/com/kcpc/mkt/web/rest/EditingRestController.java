@@ -74,7 +74,7 @@ public class EditingRestController {
     public ResponseEntity<ContentPlanResponse> decide(@PathVariable UUID id, @RequestBody ReviewDecisionRequest request,
                                                         @AuthenticationPrincipal KcpcUserPrincipal principal) {
         var plan = editingService.decideEditReview(principal.user(), id, request.approve(), request.reason(),
-                request.qualifyingRecipientUserIds());
+                request.qualifyingRecipientUserIds(), request.publisherUserIds());
         return ResponseEntity.ok(ContentPlanResponse.from(plan));
     }
 }

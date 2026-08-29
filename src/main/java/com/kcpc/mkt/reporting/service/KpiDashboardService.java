@@ -98,7 +98,7 @@ public class KpiDashboardService {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
     private static final Set<String> NON_TERMINAL_EXCLUSIONS = Set.of("COMP", "CAN", "RJ");
     private static final List<String> REVIEW_GATE_NAMES =
-            List.of("PLANNING_REVIEW", "SHOOT_REVIEW", "EDIT_REVIEW");
+            List.of("SHOOT_REVIEW", "EDIT_REVIEW");
 
     /** V26: shared native-SQL join/filter for "this performance_obligations row (aliased po) is for
      * an eligible Instagram/Facebook publication record" - see {@link #performanceOverdueCount} for
@@ -236,8 +236,7 @@ public class KpiDashboardService {
 
     private static String stageLabel(WorkflowStatus status) {
         return switch (status) {
-            case PL, PLRV -> "Planning";
-            case PLAP, SA, SIP, SRV, SAP -> "Shoot";
+            case SA, SIP, SRV, SAP -> "Shoot";
             case EA, ED, ERV -> "Edit";
             case EAP, RFP, PUBG -> "Publishing";
             case PP, PFUP -> "Performance";
@@ -248,7 +247,7 @@ public class KpiDashboardService {
     /** Delegates to {@link StageDelayPolicy}, the single shared source of truth also used by
      * {@link PipelineDashboardService} (and, through it, {@code TeamWorkloadService}) - see
      * docs/KPI_DATA_RECONCILIATION_REPORT.md §1 for why this used to be a second, independent copy
-     * of that logic, and §2 for why Planning (PL, PLRV) deliberately returns {@code null} here. */
+     * of that logic. */
     private static LocalDate currentApprovedTarget(ContentPlan plan) {
         return StageDelayPolicy.currentApprovedTarget(plan.getWorkflowInstance().getCurrentStatusCode(), plan);
     }
@@ -267,25 +266,17 @@ public class KpiDashboardService {
                 .collect(Collectors.groupingBy(p -> stageLabel(p.getWorkflowInstance().getCurrentStatusCode()),
                         LinkedHashMap::new, Collectors.toList()));
         List<StageHealthRow> rows = new ArrayList<>();
-        for (String stage : List.of("Planning", "Shoot", "Edit", "Publishing", "Performance")) {
+        for (String stage : List.of("Shoot", "Edit", "Publishing", "Performance")) {
             List<ContentPlan> plans = byStage.getOrDefault(stage, List.of());
             long active = plans.size();
-            // Planning has no governed delay rule (docs/KPI_DATA_RECONCILIATION_REPORT.md §2) -
-            // Delayed and Within SLA % stay null ("-") rather than a fabricated count, even though
-            // active > 0. Every other stage's rule comes from StageDelayPolicy, which already
-            // returns null targets for Planning too - this flag makes that explicit and readable
-            // here rather than relying on every delayed-count happening to land on zero.
-            boolean delayGoverned = !"Planning".equals(stage);
             long delayedCount = 0;
             List<Double> ageDaysList = new ArrayList<>();
             double oldestAge = -1;
             String oldestContentId = null;
             for (ContentPlan plan : plans) {
-                if (delayGoverned) {
-                    LocalDate target = currentApprovedTarget(plan);
-                    if (target != null && target.isBefore(ctx.today)) {
-                        delayedCount++;
-                    }
+                LocalDate target = currentApprovedTarget(plan);
+                if (target != null && target.isBefore(ctx.today)) {
+                    delayedCount++;
                 }
                 Instant enteredCurrentStatus = mostRecentEntryIntoCurrentStatus(plan, ctx);
                 if (enteredCurrentStatus != null) {
@@ -297,13 +288,12 @@ public class KpiDashboardService {
                     }
                 }
             }
-            Long delayed = delayGoverned ? delayedCount : null;
-            Double withinSla = (!delayGoverned || active == 0) ? null
+            Double withinSla = active == 0 ? null
                     : BigDecimal.valueOf((active - delayedCount) * 100.0 / active).setScale(1, RoundingMode.HALF_UP).doubleValue();
             Double avgAge = ageDaysList.isEmpty() ? null
                     : ageDaysList.stream().mapToDouble(Double::doubleValue).average().orElse(0);
             Long oldestAgeDays = oldestAge < 0 ? null : Math.round(oldestAge);
-            rows.add(new StageHealthRow(stage, active, delayed, withinSla, avgAge, oldestAgeDays, oldestContentId));
+            rows.add(new StageHealthRow(stage, active, delayedCount, withinSla, avgAge, oldestAgeDays, oldestContentId));
         }
         return rows;
     }
@@ -469,7 +459,7 @@ public class KpiDashboardService {
         long performanceOverdue = performanceOverdueCount(ctx.today);
 
         List<StageHealthRow> stageHealth = stageHealth(ctx);
-        List<AttentionItem> attention = attentionItems(ctx, stageHealth, performanceOverdue);
+        List<AttentionItem> attention = attentionItems(ctx, performanceOverdue);
         IdeaFunnelDto funnel = ideaFunnel(ctx);
 
         return new OverviewDashboardDto(activeWip, delayed, onTime, publishedContent, avgEndToEnd, reworkRate,
@@ -516,7 +506,7 @@ public class KpiDashboardService {
     }
 
     /** Always a current-state snapshot (like Active WIP), never date-ranged - "how many reviews are
-     * pending right now." Idea/Planning/Shoot/Edit gates only - Publishing has no ReviewCycle gate. */
+     * pending right now." Idea/Shoot/Edit gates only - Publishing has no ReviewCycle gate. */
     private long pendingReviewsCount() {
         return scalarLong("select count(*) from review_cycles where decided_at is null", Map.of());
     }
@@ -543,16 +533,8 @@ public class KpiDashboardService {
 
     /** spec §9: real data only, clickable through to the existing operational screen - never a
      * duplicated detail view inside the KPI Dashboard itself. */
-    private List<AttentionItem> attentionItems(DashboardContext ctx, List<StageHealthRow> stageHealth,
-                                                long performanceOverdue) {
+    private List<AttentionItem> attentionItems(DashboardContext ctx, long performanceOverdue) {
         List<AttentionItem> items = new ArrayList<>();
-        StageHealthRow planning = stageHealth.stream().filter(r -> "Planning".equals(r.getStage())).findFirst().orElse(null);
-        // planning.getDelayed() is deliberately null (Planning's delay rule is not governed - see
-        // docs/KPI_DATA_RECONCILIATION_REPORT.md §2), so this can never surface a Planning item here.
-        if (planning != null && planning.getDelayed() != null && planning.getDelayed() > 0) {
-            items.add(new AttentionItem("items delayed in Planning", planning.getDelayed(),
-                    "/app/reports/delayed?stage=Planning"));
-        }
         long pendingOver2Days = scalarLong("select count(*) from review_cycles where decided_at is null "
                 + "and submitted_at < :cutoff", Map.of("cutoff", Instant.now().minus(2, ChronoUnit.DAYS)));
         if (pendingOver2Days > 0) {
@@ -602,13 +584,12 @@ public class KpiDashboardService {
                         + "on wi.workflow_instance_id = i.workflow_instance_id "
                         + "where wi.current_status_code = 'RJ' and i.submitted_at::date between :from and :to",
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
-        // "Planned" = the approved idea's plan has reached Planning Review or later (matches the
-        // existing KPI-013/014 "produced" precedent: past PL/PLRV means Planning Details were
-        // actually submitted, not just a bare plan shell created on approval).
-        long planned = scalarLong("select count(*) from content_plans cp join workflow_instances wi "
-                        + "on wi.workflow_instance_id = cp.workflow_instance_id join ideas i on i.idea_id = cp.idea_id "
-                        + "where wi.current_status_code not in ('PL','PLRV') "
-                        + "and i.submitted_at::date between :from and :to",
+        // "Planned" = the approved idea already has a Content Plan - Planning Details are captured
+        // atomically at Idea Review approval, so every Content Plan is created already fully planned
+        // and this is identical to the approved count.
+        long planned = scalarLong("select count(*) from content_plans cp "
+                        + "join ideas i on i.idea_id = cp.idea_id "
+                        + "where i.submitted_at::date between :from and :to",
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
         long published = scalarLong("select count(distinct e.content_plan_id) from actual_publication_events e "
                         + "join content_plans cp on cp.content_plan_id = e.content_plan_id "
@@ -661,16 +642,6 @@ public class KpiDashboardService {
 
         List<StageHealthRow> stageHealth = stageHealth(ctx);
 
-        Double planningTurnaround = scalarDouble(
-                "select avg(extract(epoch from (plap.ts - pl.ts)) / 86400.0) from ("
-                        + "  select workflow_instance_id, min(transition_timestamp) as ts "
-                        + "  from workflow_transition_history where to_status_code = 'PL' group by workflow_instance_id"
-                        + ") pl join (select workflow_instance_id, min(transition_timestamp) as ts "
-                        + "  from workflow_transition_history where to_status_code = 'PLAP' group by workflow_instance_id"
-                        + ") plap on plap.workflow_instance_id = pl.workflow_instance_id "
-                        + "where plap.ts >= pl.ts and plap.ts::date between :from and :to",
-                Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
-
         Double shootToPublish = scalarDouble(
                 "select avg(extract(epoch from (last_pub.max_ts - sap.first_sap)) / 86400.0) from ("
                         + "  select workflow_instance_id, min(transition_timestamp) as first_sap "
@@ -703,7 +674,7 @@ public class KpiDashboardService {
                         + "where event_type = 'REPOST' and actual_publication_timestamp::date between :from and :to",
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
 
-        return new WorkflowSlaDashboardDto(stageHealth, planningTurnaround, shootToPublish, endToEnd, onTime,
+        return new WorkflowSlaDashboardDto(stageHealth, shootToPublish, endToEnd, onTime,
                 avgDelay, aging, onHold, reopenedCount, repostCount);
     }
 
@@ -916,7 +887,7 @@ public class KpiDashboardService {
                 ideaRejectionRate, evidenceCorrections, stageRows, stageRows);
     }
 
-    /** spec §31: Planning/Shoot/Edit only (production gates with a real rework loop) - Idea Review
+    /** spec §31: Shoot/Edit only (production gates with a real rework loop) - Idea Review
      * is reported separately (§32: APPROVED/REJECTED/RETAINED semantics differ from a rework gate).
      * First-Pass Approval % is governed as cycle_number=1 APPROVED / all cycle_number=1 decided
      * reviews - never all-cycles decided reviews (a stage with rework has more total decided cycles
@@ -925,7 +896,6 @@ public class KpiDashboardService {
      * just the first) - matches the existing, already-governed KPI-024 shape. */
     private List<ReviewStageRow> reviewStageRows(DashboardContext ctx) {
         Map<String, GateType> gatesByLabel = new LinkedHashMap<>();
-        gatesByLabel.put("Planning", GateType.PLANNING_REVIEW);
         gatesByLabel.put("Shoot", GateType.SHOOT_REVIEW);
         gatesByLabel.put("Edit", GateType.EDIT_REVIEW);
         List<ReviewStageRow> out = new ArrayList<>();

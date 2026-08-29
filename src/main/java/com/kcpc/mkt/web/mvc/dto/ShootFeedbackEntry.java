@@ -3,7 +3,7 @@ package com.kcpc.mkt.web.mvc.dto;
 import java.time.Instant;
 
 /**
- * One decided {@code ReviewCycle} (PLANNING_REVIEW, SHOOT_REVIEW, or EDIT_REVIEW - never Publishing,
+ * One decided {@code ReviewCycle} (SHOOT_REVIEW or EDIT_REVIEW - never Publishing,
  * which has no review gate) - fields are gate-agnostic, so this same class is shared across the
  * Cameraperson/Editor Task Detail screens AND (ENG-082) the CEO/MM Content Detail page's combined
  * Review Feedback History rather than duplicated per gate. Plain class, not a record:

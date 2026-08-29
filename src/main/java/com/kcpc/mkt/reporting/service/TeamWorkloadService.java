@@ -60,8 +60,6 @@ public class TeamWorkloadService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
-    private static final Set<WorkflowStatus> PLANNING_WINDOW = EnumSet.of(
-            WorkflowStatus.PL, WorkflowStatus.PLRV, WorkflowStatus.PLAP);
     // Shoot/Edit/Publishing windows now live in AssigneeActiveWindows (single source of truth also
     // used by AssigneeWorkloadCountService's assignee-picker task counts - see that class's javadoc).
     private static final Set<WorkflowStatus> SHOOT_WINDOW = AssigneeActiveWindows.SHOOT;
@@ -109,7 +107,6 @@ public class TeamWorkloadService {
                 .toList();
 
         Map<String, Long> stageCounts = new LinkedHashMap<>();
-        stageCounts.put("Planning", countInWindow(activePlans, PLANNING_WINDOW, delayedOnly, today));
         stageCounts.put("Shoot", countInWindow(activePlans, SHOOT_WINDOW, delayedOnly, today));
         stageCounts.put("Edit", countInWindow(activePlans, EDIT_WINDOW, delayedOnly, today));
         stageCounts.put("Publishing", countInWindow(activePlans, PUBLISHING_WINDOW, delayedOnly, today));
@@ -133,10 +130,8 @@ public class TeamWorkloadService {
         // Assignee Load ("who currently has workload for the selected stage") is the ONE panel
         // the Stage dropdown scopes - ALL (or blank) keeps today's normal combined view unchanged;
         // a specific stage restricts rows to that stage's own real assignment concept, never a
-        // fabricated one (Planning uses ContentPlan#preparedBy - the same authoritative provenance
-        // PlanningPreparer/the self-review-conflict guard already relies on - since Planning has no
-        // ShootingAssignment-style table; Performance has no assignee concept in this codebase at
-        // all, so selecting it intentionally yields zero rows rather than inventing one).
+        // fabricated one (Performance has no assignee concept in this codebase at all, so selecting
+        // it intentionally yields zero rows rather than inventing one).
         String stageFilter = (stage == null || stage.isBlank()) ? "ALL" : stage;
         boolean wantsAllStages = "ALL".equalsIgnoreCase(stageFilter);
 
@@ -189,10 +184,6 @@ public class TeamWorkloadService {
                 rows.add(modelRow(u, dateFrom, dateTo, delayedOnly, onHoldInstanceIds, today));
             }
         }
-        if ("Planning".equalsIgnoreCase(stageFilter)) {
-            rows.addAll(planningRows(activePlans, businessRole, wantsRole, delayedOnly, onHoldInstanceIds, today));
-        }
-
         if (employeeId != null) {
             rows = rows.stream().filter(r -> employeeId.equals(r.getUserId())).toList();
         }
@@ -304,49 +295,4 @@ public class TeamWorkloadService {
         return new AssigneeLoadRow(u.getId(), u.getFullName(), "Model", active, delayed, onHold);
     }
 
-    /**
-     * Planning has no Shoot/Edit/Publishing-style assignment table - {@link ContentPlan#getPreparedBy()}
-     * (the same authoritative preparer reference {@link com.kcpc.mkt.planning.domain.PlanningPreparer}
-     * / the self-review-conflict guard already use) is the one real "who did the planning work"
-     * concept this backend supports, so it - never a fabricated Planning task/assignment - is what
-     * Stage=Planning shows in Assignee Load. {@code plans} is already the outer method's
-     * date-range-filtered {@code activePlans}, so no date check is repeated here (same convention
-     * {@link #countInWindow} already uses for the stage-summary panel).
-     */
-    private List<AssigneeLoadRow> planningRows(List<ContentPlan> plans, String businessRole, boolean wantsRole,
-                                                boolean delayedOnly, Set<UUID> onHoldInstanceIds, LocalDate today) {
-        Map<UUID, List<ContentPlan>> planningByPreparer = plans.stream()
-                .filter(p -> PLANNING_WINDOW.contains(p.getWorkflowInstance().getCurrentStatusCode()))
-                .filter(p -> p.getPreparedBy() != null)
-                .collect(Collectors.groupingBy(p -> p.getPreparedBy().getId()));
-
-        List<AssigneeLoadRow> rows = new ArrayList<>();
-        for (List<ContentPlan> preparedPlans : planningByPreparer.values()) {
-            User preparer = preparedPlans.get(0).getPreparedBy();
-            String roleName = preparer.getBusinessRole() != null ? preparer.getBusinessRole().getRoleName() : null;
-            if (wantsRole && !businessRole.equals(roleName)) {
-                continue;
-            }
-            long active = 0;
-            long delayed = 0;
-            long onHold = 0;
-            for (ContentPlan plan : preparedPlans) {
-                WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
-                boolean isDelayed = PipelineDashboardService.delayDays(status, plan, today) != null;
-                if (delayedOnly && !isDelayed) {
-                    continue;
-                }
-                active++;
-                if (isDelayed) {
-                    delayed++;
-                }
-                if (onHoldInstanceIds.contains(plan.getWorkflowInstance().getId())) {
-                    onHold++;
-                }
-            }
-            rows.add(new AssigneeLoadRow(preparer.getId(), preparer.getFullName(), roleName, active, delayed, onHold));
-        }
-        rows.sort(java.util.Comparator.comparing(AssigneeLoadRow::getAssigneeName));
-        return rows;
-    }
 }

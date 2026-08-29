@@ -51,6 +51,16 @@
                 if (window.wireStageDiscussion) {
                     window.wireStageDiscussion(region);
                 }
+                // The Ideas tab's Model(s)/Cameraperson(s) pickers are model-picker.js components -
+                // same re-wire-after-swap reasoning as wireStageDiscussion above.
+                if (window.initModelPickers) {
+                    window.initModelPickers(region);
+                }
+                // Description / Details note-icon + modal (script-description-modal.js) - same
+                // re-wire-after-swap reasoning as wireStageDiscussion/initModelPickers above.
+                if (window.wireScriptDescriptionModal) {
+                    window.wireScriptDescriptionModal(region);
+                }
                 setLoading(false);
                 if (pushHistory) {
                     history.pushState(null, '', url);
@@ -115,7 +125,7 @@
     // Mode/Priority/page-size selects and the Delayed-only checkbox re-submit immediately on change.
     region.addEventListener('change', function (event) {
         var id = event.target.id;
-        var isFilterControl = /^rv(Idea|Plan|Shoot|Edit)(PageSize)$/.test(id) || event.target.name === 'mode'
+        var isFilterControl = /^rv(Idea|Shoot|Edit)(PageSize)$/.test(id) || event.target.name === 'mode'
             || event.target.name === 'priority' || event.target.name === 'delayedOnly';
         if (isFilterControl) {
             reloadFromForm(true);
@@ -125,7 +135,7 @@
     // Search input: debounced re-fetch as the user types.
     var searchDebounce = null;
     region.addEventListener('input', function (event) {
-        if (!/^rv(Idea|Plan|Shoot|Edit)Search$/.test(event.target.id)) {
+        if (!/^rv(Idea|Shoot|Edit)Search$/.test(event.target.id)) {
             return;
         }
         if (searchDebounce) {
@@ -137,6 +147,14 @@
     });
 
     window.addEventListener('popstate', function () {
+        loadReviews(window.location.href, false);
+    });
+
+    // Idea Description edit (script-description-modal.js's AJAX path, data-ajax="true" on the
+    // Reviews Workspace's copy of the edit form) - refresh the panel in place after a successful
+    // save so the modal's read-only view shows the new text, same pattern as every other AJAX
+    // write on this page (decision submit, reopen).
+    document.addEventListener('kcpc:idea-description-updated', function () {
         loadReviews(window.location.href, false);
     });
 
@@ -160,7 +178,6 @@
     // --- Decision submit -------------------------------------------------------------------
     var decisionEndpoints = {
         idea: function (id) { return contextPath() + '/app/reviews/ideas/' + id + '/decision'; },
-        planning: function (id) { return contextPath() + '/app/reviews/planning/' + id + '/decision'; },
         shoot: function (id) { return contextPath() + '/app/reviews/shoot/' + id + '/decision'; },
         edit: function (id) { return contextPath() + '/app/reviews/edit/' + id + '/decision'; }
     };
@@ -200,6 +217,12 @@
     function setDecisionButtonsDisabled(disabled) {
         region.querySelectorAll('.reviews-decision-btn').forEach(function (btn) {
             btn.disabled = disabled;
+        });
+        ['reviewsIdeaConfirmBtn', 'reviewsPlanConfirmBtn'].forEach(function (id) {
+            var confirmBtn = document.getElementById(id);
+            if (confirmBtn) {
+                confirmBtn.disabled = disabled;
+            }
         });
     }
 
@@ -248,45 +271,555 @@
             });
     }
 
-    region.addEventListener('click', function (event) {
-        var btn = event.target.closest('.reviews-decision-btn');
-        if (!btn || btn.disabled) {
-            return;
-        }
-        var card = btn.closest('.reviews-detail-card');
-        if (!card) {
-            return;
-        }
-        var type = card.dataset.reviewType;
-        var params = new URLSearchParams();
+    // --- Idea decision: Approve/Reject/Retain are selector buttons, not instant-submit - clicking
+    // one reveals the relevant section (the full Planning form for Approve; just the reason field
+    // for Reject/Retain) and the bottom confirm bar becomes the actual submit action. -------------
+    var CONFIRM_LABELS = {APPROVE: 'Approve & Assign Shoot', REJECT: 'Reject Idea', RETAIN: 'Retain Idea'};
 
-        if (type === 'idea') {
-            var decision = btn.dataset.decision;
-            params.set('decision', decision);
-            var reasonField = document.getElementById('reviewsIdeaReason');
-            if (reasonField && reasonField.value.trim()) {
-                params.set('reason', reasonField.value.trim());
+    function selectIdeaDecision(card, decision) {
+        card.dataset.selectedDecision = decision;
+        region.querySelectorAll('.reviews-decision-btn').forEach(function (b) {
+            b.classList.toggle('reviews-decision-btn-selected', b.dataset.decision === decision);
+        });
+        var banner = document.getElementById('reviewsIdeaApproveBanner');
+        var reasonBlock = document.getElementById('reviewsIdeaReasonBlock');
+        var planningFields = document.getElementById('reviewsIdeaPlanningFields');
+        var confirmBar = document.getElementById('reviewsIdeaConfirmBar');
+        var confirmBtn = document.getElementById('reviewsIdeaConfirmBtn');
+        var isApprove = decision === 'APPROVE';
+        if (banner) {
+            banner.classList.toggle('hidden', !isApprove);
+        }
+        if (reasonBlock) {
+            reasonBlock.classList.toggle('hidden', isApprove);
+        }
+        if (planningFields) {
+            planningFields.classList.toggle('hidden', !isApprove);
+        }
+        if (confirmBar) {
+            confirmBar.classList.remove('hidden');
+        }
+        if (confirmBtn) {
+            confirmBtn.textContent = CONFIRM_LABELS[decision] || 'Confirm';
+        }
+        clearDecisionError();
+        updateReviewsIdeaScheduleDefaults();
+        updateReviewsIdeaPlanningModeFields();
+    }
+
+    // --- Shoot/Edit decision: Approve/Request Rework are also selector buttons now (workflow
+    // redesign) - Approve reveals the Editor/Publisher Assignment section (same fold-in pattern as
+    // Idea Review's Initial Shoot Assignment) and the Confirm bar becomes the actual submit action,
+    // so approval can never be submitted before the assignment is filled in. Request Rework reveals
+    // no extra fields (the Reason field is already always visible on this tab) but still routes
+    // through the same Confirm bar for a single consistent interaction model. -------------------
+    var PLAN_CONFIRM_LABELS = {
+        shoot: {APPROVE: 'Approve & Assign Editor', REWORK: 'Confirm Request Rework'},
+        edit: {APPROVE: 'Approve & Assign Publisher', REWORK: 'Confirm Request Rework'}
+    };
+
+    function selectPlanDecision(card, type, decision) {
+        card.dataset.selectedDecision = decision;
+        region.querySelectorAll('.reviews-decision-btn').forEach(function (b) {
+            b.classList.toggle('reviews-decision-btn-selected', b.dataset.decision === decision);
+        });
+        var teamFields = document.getElementById('reviewsNextTeamFields');
+        var confirmBar = document.getElementById('reviewsPlanConfirmBar');
+        var confirmBtn = document.getElementById('reviewsPlanConfirmBtn');
+        var isApprove = decision === 'APPROVE';
+        if (teamFields) {
+            teamFields.classList.toggle('hidden', !isApprove);
+        }
+        if (confirmBar) {
+            confirmBar.classList.remove('hidden');
+        }
+        if (confirmBtn) {
+            var labels = PLAN_CONFIRM_LABELS[type] || {};
+            confirmBtn.textContent = labels[decision] || 'Confirm';
+        }
+        clearDecisionError();
+    }
+
+    function resetPlanDecisionSelection(card) {
+        delete card.dataset.selectedDecision;
+        region.querySelectorAll('.reviews-decision-btn').forEach(function (b) {
+            b.classList.remove('reviews-decision-btn-selected');
+        });
+        ['reviewsNextTeamFields', 'reviewsPlanConfirmBar'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.classList.add('hidden');
             }
-            var camMark = document.getElementById('reviewsIdeaCameramanMark');
-            var edMark = document.getElementById('reviewsIdeaEditorMark');
-            if (camMark) {
-                params.set('cameramanMark', camMark.value);
+        });
+        clearDecisionError();
+    }
+
+    function resetIdeaDecisionSelection(card) {
+        delete card.dataset.selectedDecision;
+        region.querySelectorAll('.reviews-decision-btn').forEach(function (b) {
+            b.classList.remove('reviews-decision-btn-selected');
+        });
+        ['reviewsIdeaApproveBanner', 'reviewsIdeaReasonBlock', 'reviewsIdeaPlanningFields', 'reviewsIdeaConfirmBar']
+            .forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) {
+                    el.classList.add('hidden');
+                }
+            });
+        resetReviewsIdeaOutputRows();
+        clearDecisionError();
+    }
+
+    function collectIdeaApproveParams(params) {
+        var ids = {
+            contentPriority: 'reviewsIdeaContentPriority', skuReference: 'reviewsIdeaSkuReference',
+            planningMode: 'reviewsIdeaPlanningMode', categoryText: 'reviewsIdeaCategoryText',
+            folderLink: 'reviewsIdeaFolderLink', plannedLiveDate: 'reviewsIdeaPlannedLiveDate',
+            shootDate: 'reviewsIdeaShootDate', editDate: 'reviewsIdeaEditDate',
+            urgencyReason: 'reviewsIdeaUrgencyReason',
+            leadCamerapersonUserId: 'reviewsIdeaLeadCameraperson',
+            cameramanMark: 'reviewsIdeaCameramanMark', editorMark: 'reviewsIdeaEditorMark',
+            modelMark: 'reviewsIdeaModelMark'
+        };
+        Object.keys(ids).forEach(function (param) {
+            var field = document.getElementById(ids[param]);
+            if (field && field.value !== '') {
+                params.set(param, field.value);
             }
-            if (edMark) {
-                params.set('editorMark', edMark.value);
+        });
+        region.querySelectorAll('#reviewsIdeaPlanningFields input[name="modelUserIds"]:checked').forEach(function (cb) {
+            params.append('modelUserIds', cb.value);
+        });
+        region.querySelectorAll('#reviewsIdeaPlanningFields input[name="camerapersonUserIds"]:checked').forEach(function (cb) {
+            params.append('camerapersonUserIds', cb.value);
+        });
+        var outputs = [];
+        reviewsOutputRows().forEach(function (row) {
+            var enableCb = row.querySelector('.reviews-output-row-enable');
+            if (!enableCb || !enableCb.checked) {
+                return;
             }
-        } else {
-            params.set('approve', btn.dataset.approve);
+            var publicationTargetIds = [];
+            row.querySelectorAll('.reviews-output-target-checkbox:checked').forEach(function (cb) {
+                publicationTargetIds.push(cb.value);
+            });
+            // reelTypes/outputTitleDescription: the V31 redesign dropped both fields from this
+            // grid (Reel Type sub-selection and Output Description no longer exist in the UI) -
+            // always sent empty/blank so the outputsJson shape PlanningOutputRequest still expects
+            // stays unchanged (backend DTO intentionally untouched).
+            outputs.push({
+                outputType: row.dataset.outputType,
+                reelTypes: [],
+                outputTitleDescription: '',
+                publicationTargetIds: publicationTargetIds
+            });
+        });
+        params.set('outputsJson', JSON.stringify(outputs));
+    }
+
+    // --- Planned Outputs grid (Ideas Approve flow only) -----------------------------------------
+    // One fixed row per Output Type (Story/Post/Reel/Long Video, V31 redesign - was Photography/
+    // Reel/Video) instead of the old arbitrary Add/Edit/Delete list - a row's own "select this
+    // type" checkbox controls whether it contributes an output group to the approval payload. Only
+    // two columns: Output Type and Platform/Channel - no Reel Type or Output Description field.
+    // Every row's state (which platforms are checked) lives entirely in the DOM; there is no
+    // in-memory mirror array to keep in sync, and collectIdeaApproveParams (above) reads straight
+    // from the checked/enabled rows at submit time.
+    var OUTPUT_PLATFORM_ICON_FILES = {
+        Instagram: 'instagram.svg', Facebook: 'facebook.svg', YouTube: 'youtube.svg',
+        Threads: 'threads.svg', Moj: 'moj.svg', TikTok: 'tiktok.svg'
+    };
+
+    function outputPlatformIconSrc(platformName) {
+        return contextPath() + '/icons/platforms/' + (OUTPUT_PLATFORM_ICON_FILES[platformName] || 'generic.svg');
+    }
+
+    function reviewsOutputRows() {
+        return Array.prototype.slice.call(region.querySelectorAll('.reviews-output-row'));
+    }
+
+    function clearReviewsIdeaOutputError() {
+        var box = document.getElementById('reviewsIdeaOutputError');
+        if (box) {
+            box.classList.add('hidden');
+            box.textContent = '';
+        }
+    }
+
+    function closeReviewsOutputPopover(row) {
+        var container = row.querySelector('.reviews-output-platform-popovers');
+        if (container) {
+            container.innerHTML = '';
+            delete container.dataset.openPlatform;
+        }
+    }
+
+    function renderReviewsOutputChips(row) {
+        var chipsBox = row.querySelector('.reviews-platform-chips');
+        var countBox = row.querySelector('.reviews-platform-picker-count');
+        if (!chipsBox) {
+            return;
+        }
+        var checked = row.querySelectorAll('.reviews-output-target-checkbox:checked');
+        chipsBox.innerHTML = '';
+        if (checked.length === 0) {
+            var placeholder = document.createElement('span');
+            placeholder.className = 'muted';
+            placeholder.textContent = 'Select platforms';
+            chipsBox.appendChild(placeholder);
+            if (countBox) {
+                countBox.textContent = '0 selected';
+            }
+            return;
+        }
+        var countByPlatform = {};
+        var order = [];
+        checked.forEach(function (cb) {
+            var platform = cb.getAttribute('data-platform');
+            if (!(platform in countByPlatform)) {
+                countByPlatform[platform] = 0;
+                order.push(platform);
+            }
+            countByPlatform[platform]++;
+        });
+        order.forEach(function (platform) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'reviews-output-platform-chip';
+            chip.dataset.platform = platform;
+            var icon = document.createElement('img');
+            icon.className = 'scope-target-icon';
+            icon.src = outputPlatformIconSrc(platform);
+            icon.alt = '';
+            icon.width = 14;
+            icon.height = 14;
+            chip.appendChild(icon);
+            chip.appendChild(document.createTextNode('\u00d7' + countByPlatform[platform]));
+            chipsBox.appendChild(chip);
+        });
+        if (countBox) {
+            countBox.textContent = checked.length + ' selected';
+        }
+    }
+
+    // A row's checkbox is the only thing that decides whether it contributes to the submitted
+    // outputs array (see collectIdeaApproveParams) - unchecking it clears everything the row was
+    // holding so a later confirm never picks up stale selections from a type the user backed out of.
+    function syncReviewsOutputRowState(row) {
+        var enableCb = row.querySelector('.reviews-output-row-enable');
+        var enabled = !!(enableCb && enableCb.checked);
+        row.classList.toggle('reviews-output-row-disabled', !enabled);
+        if (!enabled) {
+            row.querySelectorAll('.reviews-output-target-checkbox').forEach(function (cb) {
+                cb.checked = false;
+            });
+            var details = row.querySelector('.reviews-platform-picker');
+            if (details) {
+                details.open = false;
+            }
+            renderReviewsOutputChips(row);
+            closeReviewsOutputPopover(row);
+        }
+    }
+
+    function resetReviewsIdeaOutputRows() {
+        reviewsOutputRows().forEach(function (row) {
+            var enableCb = row.querySelector('.reviews-output-row-enable');
+            if (enableCb) {
+                enableCb.checked = false;
+            }
+            syncReviewsOutputRowState(row);
+        });
+        clearReviewsIdeaOutputError();
+    }
+
+    // Clicking a chip opens a small in-flow popover (below the chips, inside the same table cell)
+    // listing the row's currently selected channels for that one platform - Type/Channel/Status/
+    // Link, matching the pre-existing Publishing Scope table's look. Status/Link are always
+    // "Pending"/"-" here since nothing has actually been created or published yet - this whole
+    // grid is still just a staged approval payload.
+    function toggleReviewsOutputPlatformPopover(row, platform) {
+        var container = row.querySelector('.reviews-output-platform-popovers');
+        if (!container) {
+            return;
+        }
+        if (container.dataset.openPlatform === platform) {
+            closeReviewsOutputPopover(row);
+            return;
+        }
+        container.innerHTML = '';
+        container.dataset.openPlatform = platform;
+
+        var typeLabel = row.dataset.outputType;
+
+        var channels = [];
+        row.querySelectorAll('.reviews-output-target-checkbox:checked').forEach(function (cb) {
+            if (cb.getAttribute('data-platform') === platform) {
+                channels.push(cb.getAttribute('data-channel'));
+            }
+        });
+
+        var popover = document.createElement('div');
+        popover.className = 'reviews-platform-popover';
+
+        var header = document.createElement('div');
+        header.className = 'reviews-platform-popover-header';
+        var title = document.createElement('div');
+        title.className = 'reviews-platform-popover-title';
+        var titleIcon = document.createElement('img');
+        titleIcon.className = 'scope-target-icon';
+        titleIcon.src = outputPlatformIconSrc(platform);
+        titleIcon.alt = '';
+        titleIcon.width = 16;
+        titleIcon.height = 16;
+        title.appendChild(titleIcon);
+        title.appendChild(document.createTextNode(platform + ' (' + channels.length + ')'));
+        header.appendChild(title);
+        var published = document.createElement('span');
+        published.className = 'reviews-platform-popover-published';
+        published.textContent = '0/' + channels.length + ' published';
+        header.appendChild(published);
+        popover.appendChild(header);
+
+        var table = document.createElement('table');
+        table.className = 'reviews-platform-popover-table';
+        var thead = document.createElement('thead');
+        var headRow = document.createElement('tr');
+        ['Type', 'Channel', 'Status', 'Link'].forEach(function (label) {
+            var th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        var tbody = document.createElement('tbody');
+        channels.forEach(function (channel) {
+            var tr = document.createElement('tr');
+            var typeTd = document.createElement('td');
+            typeTd.textContent = typeLabel;
+            var channelTd = document.createElement('td');
+            channelTd.textContent = '@' + channel;
+            var statusTd = document.createElement('td');
+            var pill = document.createElement('span');
+            pill.className = 'status-pill status-pending';
+            pill.textContent = 'Pending';
+            statusTd.appendChild(pill);
+            var linkTd = document.createElement('td');
+            linkTd.textContent = '-';
+            tr.appendChild(typeTd);
+            tr.appendChild(channelTd);
+            tr.appendChild(statusTd);
+            tr.appendChild(linkTd);
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        popover.appendChild(table);
+        container.appendChild(popover);
+    }
+
+    region.addEventListener('change', function (event) {
+        var enableCb = event.target.closest('.reviews-output-row-enable');
+        if (enableCb) {
+            syncReviewsOutputRowState(enableCb.closest('.reviews-output-row'));
+            return;
+        }
+        var targetCb = event.target.closest('.reviews-output-target-checkbox');
+        if (targetCb) {
+            var targetRow = targetCb.closest('.reviews-output-row');
+            renderReviewsOutputChips(targetRow);
+            closeReviewsOutputPopover(targetRow);
+        }
+    });
+
+    region.addEventListener('click', function (event) {
+        var chip = event.target.closest('.reviews-output-platform-chip');
+        if (chip) {
+            // Prevents the click from also toggling the parent <details> (the chip sits inside
+            // its <summary>) - only the popover should open/close here.
+            event.preventDefault();
+            toggleReviewsOutputPlatformPopover(chip.closest('.reviews-output-row'), chip.dataset.platform);
+        }
+    });
+
+    region.addEventListener('click', function (event) {
+        var decisionBtn = event.target.closest('.reviews-decision-btn');
+        if (decisionBtn && !decisionBtn.disabled) {
+            var decisionCard = decisionBtn.closest('.reviews-detail-card');
+            if (!decisionCard) {
+                return;
+            }
+            if (decisionCard.dataset.reviewType === 'idea') {
+                selectIdeaDecision(decisionCard, decisionBtn.dataset.decision);
+                return;
+            }
+            // Shoot/Edit: select+reveal, same as Idea - Approve reveals the Editor/Publisher
+            // Assignment section below and a Confirm bar becomes the actual submit action.
+            selectPlanDecision(decisionCard, decisionCard.dataset.reviewType, decisionBtn.dataset.decision);
+            return;
+        }
+
+        var cancelBtn = event.target.closest('#reviewsIdeaCancelBtn');
+        if (cancelBtn) {
+            // The Planning section (and its Cancel/Confirm bar) is a sibling of the narrow
+            // .reviews-detail-card, not nested inside it (moved out to be full-width) - look the
+            // card up by id rather than via .closest().
+            var cancelCard = document.getElementById('reviewsDetailCard');
+            if (cancelCard) {
+                resetIdeaDecisionSelection(cancelCard);
+            }
+            return;
+        }
+
+        var confirmBtn = event.target.closest('#reviewsIdeaConfirmBtn');
+        if (confirmBtn && !confirmBtn.disabled) {
+            var confirmCard = document.getElementById('reviewsDetailCard');
+            var decision = confirmCard && confirmCard.dataset.selectedDecision;
+            if (!confirmCard || !decision) {
+                return;
+            }
+            var confirmParams = new URLSearchParams();
+            confirmParams.set('decision', decision);
+            if (decision === 'APPROVE') {
+                clearReviewsIdeaOutputError();
+                collectIdeaApproveParams(confirmParams);
+            } else {
+                var reasonField = document.getElementById('reviewsIdeaReason');
+                if (reasonField && reasonField.value.trim()) {
+                    confirmParams.set('reason', reasonField.value.trim());
+                }
+            }
+            submitDecision(confirmCard, confirmParams);
+            return;
+        }
+
+        var planCancelBtn = event.target.closest('#reviewsPlanCancelBtn');
+        if (planCancelBtn) {
+            var planCancelCard = planCancelBtn.closest('.reviews-detail-card');
+            if (planCancelCard) {
+                resetPlanDecisionSelection(planCancelCard);
+            }
+            return;
+        }
+
+        var planConfirmBtn = event.target.closest('#reviewsPlanConfirmBtn');
+        if (planConfirmBtn && !planConfirmBtn.disabled) {
+            var planConfirmCard = planConfirmBtn.closest('.reviews-detail-card');
+            var planDecision = planConfirmCard && planConfirmCard.dataset.selectedDecision;
+            if (!planConfirmCard || !planDecision) {
+                return;
+            }
+            var type = planConfirmCard.dataset.reviewType;
+            var planParams = new URLSearchParams();
+            planParams.set('approve', planDecision === 'APPROVE' ? 'true' : 'false');
             var planReasonField = document.getElementById('reviewsPlanReason');
             if (planReasonField && planReasonField.value.trim()) {
-                params.set('reason', planReasonField.value.trim());
+                planParams.set('reason', planReasonField.value.trim());
             }
             region.querySelectorAll('.reviews-qualifying-checkbox:checked').forEach(function (cb) {
-                params.append('qualifyingRecipientUserIds', cb.value);
+                planParams.append('qualifyingRecipientUserIds', cb.value);
             });
+            if (planDecision === 'APPROVE') {
+                var teamLabel = type === 'shoot' ? 'Editor' : 'Publisher';
+                var teamIds = [];
+                region.querySelectorAll('#reviewsNextTeamFields input[name="nextTeamUserIds"]:checked')
+                    .forEach(function (cb) {
+                        teamIds.push(cb.value);
+                    });
+                if (teamIds.length === 0) {
+                    showDecisionError('Select at least one ' + teamLabel + '.');
+                    return;
+                }
+                if (type === 'shoot') {
+                    // Editor Assignment has a Lead, same as Cameraperson/Editor elsewhere in this app.
+                    var leadSelect = document.getElementById('reviewsNextTeamLead');
+                    var leadId = leadSelect ? leadSelect.value : '';
+                    if (!leadId) {
+                        showDecisionError(teamLabel + ' Lead is required.');
+                        return;
+                    }
+                    teamIds.forEach(function (v) {
+                        planParams.append('editorUserIds', v);
+                    });
+                    planParams.set('leadEditorUserId', leadId);
+                } else {
+                    // Publisher Assignment has no Lead concept (ENG-036/ENG-044) - Publisher(s) only.
+                    teamIds.forEach(function (v) {
+                        planParams.append('publisherUserIds', v);
+                    });
+                }
+            }
+            submitDecision(planConfirmCard, planParams);
         }
+    });
 
-        submitDecision(card, params);
+    // --- Standard/Urgent schedule defaulting (Ideas tab Approve form) --------------------------
+    // Pure frontend convenience - the submitted values are unchanged either way, since
+    // IdeaService#approve already defaults blank Shoot/Edit dates identically server-side.
+    function updateReviewsIdeaScheduleDefaults() {
+        var liveDateField = document.getElementById('reviewsIdeaPlannedLiveDate');
+        var modeSelect = document.getElementById('reviewsIdeaPlanningMode');
+        var shootDateField = document.getElementById('reviewsIdeaShootDate');
+        var editDateField = document.getElementById('reviewsIdeaEditDate');
+        if (!liveDateField || !modeSelect || !shootDateField || !editDateField || !liveDateField.value) {
+            return;
+        }
+        if (modeSelect.value === 'URGENT') {
+            return;
+        }
+        var liveDate = new Date(liveDateField.value + 'T00:00:00');
+        if (isNaN(liveDate.getTime())) {
+            return;
+        }
+        var shootDate = new Date(liveDate);
+        shootDate.setDate(shootDate.getDate() - 5);
+        var editDate = new Date(liveDate);
+        editDate.setDate(editDate.getDate() - 2);
+        shootDateField.value = shootDate.toISOString().slice(0, 10);
+        editDateField.value = editDate.toISOString().slice(0, 10);
+    }
+
+    function updateReviewsIdeaPlanningModeFields() {
+        var modeSelect = document.getElementById('reviewsIdeaPlanningMode');
+        var urgencyLabel = document.getElementById('reviewsIdeaUrgencyReasonLabel');
+        var urgencyInput = document.getElementById('reviewsIdeaUrgencyReason');
+        var shootHint = document.getElementById('reviewsIdeaShootDateHint');
+        var editHint = document.getElementById('reviewsIdeaEditDateHint');
+        var shootDateField = document.getElementById('reviewsIdeaShootDate');
+        var editDateField = document.getElementById('reviewsIdeaEditDate');
+        if (!modeSelect) {
+            return;
+        }
+        var isUrgent = modeSelect.value === 'URGENT';
+        if (urgencyLabel) {
+            urgencyLabel.classList.toggle('hidden', !isUrgent);
+        }
+        if (urgencyInput) {
+            urgencyInput.required = isUrgent;
+        }
+        [shootHint, editHint].forEach(function (hint) {
+            if (hint) {
+                hint.classList.toggle('hidden', isUrgent);
+            }
+        });
+        if (isUrgent) {
+            if (shootDateField) {
+                shootDateField.readOnly = false;
+            }
+            if (editDateField) {
+                editDateField.readOnly = false;
+            }
+        } else {
+            updateReviewsIdeaScheduleDefaults();
+        }
+    }
+
+    region.addEventListener('change', function (event) {
+        if (event.target.id === 'reviewsIdeaPlannedLiveDate') {
+            updateReviewsIdeaScheduleDefaults();
+        }
+        if (event.target.id === 'reviewsIdeaPlanningMode') {
+            updateReviewsIdeaPlanningModeFields();
+        }
     });
 
     // --- Reopen (Retained sub-view only) ----------------------------------------------------

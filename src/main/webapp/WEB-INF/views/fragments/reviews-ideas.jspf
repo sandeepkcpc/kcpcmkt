@@ -151,6 +151,7 @@
                 </div>
             </c:when>
             <c:otherwise>
+                <c:set var="rvIdeaLastUpdated" value="${empty ideaStatusHistory ? selectedIdea.submittedAt : ideaStatusHistory[0].timestamp}"/>
                 <div class="panel reviews-detail-card" id="reviewsDetailCard" data-review-type="idea" data-review-id="${selectedIdea.id}">
                     <div class="reviews-detail-head">
                         <h2 class="reviews-detail-title">${ideaView == 'retained' ? 'Retained Idea' : 'Reviewing Idea'}</h2>
@@ -158,7 +159,11 @@
                     </div>
                     <div class="reviews-detail-id-row"><c:out value="${selectedIdea.businessIdeaCode}"/></div>
 
-                    <div class="reviews-detail-section">
+                    <%-- Single-column inline list (not the shared .reviews-detail-fields-grid 2-column
+                         layout reviews-shoot.jspf/reviews-edit.jspf still use unchanged) - every field
+                         is its own plain .reviews-field-row, label and value on the same line,
+                         stacked top to bottom. --%>
+                    <div class="reviews-detail-section reviews-detail-section-list">
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Title</span>
                             <span class="reviews-field-value"><c:out value="${selectedIdea.title}"/></span>
@@ -174,15 +179,37 @@
                                 </c:choose>
                             </span>
                         </div>
+                        <%-- ENG: the note icon now shows ALWAYS (ideaDescModalAlwaysShow), not only when a
+                             description exists - clicking it opens a read-only modal with the complete
+                             text, or "No description added yet." for an empty one (view-only for most
+                             users; CEO/Marketing Manager also get an Edit control - see
+                             fragments/idea-description-modal*.jspf and IdeaService#updateDescription).
+                             The inline value itself stays a short preview (never the raw unlimited-length
+                             text - see idea-description-modal.jspf's own header comment for why), full
+                             text lives in the modal. Re-wired after every AJAX swap by
+                             reviews-workspace.js since this whole panel's innerHTML is replaced on each
+                             selection. --%>
+                        <c:set var="ideaDescModalIdea" value="${selectedIdea}"/>
+                        <c:set var="ideaDescModalCanEdit" value="${canEditIdeaDescription}"/>
+                        <c:set var="ideaDescModalAjax" value="${true}"/>
+                        <c:set var="ideaDescModalAlwaysShow" value="${true}"/>
+                        <c:set var="ideaDescModalTriggerClass" value=""/>
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Description / Details</span>
-                            <span class="reviews-field-value">
+                            <span class="reviews-field-value reviews-field-value-with-icon">
                                 <c:choose>
-                                    <c:when test="${not empty selectedIdea.notesRemarks}"><c:out value="${selectedIdea.notesRemarks}"/></c:when>
+                                    <c:when test="${not empty selectedIdea.notesRemarks}">
+                                        <c:choose>
+                                            <c:when test="${fn:length(selectedIdea.notesRemarks) > 100}"><c:out value="${fn:substring(selectedIdea.notesRemarks, 0, 100)}"/>&hellip;</c:when>
+                                            <c:otherwise><c:out value="${selectedIdea.notesRemarks}"/></c:otherwise>
+                                        </c:choose>
+                                    </c:when>
                                     <c:otherwise><span class="muted">-</span></c:otherwise>
                                 </c:choose>
+                                <%@ include file="idea-description-modal-trigger.jspf" %>
                             </span>
                         </div>
+                        <%@ include file="idea-description-modal.jspf" %>
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Additional Note</span>
                             <span class="reviews-field-value">
@@ -199,6 +226,10 @@
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Submitted On</span>
                             <span class="reviews-field-value">${kcpc:ist(selectedIdea.submittedAt)}</span>
+                        </div>
+                        <div class="reviews-field-row">
+                            <span class="reviews-field-label">Last Updated</span>
+                            <span class="reviews-field-value">${kcpc:ist(rvIdeaLastUpdated)}</span>
                         </div>
                     </div>
 
@@ -236,36 +267,26 @@
                         </c:when>
                         <c:when test="${canDecideSelected}">
                             <div class="reviews-detail-section reviews-decision-section">
-                                <h3 class="reviews-detail-subhead">Your Decision</h3>
+                                <h3 class="reviews-detail-subhead">Idea Decision</h3>
                                 <div class="reviews-decision-buttons">
                                     <button type="button" class="reviews-decision-btn reviews-decision-approve" data-decision="APPROVE">&#10003; Approve</button>
                                     <button type="button" class="reviews-decision-btn reviews-decision-reject" data-decision="REJECT">&#10007; Reject</button>
-                                    <button type="button" class="reviews-decision-btn reviews-decision-retain" data-decision="RETAIN">&#128278; Retain</button>
+                                    <button type="button" class="reviews-decision-btn reviews-decision-retain" data-decision="RETAIN">&#9998; Retain</button>
                                 </div>
-                                <div class="field-row reviews-marks-row">
-                                    <div>
-                                        <label>Cameraperson Mark (Approve only)
-                                            <select id="reviewsIdeaCameramanMark">
-                                                <option value="0.0">0</option><option value="0.5">0.5</option>
-                                                <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
-                                            </select>
-                                        </label>
-                                    </div>
-                                    <div>
-                                        <label>Editor Mark (Approve only)
-                                            <select id="reviewsIdeaEditorMark">
-                                                <option value="0.0">0</option><option value="0.5">0.5</option>
-                                                <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
-                                            </select>
-                                        </label>
+
+                                <div class="reviews-approve-banner hidden" id="reviewsIdeaApproveBanner">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="8.01"/><line x1="12" y1="11" x2="12" y2="16"/></svg>
+                                    <span>Approving will save planning details, assign initial shoot team and move the idea to Shoot Assigned stage.</span>
+                                </div>
+
+                                <%-- Reject/Retain: reason only, no planning fields. --%>
+                                <div class="hidden" id="reviewsIdeaReasonBlock">
+                                    <label id="reviewsIdeaReasonLabel" for="reviewsIdeaReason">Decision Reason (mandatory for Reject; optional for Retain)</label>
+                                    <textarea id="reviewsIdeaReason" rows="3" maxlength="500" placeholder="Provide a reason for your decision..."></textarea>
+                                    <div class="idea-detail-reason-counter-row">
+                                        <span class="char-counter" data-counter-for="reviewsIdeaReason">0 / 500</span>
                                     </div>
                                 </div>
-                                <label id="reviewsIdeaReasonLabel" for="reviewsIdeaReason">Decision Reason (mandatory for Reject; optional for Retain)</label>
-                                <textarea id="reviewsIdeaReason" rows="3" maxlength="500" placeholder="Provide a reason for your decision..."></textarea>
-                                <div class="idea-detail-reason-counter-row">
-                                    <span class="char-counter" data-counter-for="reviewsIdeaReason">0 / 500</span>
-                                </div>
-                                <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
                             </div>
                         </c:when>
                         <c:otherwise>
@@ -278,3 +299,240 @@
         </c:choose>
     </div>
 </div>
+
+<%-- Planning Details is a dedicated full-width section below the queue/review-panel row, not
+     squeezed into the narrow right column - the Review Decision panel above stays exactly as-is
+     (info, history, Approve/Reject/Retain buttons, banner, Reason field for Reject/Retain); only the
+     Approve-only Planning form (and its confirm bar, which must stay visually AFTER the form the
+     user is confirming) lives here. Repeats the same selectedIdea/ideaView/canDecideSelected gating
+     the narrow panel's own c:choose above already used, since this section is a sibling of
+     .reviews-body rather than nested inside it. --%>
+<c:if test="${not empty selectedIdea and ideaView != 'retained' and canDecideSelected}">
+    <div class="reviews-planning-fullwidth">
+                                <%-- Approve: the complete merged Planning Details form, only relevant/shown for Approve -
+                                     same fields/model attributes idea-detail.jsp's Planning Details block already uses
+                                     (see ReviewsMvcController#buildIdeasTab), reorganized into the numbered cards below. --%>
+                                <div class="hidden" id="reviewsIdeaPlanningFields">
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">1</span> Planning Basics</h3>
+                                        <div class="form-grid">
+                                            <label>Priority *
+                                                <select id="reviewsIdeaContentPriority" required>
+                                                    <option value="" selected disabled>Select priority</option>
+                                                    <c:forEach var="p" items="${priorities}">
+                                                        <option value="${p}">${p}</option>
+                                                    </c:forEach>
+                                                </select>
+                                            </label>
+                                            <label>SKU Reference <input type="text" id="reviewsIdeaSkuReference"></label>
+                                            <label>Planning Mode *
+                                                <select id="reviewsIdeaPlanningMode">
+                                                    <option value="STANDARD" selected>Standard</option>
+                                                    <option value="URGENT">Urgent</option>
+                                                </select>
+                                            </label>
+                                            <label>Category (optional) <input type="text" id="reviewsIdeaCategoryText"></label>
+                                            <label>Asset Folder / Drive Link
+                                                <span class="reviews-drive-input">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                                                    <input type="text" id="reviewsIdeaFolderLink" placeholder="https://drive.google.com/...">
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">2</span> Schedule</h3>
+                                        <div class="form-grid">
+                                            <label>Planned Live Date * <input type="date" id="reviewsIdeaPlannedLiveDate" min="${today}"></label>
+                                            <label id="reviewsIdeaShootDateLabel">Shoot Date * <input type="date" id="reviewsIdeaShootDate" min="${today}">
+                                                <span class="reviews-schedule-hint" id="reviewsIdeaShootDateHint">Standard: Live Date &minus; 5 days</span></label>
+                                            <label id="reviewsIdeaEditDateLabel">Edit Date * <input type="date" id="reviewsIdeaEditDate" min="${today}">
+                                                <span class="reviews-schedule-hint" id="reviewsIdeaEditDateHint">Standard: Live Date &minus; 2 days</span></label>
+                                            <label class="grid-span-all hidden" id="reviewsIdeaUrgencyReasonLabel">Urgency Reason (required for Urgent)
+                                                <input type="text" id="reviewsIdeaUrgencyReason"></label>
+                                        </div>
+                                    </div>
+
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">3</span> Planned Outputs</h3>
+                                        <p class="reviews-field-hint">Select the type(s) of content you are planning to create and where they will be published.</p>
+
+                                        <div class="reviews-outputs-grid-wrap">
+                                            <table class="data-table reviews-outputs-grid">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Output Type</th>
+                                                        <th>Platform / Channel</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <c:forEach var="t" items="${outputTypes}">
+                                                        <tr class="reviews-output-row reviews-output-row-disabled" data-output-type="${t}">
+                                                            <td class="reviews-output-type-cell">
+                                                                <label class="reviews-output-type-toggle">
+                                                                    <input type="checkbox" class="reviews-output-row-enable">
+                                                                    <c:choose>
+                                                                        <c:when test="${t == 'STORY'}">
+                                                                            <span class="reviews-output-type-icon reviews-output-type-icon-STORY">
+                                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+                                                                            </span>
+                                                                            <span class="reviews-output-type-copy">
+                                                                                <strong>Story</strong>
+                                                                                <span class="muted">Short vertical stories for engagement</span>
+                                                                            </span>
+                                                                        </c:when>
+                                                                        <c:when test="${t == 'POST'}">
+                                                                            <span class="reviews-output-type-icon reviews-output-type-icon-POST">
+                                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                                            </span>
+                                                                            <span class="reviews-output-type-copy">
+                                                                                <strong>Post</strong>
+                                                                                <span class="muted">Images / graphics / carousels for feeds</span>
+                                                                            </span>
+                                                                        </c:when>
+                                                                        <c:when test="${t == 'REEL'}">
+                                                                            <span class="reviews-output-type-icon reviews-output-type-icon-REEL">
+                                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+                                                                            </span>
+                                                                            <span class="reviews-output-type-copy">
+                                                                                <strong>Reel</strong>
+                                                                                <span class="muted">Short vertical videos for social platforms</span>
+                                                                            </span>
+                                                                        </c:when>
+                                                                        <c:otherwise>
+                                                                            <span class="reviews-output-type-icon reviews-output-type-icon-LONG_VIDEO">
+                                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                                                                            </span>
+                                                                            <span class="reviews-output-type-copy">
+                                                                                <strong>Long Video</strong>
+                                                                                <span class="muted">Long-form or horizontal videos</span>
+                                                                            </span>
+                                                                        </c:otherwise>
+                                                                    </c:choose>
+                                                                </label>
+                                                            </td>
+                                                            <td class="reviews-output-platform-cell">
+                                                                <details class="reviews-platform-picker">
+                                                                    <summary class="reviews-platform-picker-toggle">
+                                                                        <span class="reviews-platform-chips"><span class="muted">Select platforms</span></span>
+                                                                        <span class="reviews-platform-picker-count muted">0 selected</span>
+                                                                    </summary>
+                                                                    <div class="kcpc-channel-checklist reviews-output-target-checklist">
+                                                                        <c:forEach var="pt" items="${activePublicationTargets}">
+                                                                            <label class="channel-check-item" data-platform="${pt.platform.platformName}">
+                                                                                <input type="checkbox" class="reviews-output-target-checkbox" value="${pt.id}"
+                                                                                       data-platform="${pt.platform.platformName}"
+                                                                                       data-channel="${pt.channel.channelHandle}"> ${pt.platform.platformName} / ${pt.channel.channelHandle}
+                                                                            </label>
+                                                                        </c:forEach>
+                                                                    </div>
+                                                                </details>
+                                                                <div class="reviews-output-platform-popovers"></div>
+                                                            </td>
+                                                        </tr>
+                                                    </c:forEach>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="reviews-decision-error hidden" id="reviewsIdeaOutputError"></div>
+                                    </div>
+
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">4</span> Initial Shoot Assignment</h3>
+                                        <%-- 3-column row: Cameraperson(s) / Shoot Lead / Model(s)/Talent, one CSS grid
+                                             row, all three columns using the SAME label+control wrapper structure
+                                             (.reviews-shoot-assignment-col) so they align to the exact same top edge -
+                                             no per-field row-spanning/positioning tricks that could drift out of sync.
+                                             Shoot Lead's <select> must still stay a DOM descendant of the Cameraperson
+                                             .kcpc-model-picker (model-picker.js's refreshLeadOptions finds it via
+                                             picker.querySelector('.kcpc-lead-select'), scoped to that one picker
+                                             instance) - .reviews-shoot-assignment-camera is display:contents so its
+                                             two .reviews-shoot-assignment-col children (Cameraperson's own column,
+                                             Shoot Lead's own column) become the actual grid items while the Lead
+                                             select stays nested inside the Cameraperson picker. Model(s)/Talent is its
+                                             own separate, independently-wired .kcpc-model-picker carrying the same
+                                             .reviews-shoot-assignment-col class directly (a true sibling, not nested) -
+                                             optional, no * in the label; empty selection is already accepted by
+                                             IdeaService#approve, which only iterates planning.talentUserIds() when
+                                             non-null - unchanged. --%>
+                                        <div class="reviews-shoot-assignment-grid">
+                                            <div class="kcpc-model-picker reviews-shoot-assignment-camera">
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label>Cameraperson(s) *</label>
+                                                    <div class="kcpc-model-input">
+                                                        <div class="kcpc-model-chips"></div>
+                                                        <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
+                                                    </div>
+                                                    <div class="kcpc-model-checklist">
+                                                        <c:forEach var="cu" items="${camerapersonUsers}">
+                                                            <label class="model-check-item">
+                                                                <input type="checkbox" name="camerapersonUserIds" value="${cu.id}" data-name="${cu.fullName}"> ${cu.fullName}
+                                                                <span class="muted assignee-task-count">(<c:out value="${cu.activeTaskLabel}"/>)</span>
+                                                            </label>
+                                                        </c:forEach>
+                                                    </div>
+                                                </div>
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label for="reviewsIdeaLeadCameraperson">Shoot Lead *</label>
+                                                    <select id="reviewsIdeaLeadCameraperson" class="kcpc-lead-select" disabled>
+                                                        <option value="">- None -</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="kcpc-model-picker reviews-shoot-assignment-col">
+                                                <label>Model(s) / Talent</label>
+                                                <div class="kcpc-model-input">
+                                                    <div class="kcpc-model-chips"></div>
+                                                    <input type="text" class="kcpc-model-search" placeholder="Search model...">
+                                                </div>
+                                                <div class="kcpc-model-checklist">
+                                                    <c:forEach var="mu" items="${modelUsers}">
+                                                        <label class="model-check-item">
+                                                            <input type="checkbox" name="modelUserIds" value="${mu.id}" data-name="${mu.fullName}"> ${mu.fullName}
+                                                            <span class="muted assignee-task-count">(<c:out value="${mu.activeTaskLabel}"/>)</span>
+                                                        </label>
+                                                    </c:forEach>
+                                                </div>
+                                            </div>
+                                            <p class="reviews-field-hint">Shoot Lead must be one of the selected Cameraperson(s).</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="panel reviews-planning-card">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">5</span> Team Marks (Approve Only)</h3>
+                                        <div class="form-grid">
+                                            <label>Cameraperson Mark *
+                                                <select id="reviewsIdeaCameramanMark">
+                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
+                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                </select>
+                                            </label>
+                                            <label>Editor Mark *
+                                                <select id="reviewsIdeaEditorMark">
+                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
+                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                </select>
+                                            </label>
+                                            <label>Model Mark *
+                                                <select id="reviewsIdeaModelMark">
+                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
+                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+        <div class="reviews-decision-error hidden" id="reviewsDecisionError"></div>
+
+        <%-- Bottom confirm bar: the actual submit action for all three decisions - primary
+             label/text driven by JS per the decision currently selected above. Lives here (after
+             the wide Planning form) rather than in the narrow panel above, so Approve's confirm
+             click always comes after the form the reviewer just filled in. --%>
+        <div class="reviews-decision-confirm-bar hidden" id="reviewsIdeaConfirmBar">
+            <button type="button" class="btn-outline" id="reviewsIdeaCancelBtn">Cancel</button>
+            <button type="button" class="reviews-decision-confirm-btn" id="reviewsIdeaConfirmBtn">Approve &amp; Assign Shoot</button>
+        </div>
+    </div>
+</c:if>

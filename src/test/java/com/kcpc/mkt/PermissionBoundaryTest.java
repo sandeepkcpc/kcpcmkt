@@ -54,7 +54,7 @@ class PermissionBoundaryTest {
         TestApiClient employee = new TestApiClient(port);
         employee.login(email, "Passw0rd!");
         HttpResponse<String> attempt = employee.post("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0}");
         assertThat(attempt.statusCode()).isEqualTo(403);
     }
 
@@ -86,13 +86,12 @@ class PermissionBoundaryTest {
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
+        // Workflow redesign: Idea Review approval now transitions straight to Shoot Assigned (SA) -
+        // there is no more "before Planning Review has been approved" window to catch a premature
+        // Shoot start in; that specific guard no longer has a reachable precondition to test.
         String contentPlanId = approveIdeaAndGetContentPlanId(ceo, "Guard Order " + unique);
         JsonNode planBeforeSchedule = ceo.getJson("/api/v1/content-plans/" + contentPlanId);
-        assertThat(planBeforeSchedule.get("status").asText()).isEqualTo("PL");
-
-        // Shooting cannot start before Planning Review has been approved (SA has not been reached).
-        HttpResponse<String> earlyShootStart = ceo.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
-        assertThat(earlyShootStart.statusCode()).isEqualTo(409);
+        assertThat(planBeforeSchedule.get("status").asText()).isEqualTo("SA");
 
         // Publishing cannot start before Ready for Publishing (RFP) has been reached.
         HttpResponse<String> earlyPublishStart = ceo.post("/api/v1/content-plans/" + contentPlanId + "/publishing/start", "");
@@ -132,11 +131,22 @@ class PermissionBoundaryTest {
         return response.get("userId").asText();
     }
 
+    /** Workflow redesign: Idea Review approval always requires at least one Cameraperson - this
+     * creates a throwaway one (irrelevant to the caller's assertions) and transitions straight to
+     * Shoot Assigned (SA), never PL/PLRV/PLAP. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String camId = createUser(ceo, "Perm Boundary Cam " + unique, "perm-boundary-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"permission boundary test fixture grant\"}");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/perm-boundary-" + unique + "\","
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         return plan.getId().toString();

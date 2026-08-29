@@ -71,8 +71,8 @@ class PerformanceMetaOnlyEligibilityTest {
         return response.get("userId").asText() + "|" + email;
     }
 
-    /** Builds a single-PHOTOGRAPHY-output Content Plan through the full Planning -&gt; Shoot -&gt;
-     * Edit -&gt; Publishing workflow (every content type, including PHOTOGRAPHY, passes through all
+    /** Builds a single-POST-output Content Plan through the full Planning -&gt; Shoot -&gt;
+     * Edit -&gt; Publishing workflow (every content type, including POST, passes through all
      * stages - matches GoldenEndToEndFlowTest's own governed flow), scoped to exactly
      * {@code targetIds}, and publishes an ORIGINAL event to each of those targets 3 days ago (past
      * the +2-day due date). */
@@ -96,39 +96,31 @@ class PerformanceMetaOnlyEligibilityTest {
                 "{\"granteeUserId\":\"" + pubIdEmail[0] + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"performance meta-only eligibility test\"}");
 
+        // Workflow redesign: Planning is folded into Idea Review - approval carries every former
+        // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
+        String targetIdsJson = String.join(",", java.util.Arrays.stream(targetIds).map(t -> "\"" + t + "\"").toList());
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Meta Eligibility " + label + " " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
-        ceo.postJson("/api/v1/ideas/" + ideaId + "/review", "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0}");
+        ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"folderLink\":\"https://drive.example.com/meta-" + label + "-" + unique + "\","
+                        + "\"outputs\":[{\"outputType\":\"POST\",\"publicationTargetIds\":[" + targetIdsJson + "]}],"
+                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
-
-        ceo.postJson("/api/v1/content-plans/" + planId + "/schedule/standard",
-                "{\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/parameters",
-                "{\"contentPriority\":\"MEDIUM\",\"folderLink\":\"https://drive.example.com/meta-" + label + "-" + unique + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/shooting-assignments",
-                "{\"cameramanUserId\":\"" + camIdEmail[0] + "\"}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/outputs", "{\"outputType\":\"PHOTOGRAPHY\"}");
-
         PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).get(0);
-        String targetIdsJson = String.join(",", java.util.Arrays.stream(targetIds).map(t -> "\"" + t + "\"").toList());
-        ceo.postJson("/api/v1/content-plans/outputs/" + output.getId() + "/publication-scope",
-                "{\"publicationTargetIds\":[" + targetIdsJson + "]}");
-
-        ceo.post("/api/v1/content-plans/" + planId + "/planning-review/submit", "");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/planning-review/decision", "{\"approve\":true}");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/shooting/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camIdEmail[0] + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/editing/assignments", "{\"editorUserId\":\"" + edIdEmail[0] + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + camIdEmail[0] + "\"],"
+                        + "\"editorUserIds\":[\"" + edIdEmail[0] + "\"],\"leadEditorUserId\":\"" + edIdEmail[0] + "\"}");
         ed.post("/api/v1/content-plans/" + planId + "/editing/start", "");
         ed.post("/api/v1/content-plans/" + planId + "/editing/review/submit", "");
         ceo.postJson("/api/v1/content-plans/" + planId + "/editing/review/decision",
-                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edIdEmail[0] + "\"]}");
-        ceo.postJson("/api/v1/content-plans/" + planId + "/publishing/assignments",
-                "{\"publisherUserId\":\"" + pubIdEmail[0] + "\"}");
+                "{\"approve\":true,\"qualifyingRecipientUserIds\":[\"" + edIdEmail[0] + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubIdEmail[0] + "\"]}");
         pub.post("/api/v1/content-plans/" + planId + "/publishing/start", "");
 
         String pastTimestamp = Instant.now().minus(3, ChronoUnit.DAYS).toString();
