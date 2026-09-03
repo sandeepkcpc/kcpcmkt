@@ -14,52 +14,8 @@
     <h1>Submit an Idea</h1>
     <p class="muted">Suggest a new content idea for review.</p>
 
-    <c:if test="${not empty errorMessage}">
-        <div class="alert-error">${errorMessage}</div>
-    </c:if>
-
-    <div class="idea-submit-card">
-        <form method="post" action="${pageContext.request.contextPath}/app/ideas" class="form-card idea-submit-form" id="idea-submit-form" novalidate>
-            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-
-            <label for="title">Idea Title <span class="required-mark">*</span></label>
-            <input type="text" id="title" name="title" required maxlength="120"
-                   placeholder="Enter a short and clear idea title"
-                   value="${fn:escapeXml(title)}"
-                   class="${errorField == 'title' ? 'input-error' : ''}">
-            <c:if test="${errorField == 'title'}"><div class="field-error">${errorMessage}</div></c:if>
-            <div class="field-hint-row">
-                <span class="field-hint">Keep the title short and specific.</span>
-                <span class="char-counter" data-counter-for="title">0 / 120</span>
-            </div>
-
-            <label for="referenceLink">Reference Link <span class="optional-mark">(Optional)</span></label>
-            <div class="input-with-icon">
-                <span class="input-icon">&#128279;</span>
-                <input type="text" id="referenceLink" name="referenceLink"
-                       placeholder="Paste reference link (e.g. Drive link, YouTube link, Website etc.)"
-                       value="${fn:escapeXml(referenceLink)}"
-                       class="${errorField == 'referenceLink' ? 'input-error' : ''}">
-            </div>
-            <c:if test="${errorField == 'referenceLink'}"><div class="field-error">${errorMessage}</div></c:if>
-            <div class="field-hint-row">
-                <span class="field-hint">Add any reference link that supports your idea.</span>
-            </div>
-
-            <label for="notesRemarks">Idea Description / Details <span class="optional-mark">(Optional)</span></label>
-            <textarea id="notesRemarks" name="notesRemarks" rows="4"
-                      placeholder="Describe your idea in more detail (what, why, how, target audience, key points, full script etc. - no length limit)"><c:out value="${notesRemarks}"/></textarea>
-            <div class="field-hint-row">
-                <span class="field-hint"></span>
-                <span class="char-counter" data-counter-for="notesRemarks">0 characters</span>
-            </div>
-
-            <div class="idea-submit-actions">
-                <button type="reset" class="btn-outline" id="idea-submit-reset">Reset</button>
-                <button type="submit" id="idea-submit-btn">&#9992; Submit Idea</button>
-            </div>
-        </form>
-    </div>
+    <c:set var="ideaSubmitFormAjax" value="${false}"/>
+    <%@ include file="fragments/idea-submit-form.jspf" %>
 
     <p class="idea-submit-footer-hint">&#9432; Your idea will be visible in My Ideas after submission.</p>
 </main>

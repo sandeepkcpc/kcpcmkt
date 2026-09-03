@@ -40,6 +40,15 @@
         <label for="aaSearch">Content / User</label>
         <input type="text" name="q" id="aaSearch" placeholder="Search content or user..." value="${fn:escapeXml(q)}">
     </div>
+    <%-- Date Range fix: unlike the other filters above (selects/text search, already auto-submitted
+         by reports-workspace.js's generic handler), input[type="date"] was never included in that
+         auto-submit condition, and this form previously had no submit control at all - so selecting
+         From/To silently did nothing. Fixed with an explicit Filter button (this form's own
+         reports-admin-actions.js validates From > To before letting the existing generic submit
+         handler run, exactly the same delegation/stopImmediatePropagation pattern already
+         established for the KPI Dashboard's own Date Range - reports-kpi-date-preset.js) rather than
+         extending reports-workspace.js's shared auto-submit behavior, which several other report
+         screens also depend on. --%>
     <div class="filter-field">
         <label for="aaDateFrom">Date Range</label>
         <div class="filter-date-range">
@@ -47,7 +56,9 @@
             <span class="filter-date-sep">&ndash;</span>
             <input type="date" name="endDate" id="aaDateTo" value="${selectedDateTo}">
         </div>
+        <span class="reviews-schedule-error hidden" id="aaDateRangeError"></span>
     </div>
+    <button type="submit" class="btn-outline" id="aaFilterBtn">Filter</button>
     <a class="btn-outline reports-clear" href="${pageContext.request.contextPath}/app/reports/admin-actions">
         <span aria-hidden="true">&#8635;</span> Clear
     </a>

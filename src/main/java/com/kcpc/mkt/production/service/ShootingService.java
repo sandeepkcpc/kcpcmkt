@@ -252,6 +252,73 @@ public class ShootingService {
         return plan;
     }
 
+    /**
+     * Skip Stage (ENG-090): a controlled, permission-gated escape hatch, deliberately separate
+     * from {@link #decideShootReview} - Skip does not require an actual review submission
+     * (usable from SA/SIP/SRV, before or after a Cameraperson ever submits for review), has no
+     * self-review-prohibited check (there are no execution participants to have been one of - no
+     * real shoot work happened), and does not attribute any performance mark (nobody executed the
+     * stage). It still collects the same required Editor(s)+Editor Lead the normal Approve path
+     * would, via the same {@link EditingService#assignEditTeam} call, so the workflow never ends
+     * up with an unassigned Editor team just because Shoot was skipped. Gated by
+     * PERM_20_SKIP_STAGE, never by PERM_05_SHOOT_REVIEW - holding Review authority does not imply
+     * Skip authority.
+     */
+    @Transactional
+    public ContentPlan skipShootStage(User actor, UUID contentPlanId, String reason,
+                                       List<UUID> editorUserIds, UUID leadEditorUserId) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        WorkflowStatus status = workflowInstance.getCurrentStatusCode();
+        if (status != WorkflowStatus.SA && status != WorkflowStatus.SIP && status != WorkflowStatus.SRV) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Shoot stage can only be skipped while Shoot Assigned, In Progress, or Under Review");
+        }
+        Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(actor,
+                OperationalPermission.PERM_20_SKIP_STAGE, LifecycleStage.SHOOTING, workflowInstance);
+        holdService.requireNoOpenHold(workflowInstance);
+
+        if (reason == null || reason.isBlank()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A reason is mandatory to skip this stage");
+        }
+        if (editorUserIds == null || editorUserIds.isEmpty()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "At least one Editor must be assigned to skip this stage");
+        }
+        if (leadEditorUserId == null) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Editor Lead is mandatory");
+        }
+        if (!editorUserIds.contains(leadEditorUserId)) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Editor Lead must be one of the selected Editor(s)");
+        }
+        // Resolved up front (before any mutation below) so an invalid editor id fails fast, same
+        // pattern decideShootReview already uses.
+        List<User> editors = new ArrayList<>();
+        for (UUID editorId : editorUserIds) {
+            editors.add(userRepository.findById(editorId)
+                    .orElseThrow(() -> DomainException.notFound("User not found: " + editorId)));
+        }
+
+        if (status == WorkflowStatus.SRV) {
+            reviewCycleRepository
+                    .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, GateType.SHOOT_REVIEW)
+                    .stream().filter(c -> c.getDecidedAt() == null).findFirst()
+                    .ifPresent(cycle -> {
+                        cycle.decide(actor, "SKIPPED", reason, actingGrant.orElse(null));
+                        reviewCycleRepository.save(cycle);
+                    });
+        }
+
+        workflowService.transition(workflowInstance, WorkflowStatus.EA, actor, actingGrant,
+                "SKIP_SHOOT_STAGE", reason);
+        auditService.record(actor, actingGrant, "SHOOTING", "SHOOT_STAGE_SKIPPED", "content_plans",
+                plan.getId(), reason);
+
+        editingService.assignEditTeam(actor, contentPlanId, editors, leadEditorUserId);
+        return plan;
+    }
+
     private int nextCycleNumber(WorkflowInstance workflowInstance, GateType gateType) {
         return reviewCycleRepository.findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, gateType)
                 .stream().findFirst().map(c -> c.getCycleNumber() + 1).orElse(1);

@@ -24,10 +24,11 @@ public class AuditLogResponse {
     private final String targetEntityName;
     private final UUID targetEntityId;
     private final String actionReason;
+    private final String contentId;
 
     public AuditLogResponse(UUID auditId, Instant eventTimestamp, UUID actorUserId, String actorFullName,
                              String actorBaseRoleCode, String eventCategory, String eventType,
-                             String targetEntityName, UUID targetEntityId, String actionReason) {
+                             String targetEntityName, UUID targetEntityId, String actionReason, String contentId) {
         this.auditId = auditId;
         this.eventTimestamp = eventTimestamp;
         this.actorUserId = actorUserId;
@@ -38,12 +39,22 @@ public class AuditLogResponse {
         this.targetEntityName = targetEntityName;
         this.targetEntityId = targetEntityId;
         this.actionReason = actionReason;
+        this.contentId = contentId;
     }
 
     public static AuditLogResponse from(SystemAuditLog log) {
+        return from(log, null);
+    }
+
+    /** Content ID column (Logs page enhancement): {@code contentId} is resolved by the caller
+     * (see {@link com.kcpc.mkt.audit.service.AuditContentIdResolver}), never computed here - this
+     * DTO stays a plain projection of what's already known. {@code null} for any log that has no
+     * content relationship; the JSP renders that as "-". */
+    public static AuditLogResponse from(SystemAuditLog log, String contentId) {
         return new AuditLogResponse(log.getId(), log.getEventTimestamp(), log.getActor().getId(),
                 log.getActor().getFullName(), log.getActorBaseRoleCode().name(), log.getEventCategory(),
-                log.getEventType(), log.getTargetEntityName(), log.getTargetEntityId(), log.getActionReason());
+                log.getEventType(), log.getTargetEntityName(), log.getTargetEntityId(), log.getActionReason(),
+                contentId);
     }
 
     public UUID getAuditId() {
@@ -84,5 +95,9 @@ public class AuditLogResponse {
 
     public String getActionReason() {
         return actionReason;
+    }
+
+    public String getContentId() {
+        return contentId;
     }
 }

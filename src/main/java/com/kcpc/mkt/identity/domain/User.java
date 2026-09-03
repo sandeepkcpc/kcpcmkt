@@ -89,6 +89,16 @@ public class User extends BaseEntity {
         this.businessRole = newRole;
     }
 
+    /** Edit User (CEO/Admin profile edit - see UserAdminService#updateUser). Never touches the
+     * immutable {@code id}. */
+    public void rename(String fullName) {
+        this.fullName = fullName;
+    }
+
+    public void changeEmail(String email) {
+        this.email = email;
+    }
+
     public void changePasswordHash(String newHash) {
         this.passwordHash = newHash;
     }

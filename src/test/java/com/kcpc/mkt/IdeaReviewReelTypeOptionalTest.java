@@ -42,6 +42,7 @@ class IdeaReviewReelTypeOptionalTest {
     PlannedOutputRepository plannedOutputRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String PUBLICATION_TARGET_ID = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -59,6 +60,15 @@ class IdeaReviewReelTypeOptionalTest {
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"reel type optional test grant\"}");
 
+        JsonNode pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Reel Publisher " + unique + "\",\"email\":\"reel-pub-" + unique
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\""
+                        + PUBLISHER_ROLE_ID + "\",\"creationReason\":\"reel type optional test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"reel type optional test grant\"}");
+
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Reel No Type " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
 
@@ -69,7 +79,7 @@ class IdeaReviewReelTypeOptionalTest {
                         + "\"folderLink\":\"https://drive.example.com/reel-no-type-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"REEL\","
                         + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
 
         assertThat(approved.get("status").asText()).isEqualTo("SA");
 

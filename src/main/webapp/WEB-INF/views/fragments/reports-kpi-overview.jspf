@@ -1,112 +1,74 @@
-<%-- KPI Dashboard -> Overview. Caller sets ${overview} (OverviewDashboardDto). Every value comes
-     straight from KpiDashboardService#overview - never computed or fabricated in this JSP. --%>
-<div class="kpi-cards kpi-cards-4">
-    <div class="kpi-card kpi-active">
-        <div class="kpi-card-icon">&#128203;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Active WIP</span></div>
-            <span class="kpi-card-count">${overview.activeWip}</span>
-            <span class="kpi-card-subtitle">One Content ID counted in exactly one current stage</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-delayed">
-        <div class="kpi-card-icon">&#9200;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Delayed Deliverables</span></div>
-            <span class="kpi-card-count">${overview.delayedDeliverables}</span>
-            <span class="kpi-card-subtitle">Past current approved target</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-completed">
-        <div class="kpi-card-icon">&#9989;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">On-Time Delivery (Publishing)</span></div>
-            <span class="kpi-card-count"><c:choose><c:when test="${empty overview.onTimeDelivery.percent}">-</c:when>
-                <c:otherwise>${overview.onTimeDelivery.percent}%</c:otherwise></c:choose></span>
-            <span class="kpi-card-subtitle">${overview.onTimeDelivery.onTimeCycles} of ${overview.onTimeDelivery.eligibleCycles} Publishing cycles due in period</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-underreview">
-        <div class="kpi-card-icon">&#128226;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Published Content</span></div>
-            <span class="kpi-card-count">${overview.publishedContent}</span>
-            <span class="kpi-card-subtitle">Distinct Content IDs first published in period</span>
-        </div>
-    </div>
-</div>
-
-<div class="kpi-cards kpi-cards-4">
-    <div class="kpi-card kpi-underreview">
-        <div class="kpi-card-icon">&#9203;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Avg End-to-End Cycle Time</span></div>
-            <span class="kpi-card-count">${kcpc:days(overview.avgEndToEndCycleTimeDays)}</span>
-            <span class="kpi-card-subtitle">Idea Submitted &rarr; original Publication Scope Resolved</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-rework">
-        <div class="kpi-card-icon">&#128260;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Rework Rate (All Stages)</span></div>
-            <span class="kpi-card-count"><c:choose><c:when test="${empty overview.reworkRatePercent}">-</c:when>
-                <c:otherwise>${overview.reworkRatePercent}%</c:otherwise></c:choose></span>
-            <span class="kpi-card-subtitle">Shoot + Edit review cycles</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-underreview">
-        <div class="kpi-card-icon">&#128100;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Pending Reviews</span></div>
-            <span class="kpi-card-count">${overview.pendingReviews}</span>
-            <span class="kpi-card-subtitle">Idea / Shoot / Edit gates</span>
-        </div>
-    </div>
-    <div class="kpi-card kpi-delayed">
-        <div class="kpi-card-icon">&#128202;</div>
-        <div class="kpi-card-body">
-            <div class="kpi-card-title-row"><span class="kpi-card-title">Performance Overdue</span></div>
-            <span class="kpi-card-count">${overview.performanceOverdue}</span>
-            <span class="kpi-card-subtitle">Incomplete, past due date</span>
-        </div>
-    </div>
-</div>
-
+<%-- KPI Dashboard -> Overview (ENG-097 redesign). Caller sets ${overview} (OverviewDashboardDto).
+     Every value comes straight from KpiDashboardService#overview - never computed or fabricated in
+     this JSP. Three executive blocks answering exactly: who currently has pending/delayed work
+     (Current Work Ownership), how much content is still planned to go live per Channel/Account by
+     Planned Live Date (Upcoming Channel Plan), and how the Idea -> Publish funnel is progressing
+     (unchanged layout, only the Approval Rate formula changed - see below). The prior 8 KPI cards +
+     Stage Bottleneck Summary + Attention Needed are no longer shown here (they remain fully
+     computed in OverviewDashboardDto and unaffected on Workflow & SLA/Content & Publishing/Quality
+     & Reviews/Performance, which read the same underlying KpiDashboardService methods
+     independently - only this one JSP's presentation changed). --%>
 <div class="kpi-overview-grid">
     <div class="panel">
-        <h2 class="reports-kpi-group-title">Stage Bottleneck Summary</h2>
-        <table class="data-table">
-            <thead><tr><th>Stage</th><th class="num">Active</th><th class="num">Delayed</th><th class="num">Avg Age</th><th>Oldest Item</th></tr></thead>
-            <tbody>
-            <c:forEach var="row" items="${overview.stageHealth}">
-                <tr>
-                    <td><span class="stage-dot stage-dot-${row.stage}"></span>${row.stage}</td>
-                    <td class="num">${row.active}</td>
-                    <td class="num"><c:choose><c:when test="${empty row.delayed}">-</c:when>
-                        <c:otherwise>${row.delayed}</c:otherwise></c:choose></td>
-                    <td class="num">${kcpc:days(row.avgAgeDays)}</td>
-                    <td><c:choose><c:when test="${empty row.oldestItemAgeDays}">-</c:when>
-                        <c:otherwise>${kcpc:days(row.oldestItemAgeDays)}<c:if test="${not empty row.oldestItemContentId}"> (${row.oldestItemContentId})</c:if></c:otherwise></c:choose></td>
-                </tr>
-            </c:forEach>
-            </tbody>
-        </table>
+        <h2 class="reports-kpi-group-title">Current Work Ownership</h2>
+        <p class="muted kpi-block-subtitle">Who currently has pending and delayed work.</p>
+        <div class="reports-table-scroll">
+            <table class="data-table">
+                <thead>
+                <tr><th>Employee</th><th>Role</th><th class="num">Assigned Pending</th>
+                    <th class="num">Assigned Delayed</th><th>Oldest Delay</th><th>View</th></tr>
+                </thead>
+                <tbody>
+                <c:forEach var="row" items="${overview.currentWorkOwnership}">
+                    <tr>
+                        <td><c:out value="${row.employeeName}"/></td>
+                        <td><c:out value="${row.roleName}"/></td>
+                        <td class="num">${row.pendingCount}</td>
+                        <td class="num">${row.delayedCount}</td>
+                        <td><c:choose>
+                            <c:when test="${empty row.oldestDelayDays}">-</c:when>
+                            <c:otherwise>${row.oldestDelayDays} day<c:if test="${row.oldestDelayDays != 1}">s</c:if></c:otherwise>
+                        </c:choose></td>
+                        <td><button type="button" class="btn-outline reports-open-btn kpi-ownership-open"
+                                    data-employee-id="${row.employeeId}">Open</button></td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty overview.currentWorkOwnership}">
+                    <tr><td colspan="6" class="muted">No pending work currently assigned.</td></tr>
+                </c:if>
+                </tbody>
+            </table>
+        </div>
+        <p class="muted kpi-funnel-note">Counts are person-wise assignments; the same Content ID appears
+            under each assigned collaborator.</p>
     </div>
 
     <div class="panel">
-        <h2 class="reports-kpi-group-title">Attention Needed</h2>
-        <ul class="kpi-attention-list">
-            <c:forEach var="item" items="${overview.attentionItems}">
-                <li>
-                    <span class="kpi-attention-icon">&#9888;</span>
-                    <span class="kpi-attention-text">${item.count} ${item.message}</span>
-                    <c:if test="${not empty item.linkHref}">
-                        <a class="kpi-attention-link" href="${pageContext.request.contextPath}${item.linkHref}">&rarr;</a>
-                    </c:if>
-                </li>
+        <div class="kpi-upcoming-plan-head">
+            <h2 class="reports-kpi-group-title">Upcoming Channel Plan</h2>
+            <%-- Purely a different view of the SAME list below - see the calendar's own JS header
+                 comment (reports-kpi-calendar.js) and ReportingMvcController#buildUpcomingChannelPlanJson. --%>
+            <button type="button" class="idea-details-trigger" id="kpiUpcomingCalendarOpen"
+                    aria-label="Open planning calendar" title="Open planning calendar">&#128197;</button>
+        </div>
+        <p class="muted kpi-block-subtitle">How much planning is already done per Channel/Account by Planned Live Date.</p>
+        <div class="kpi-upcoming-plan">
+            <c:forEach var="group" items="${overview.upcomingChannelPlan}">
+                <div class="kpi-upcoming-date-group">
+                    <div class="kpi-upcoming-date">${group.plannedLiveDate}</div>
+                    <ul class="kpi-upcoming-channel-list">
+                        <c:forEach var="ch" items="${group.channels}">
+                            <li><span class="kpi-upcoming-channel-name"><c:out value="${ch.channelHandle}"/></span>
+                                <span class="kpi-upcoming-channel-count">${ch.count}</span></li>
+                        </c:forEach>
+                    </ul>
+                </div>
             </c:forEach>
-            <c:if test="${empty overview.attentionItems}"><li class="muted">Nothing needs attention right now.</li></c:if>
-        </ul>
+            <c:if test="${empty overview.upcomingChannelPlan}">
+                <p class="muted">No upcoming planned publications.</p>
+            </c:if>
+        </div>
+        <p class="muted kpi-funnel-note">If a target goes live before its planned date, it exits this list immediately.</p>
     </div>
 
     <div class="panel">
@@ -128,9 +90,60 @@
             <div class="kpi-funnel-arrow">&darr;</div>
             <div class="kpi-funnel-stage kpi-funnel-published"><span class="kpi-funnel-count">${overview.funnel.published}</span><span class="kpi-funnel-label">Published</span></div>
         </div>
-        <p class="muted kpi-funnel-note">Approval Rate: <c:choose><c:when test="${empty overview.funnel.approvalRate}">-</c:when>
-            <c:otherwise>${overview.funnel.approvalRate}%</c:otherwise></c:choose> (Approved / (Approved + Rejected) - Retained excluded)</p>
+        <%-- ENG-097 locked formula: Approved / Submitted * 100 - NOT the old Approved / (Approved +
+             Rejected) shape (that formula is never used or labeled "Approval Rate" on this Overview). --%>
+        <p class="muted kpi-funnel-note">Approval Rate: <c:choose><c:when test="${empty overview.funnel.approvalRate}">N/A</c:when>
+            <c:otherwise>${overview.funnel.approvalRate}%</c:otherwise></c:choose> (Approved &divide; Submitted)</p>
     </div>
 </div>
 
 <p class="muted kpi-view-link"><a href="${pageContext.request.contextPath}/app/reports/workload">View Team Capacity &rarr;</a></p>
+
+<%-- Current Work Ownership -> "Open" read-only drill-down modal (reports-kpi-ownership-drilldown.js).
+     Only ever rendered when Overview is the active view - the "Open" buttons above are its only
+     trigger. Reuses the shared .kcpc-modal-* shell (Edit User modal, Idea Description modal). --%>
+<div class="kcpc-modal-overlay hidden" id="kpiOwnershipDrilldownOverlay">
+    <div class="kcpc-modal kpi-drilldown-modal" role="dialog" aria-modal="true" aria-labelledby="kpiOwnershipDrilldownTitle">
+        <div class="kcpc-modal-header">
+            <h3 id="kpiOwnershipDrilldownTitle">Current Work</h3>
+            <button type="button" class="kcpc-modal-close" id="kpiOwnershipDrilldownClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="kcpc-modal-body" id="kpiOwnershipDrilldownBody">
+            <p class="muted">Loading&hellip;</p>
+        </div>
+    </div>
+</div>
+
+<%-- Upcoming Channel Plan -> calendar icon -> planning calendar (reports-kpi-calendar.js). Purely
+     a different presentation of the exact same ${overview.upcomingChannelPlan} the list above
+     already renders - no second query, no new "outstanding" definition. Reuses the same
+     .kcpc-modal-* shell as the drill-down above for visual consistency within this same card row. --%>
+<div class="kcpc-modal-overlay hidden" id="kpiUpcomingCalendarOverlay">
+    <div class="kcpc-modal kpi-calendar-modal" role="dialog" aria-modal="true" aria-labelledby="kpiUpcomingCalendarTitle">
+        <div class="kcpc-modal-header">
+            <h3 id="kpiUpcomingCalendarTitle">Planning Calendar</h3>
+            <button type="button" class="kcpc-modal-close" id="kpiUpcomingCalendarClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="kcpc-modal-body">
+            <div class="kpi-calendar-nav">
+                <button type="button" class="btn-outline kpi-calendar-prev" aria-label="Previous month">&#8249;</button>
+                <span class="kpi-calendar-month-label" id="kpiCalendarMonthLabel"></span>
+                <button type="button" class="btn-outline kpi-calendar-next" aria-label="Next month">&#8250;</button>
+            </div>
+            <div class="kpi-calendar-weekdays">
+                <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+            </div>
+            <div class="kpi-calendar-grid" id="kpiCalendarGrid"></div>
+            <div class="kpi-calendar-legend">
+                <span><span class="kpi-calendar-legend-dot kpi-calendar-legend-dot-planned"></span> Planned date</span>
+                <span><span class="kpi-calendar-legend-dot kpi-calendar-legend-dot-selected"></span> Selected date</span>
+            </div>
+            <div class="kpi-calendar-detail" id="kpiCalendarDetail">
+                <p class="muted">Select a highlighted date to see its planning details.</p>
+            </div>
+        </div>
+    </div>
+</div>
+<%-- Embedded as JSON (same pattern as deliverable-detail.jsp's kcpc-planning-options) rather than
+     a separate fetch - reports-kpi-calendar.js reads this once, when the calendar is opened. --%>
+<script type="application/json" id="kpiUpcomingPlanData">${upcomingChannelPlanJson}</script>

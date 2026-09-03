@@ -443,6 +443,14 @@ class PlannedOutputsTableTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"planned outputs test fixture grant\"}");
+        var pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Planned Outputs Pub\",\"email\":\"planned-outputs-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000008\","
+                        + "\"creationReason\":\"planned outputs test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"planned outputs test fixture grant\"}");
         String ideaTitle = title + " " + unique;
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
@@ -455,7 +463,8 @@ class PlannedOutputsTableTest {
                 "contentPriority", java.util.List.of("MEDIUM"),
                 "plannedLiveDate", java.util.List.of(java.time.LocalDate.now().plusDays(10).toString()),
                 "folderLink", java.util.List.of("https://drive.example.com/planned-outputs-" + unique),
-                "camerapersonUserIds", java.util.List.of(camId))).statusCode()).isEqualTo(302);
+                "camerapersonUserIds", java.util.List.of(camId),
+                "publisherUserIds", java.util.List.of(pubId))).statusCode()).isEqualTo(302);
         return contentPlanRepository.findByIdea(idea).orElseThrow();
     }
 }

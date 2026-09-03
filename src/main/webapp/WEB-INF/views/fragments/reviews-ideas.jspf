@@ -151,7 +151,9 @@
                 </div>
             </c:when>
             <c:otherwise>
-                <c:set var="rvIdeaLastUpdated" value="${empty ideaStatusHistory ? selectedIdea.submittedAt : ideaStatusHistory[0].timestamp}"/>
+                <%-- rvIdeaLastUpdated is now a model attribute computed server-side (see
+                     IdeaMvcController#computeLastUpdated / ReviewsMvcController#buildIdeasTab), not
+                     a JSP <c:set> - so it correctly factors in a Reference Link edit too. --%>
                 <div class="panel reviews-detail-card" id="reviewsDetailCard" data-review-type="idea" data-review-id="${selectedIdea.id}">
                     <div class="reviews-detail-head">
                         <h2 class="reviews-detail-title">${ideaView == 'retained' ? 'Retained Idea' : 'Reviewing Idea'}</h2>
@@ -171,12 +173,10 @@
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Reference Link</span>
                             <span class="reviews-field-value">
-                                <c:choose>
-                                    <c:when test="${not empty selectedIdea.referenceLink}">
-                                        <a href="${fn:escapeXml(selectedIdea.referenceLink)}" target="_blank" rel="noopener noreferrer"><c:out value="${selectedIdea.referenceLink}"/></a>
-                                    </c:when>
-                                    <c:otherwise><span class="muted">-</span></c:otherwise>
-                                </c:choose>
+                                <c:set var="refLinkEditIdea" value="${selectedIdea}"/>
+                                <c:set var="refLinkEditCanEdit" value="${canEditReferenceLink}"/>
+                                <c:set var="refLinkEditAjax" value="${true}"/>
+                                <%@ include file="idea-reference-link-edit.jspf" %>
                             </span>
                         </div>
                         <%-- ENG: the note icon now shows ALWAYS (ideaDescModalAlwaysShow), not only when a
@@ -210,15 +210,6 @@
                             </span>
                         </div>
                         <%@ include file="idea-description-modal.jspf" %>
-                        <div class="reviews-field-row">
-                            <span class="reviews-field-label">Additional Note</span>
-                            <span class="reviews-field-value">
-                                <c:choose>
-                                    <c:when test="${not empty selectedIdea.additionalNote}"><c:out value="${selectedIdea.additionalNote}"/></c:when>
-                                    <c:otherwise><span class="muted">-</span></c:otherwise>
-                                </c:choose>
-                            </span>
-                        </div>
                         <div class="reviews-field-row">
                             <span class="reviews-field-label">Submitted By</span>
                             <span class="reviews-field-value"><c:out value="${selectedIdea.submittedBy.fullName}"/></span>
@@ -318,9 +309,8 @@
                                         <div class="form-grid">
                                             <label>Priority *
                                                 <select id="reviewsIdeaContentPriority" required>
-                                                    <option value="" selected disabled>Select priority</option>
                                                     <c:forEach var="p" items="${priorities}">
-                                                        <option value="${p}">${p}</option>
+                                                        <option value="${p}" ${p == 'LOW' ? 'selected' : ''}>${p}</option>
                                                     </c:forEach>
                                                 </select>
                                             </label>
@@ -331,12 +321,33 @@
                                                     <option value="URGENT">Urgent</option>
                                                 </select>
                                             </label>
-                                            <label>Category (optional) <input type="text" id="reviewsIdeaCategoryText"></label>
+                                            <label>Category
+                                                <select id="reviewsIdeaCategoryText">
+                                                    <c:forEach var="cat" items="${categoryOptions}">
+                                                        <option value="${cat.name}">${cat.name}</option>
+                                                    </c:forEach>
+                                                </select>
+                                            </label>
                                             <label>Asset Folder / Drive Link
                                                 <span class="reviews-drive-input">
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                                                     <input type="text" id="reviewsIdeaFolderLink" placeholder="https://drive.google.com/...">
                                                 </span>
+                                            </label>
+                                            <%-- ENG-091: picks where the pipeline starts - Standard/Direct Edit/Direct
+                                                 Publishing. Own small component (stages-picker.js), not .kcpc-model-picker -
+                                                 see that file's header comment. --%>
+                                            <label>Stages *
+                                                <details class="kcpc-stages-picker" id="reviewsIdeaStagesPicker">
+                                                    <summary class="kcpc-stages-picker-toggle">
+                                                        <span class="kcpc-stages-chips"></span>
+                                                    </summary>
+                                                    <div class="kcpc-stages-checklist">
+                                                        <label class="stage-check-item"><input type="checkbox" value="SHOOT" checked> Shoot</label>
+                                                        <label class="stage-check-item"><input type="checkbox" value="EDIT" checked> Edit</label>
+                                                        <label class="stage-check-item"><input type="checkbox" value="PUBLISHING" checked> Publishing</label>
+                                                    </div>
+                                                </details>
                                             </label>
                                         </div>
                                     </div>
@@ -346,9 +357,11 @@
                                         <div class="form-grid">
                                             <label>Planned Live Date * <input type="date" id="reviewsIdeaPlannedLiveDate" min="${today}"></label>
                                             <label id="reviewsIdeaShootDateLabel">Shoot Date * <input type="date" id="reviewsIdeaShootDate" min="${today}">
-                                                <span class="reviews-schedule-hint" id="reviewsIdeaShootDateHint">Standard: Live Date &minus; 5 days</span></label>
+                                                <span class="reviews-schedule-hint" id="reviewsIdeaShootDateHint">Standard: Live Date &minus; 5 days</span>
+                                                <span class="reviews-schedule-error hidden" id="reviewsIdeaShootDateError"></span></label>
                                             <label id="reviewsIdeaEditDateLabel">Edit Date * <input type="date" id="reviewsIdeaEditDate" min="${today}">
-                                                <span class="reviews-schedule-hint" id="reviewsIdeaEditDateHint">Standard: Live Date &minus; 2 days</span></label>
+                                                <span class="reviews-schedule-hint" id="reviewsIdeaEditDateHint">Standard: Live Date &minus; 2 days</span>
+                                                <span class="reviews-schedule-error hidden" id="reviewsIdeaEditDateError"></span></label>
                                             <label class="grid-span-all hidden" id="reviewsIdeaUrgencyReasonLabel">Urgency Reason (required for Urgent)
                                                 <input type="text" id="reviewsIdeaUrgencyReason"></label>
                                         </div>
@@ -438,7 +451,7 @@
                                         <div class="reviews-decision-error hidden" id="reviewsIdeaOutputError"></div>
                                     </div>
 
-                                    <div class="panel reviews-planning-card">
+                                    <div class="panel reviews-planning-card" id="reviewsIdeaShootAssignmentSection">
                                         <h3 class="reviews-section-heading"><span class="reviews-section-number">4</span> Initial Shoot Assignment</h3>
                                         <%-- 3-column row: Cameraperson(s) / Shoot Lead / Model(s)/Talent, one CSS grid
                                              row, all three columns using the SAME label+control wrapper structure
@@ -476,7 +489,7 @@
                                                 <div class="reviews-shoot-assignment-col">
                                                     <label for="reviewsIdeaLeadCameraperson">Shoot Lead *</label>
                                                     <select id="reviewsIdeaLeadCameraperson" class="kcpc-lead-select" disabled>
-                                                        <option value="">- None -</option>
+                                                        <option value="">N/A</option>
                                                     </select>
                                                 </div>
                                             </div>
@@ -499,25 +512,101 @@
                                         </div>
                                     </div>
 
-                                    <div class="panel reviews-planning-card">
+                                    <%-- ENG-091/ENG-095 Direct Edit only: no earlier Shoot Review Approve exists to
+                                         fold Editor(s) into when Shoot itself was never selected - this is the ONLY
+                                         checkpoint for this Content Plan's Edit team, so Editor Lead is mandatory
+                                         here too, exactly like the normal Shoot Review Approve fold-in. Same
+                                         .reviews-next-team-grid/.reviews-next-team-picker 2-column pattern as
+                                         Initial Shoot Assignment's Cameraperson(s)/Shoot Lead pairing above - the
+                                         Lead <select> must stay a DOM descendant of the Editor(s) .kcpc-model-picker
+                                         (model-picker.js's refreshLeadOptions scopes its lookup to that picker). --%>
+                                    <div class="panel reviews-planning-card hidden" id="reviewsIdeaEditorAssignmentSection">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">4</span> Editor Assignment</h3>
+                                        <div class="reviews-next-team-grid">
+                                            <div class="kcpc-model-picker reviews-next-team-picker">
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label>Editor(s) *</label>
+                                                    <div class="kcpc-model-input">
+                                                        <div class="kcpc-model-chips"></div>
+                                                        <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                                                    </div>
+                                                    <div class="kcpc-model-checklist">
+                                                        <c:forEach var="eu" items="${editorCandidateUsers}">
+                                                            <label class="model-check-item">
+                                                                <input type="checkbox" name="editorUserIds" value="${eu.id}" data-name="${eu.fullName}"> ${eu.fullName}
+                                                                <span class="muted assignee-task-count">(<c:out value="${eu.activeTaskLabel}"/>)</span>
+                                                            </label>
+                                                        </c:forEach>
+                                                    </div>
+                                                </div>
+                                                <div class="reviews-shoot-assignment-col">
+                                                    <label for="reviewsIdeaLeadEditor">Editor Lead *</label>
+                                                    <select id="reviewsIdeaLeadEditor" class="kcpc-lead-select" disabled>
+                                                        <option value="">N/A</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="reviews-field-hint">Editor Lead must be one of the selected Editor(s).</p>
+                                    </div>
+
+                                    <%-- ENG-097/ENG-099: Publisher(s) is assigned during Planning for EVERY stage
+                                         combo, always visible, ALWAYS mandatory now (not just Direct Publishing) -
+                                         IdeaService#approve rejects the request unconditionally when empty. For
+                                         Shoot/Edit-starting combos, Publisher(s) can still ALSO be reassigned later
+                                         at Shoot/Edit Review Approve (or Edit Stage Skip) exactly as today -
+                                         assigning here never activates Publishing itself (PublishingAssignment
+                                         carries no status of its own) and never duplicates a later assignment
+                                         (PublishingService#assignPublisher is already idempotent). --%>
+                                    <div class="panel reviews-planning-card" id="reviewsIdeaPublisherAssignmentSection">
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">4</span> Publisher Assignment</h3>
+                                        <div class="kcpc-model-picker">
+                                            <label id="reviewsIdeaPublisherLabel">Publisher(s) *</label>
+                                            <div class="kcpc-model-input">
+                                                <div class="kcpc-model-chips"></div>
+                                                <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
+                                            </div>
+                                            <div class="kcpc-model-checklist">
+                                                <c:forEach var="pu" items="${publisherCandidateUsers}">
+                                                    <label class="model-check-item">
+                                                        <input type="checkbox" name="publisherUserIds" value="${pu.id}" data-name="${pu.fullName}"> ${pu.fullName}
+                                                        <span class="muted assignee-task-count">(<c:out value="${pu.activeTaskLabel}"/>)</span>
+                                                    </label>
+                                                </c:forEach>
+                                            </div>
+                                        </div>
+                                        <p class="reviews-field-hint hidden" id="reviewsIdeaPublisherHint">Optional here for Shoot/Edit-starting content - Publisher(s) can also be assigned later during Shoot/Edit Review approval.</p>
+                                    </div>
+
+                                    <div class="panel reviews-planning-card" id="reviewsIdeaTeamMarksSection">
                                         <h3 class="reviews-section-heading"><span class="reviews-section-number">5</span> Team Marks (Approve Only)</h3>
+                                        <%-- ENG-096: each mark only applies to a role whose stage is actually part of
+                                             the selected pipeline - Cameraperson/Model tied to Shoot, Editor to Edit -
+                                             toggled live by updateReviewsIdeaStagesFields() below, same stage-truth
+                                             already used for the Shoot/Editor/Publisher assignment sections above.
+                                             This whole panel hides for Publishing-only (no mark applies at all). --%>
                                         <div class="form-grid">
-                                            <label>Cameraperson Mark *
+                                            <%-- ENG-092: options driven by the admin-managed Mark Catalogue
+                                                 (Administration -> Mark Catalogue), not a hardcoded list. --%>
+                                            <label id="reviewsIdeaCameramanMarkLabel">Cameraperson Mark *
                                                 <select id="reviewsIdeaCameramanMark">
-                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
-                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                    <c:forEach var="v" items="${cameramanMarkOptions}">
+                                                        <option value="${v.markValue}">${v.markValue}</option>
+                                                    </c:forEach>
                                                 </select>
                                             </label>
-                                            <label>Editor Mark *
+                                            <label id="reviewsIdeaEditorMarkLabel">Editor Mark *
                                                 <select id="reviewsIdeaEditorMark">
-                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
-                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                    <c:forEach var="v" items="${editorMarkOptions}">
+                                                        <option value="${v.markValue}">${v.markValue}</option>
+                                                    </c:forEach>
                                                 </select>
                                             </label>
-                                            <label>Model Mark *
+                                            <label id="reviewsIdeaModelMarkLabel">Model Mark *
                                                 <select id="reviewsIdeaModelMark">
-                                                    <option value="0.0">0</option><option value="0.5">0.5</option>
-                                                    <option value="1.0">1.0</option><option value="2.0">2.0</option><option value="3.0">3.0</option>
+                                                    <c:forEach var="v" items="${modelMarkOptions}">
+                                                        <option value="${v.markValue}">${v.markValue}</option>
+                                                    </c:forEach>
                                                 </select>
                                             </label>
                                         </div>

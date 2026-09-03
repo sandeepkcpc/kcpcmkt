@@ -21,8 +21,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ENG-068: a Publisher's own "My Work" screen (KPI cards + Active Work/History tabs, no Marks tab
- * - Publishing has no marks model) and the redesigned Publishing Task Detail page at
+ * ENG-068: a Publisher's own "My Work" screen (KPI cards + Active Work table, no History section -
+ * see MyWorkRoleBasedNavigationTest - and no Marks tab, Publishing has no marks model) and the
+ * redesigned Publishing Task Detail page at
  * /app/deliverables/{id}, mirroring {@link EditTaskDetailTest}/{@link EditFeedbackTest}'s pattern.
  * Unlike Shoot/Edit, Publishing has no review/rework gate at all, so there is no feedback panel to
  * assert, and PP (unlike Edit's EAP) genuinely IS the Publisher's own final resting status - the
@@ -85,7 +86,7 @@ class PublisherScreenTest {
                         + "\"folderLink\":\"https://drive.example.com/pub-detail-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
@@ -173,11 +174,14 @@ class PublisherScreenTest {
         assertThat(atPp).contains("Performance Pending");
         assertThat(atPp).contains("2 / 2 resolved");
 
-        // Now falls out of Active Work into History on My Work (PUBLISH_ACTIVE_WINDOW is {RFP,
-        // PUBG} only, mirroring Shoot's own SAP-falls-to-History precedent).
+        // Now falls out of Active Work (PUBLISH_ACTIVE_WINDOW is {RFP, PUBG} only) - My Work has no
+        // History section at all any more, so the completed record now surfaces only on My
+        // Performance instead (see MyWorkRoleBasedNavigationTest).
         String myWorkAtPp = publisher.get("/app/my-work").body();
         assertThat(myWorkAtPp).contains("No active publishing tasks.");
-        assertThat(myWorkAtPp).contains("Completed Publishing Work").contains(plan.getContentId());
+        assertThat(myWorkAtPp).doesNotContain("Completed Publishing Work");
+        String myPerformance = publisher.get("/app/my-performance").body();
+        assertThat(myPerformance).contains(plan.getContentId());
     }
 
     private String createUser(TestApiClient ceo, String fullName, String email, String businessRoleId) throws Exception {

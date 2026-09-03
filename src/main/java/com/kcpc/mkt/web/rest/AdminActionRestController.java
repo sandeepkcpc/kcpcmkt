@@ -41,7 +41,7 @@ public class AdminActionRestController {
     public ResponseEntity<Void> reassign(@PathVariable UUID id, @Valid @RequestBody ReassignRequest request,
                                           @AuthenticationPrincipal KcpcUserPrincipal principal) {
         adminActionService.reassign(principal.user(), id, request.taskStage(), request.newAssigneeUserIds(),
-                request.reason());
+                request.newModelUserIds(), request.reason());
         return ResponseEntity.ok().build();
     }
 

@@ -102,7 +102,8 @@ class PerformanceDraftAndCorrectionTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/pdc-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubIdEmail[0] + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();

@@ -74,13 +74,14 @@ class ShootEditNextTeamAssignmentTest {
 
     /** Idea -> approved -> Shoot Started -> Submitted for Shoot Review, ready for a Shoot Review decision. */
     private String buildToShootReview(TestApiClient ceo, String camId, String camEmail, long unique) throws Exception {
+        String pubId = createUser(ceo, "pub", PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION", unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"NTA Shoot " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/nta-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         String planId = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow().getId().toString();
         TestApiClient cam = new TestApiClient(port);
@@ -194,9 +195,13 @@ class ShootEditNextTeamAssignmentTest {
 
         assertThat(approved.get("status").asText()).isEqualTo("RFP");
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
+        // Publisher(s) are now also mandatory at Planning time (Idea Review approval), so the
+        // planning-time Publisher created inside buildToShootReview already holds its own active
+        // assignment on this plan alongside this test's own Edit Review Publisher - both stay
+        // active simultaneously (Publisher assignment supports a team, not a single slot).
         var active = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
-        assertThat(active).hasSize(1);
-        assertThat(active.get(0).getPublisher().getId()).isEqualTo(UUID.fromString(pubId));
+        assertThat(active).hasSize(2);
+        assertThat(active).extracting(a -> a.getPublisher().getId()).contains(UUID.fromString(pubId));
     }
 
     @Test
@@ -234,7 +239,10 @@ class ShootEditNextTeamAssignmentTest {
         assertThat(response.statusCode()).isEqualTo(404);
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         assertThat(plan.getWorkflowInstance().getCurrentStatusCode().name()).isEqualTo("ERV");
-        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
+        // Not empty: the planning-time Publisher assigned during Idea Review approval (inside
+        // buildToShootReview) already holds an active assignment - only a SECOND assignment (for
+        // this failed request's bogus Publisher) must never have been added.
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).hasSize(1);
     }
 
     // ---------------------------------------------------------------- Reject/Retain: no next-team required
@@ -267,6 +275,9 @@ class ShootEditNextTeamAssignmentTest {
 
         assertThat(rework.get("status").asText()).isEqualTo("ED");
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
-        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).isEmpty();
+        // Not empty: the planning-time Publisher assigned during Idea Review approval (inside
+        // buildToShootReview) already holds an active assignment - Request Rework must simply not
+        // add a SECOND one.
+        assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).hasSize(1);
     }
 }

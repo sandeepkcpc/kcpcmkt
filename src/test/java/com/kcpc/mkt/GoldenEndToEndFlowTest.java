@@ -103,7 +103,8 @@ class GoldenEndToEndFlowTest {
                         + "\"folderLink\":\"https://drive.example.com/e2e-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         String contentPlanId = findContentPlanId(ideaId);

@@ -95,6 +95,20 @@ public class ContentPlan extends BaseEntity {
     @Column(name = "publishing_description", columnDefinition = "text")
     private String publishingDescription;
 
+    /**
+     * ENG-091: non-null only when the Idea Review "Stages" selection excluded this stage from the
+     * pipeline (Direct Edit / Direct Publishing) - never set for a real mid-flight Skip Stage
+     * action (see {@code ShootingService#skipShootStage}/{@code EditingService#skipEditStage},
+     * which use a real {@code WorkflowTransitionHistory} row instead, since a real transition did
+     * occur there). Plain nullable note columns, not a fake transition row - this stage's status
+     * was never entered at all.
+     */
+    @Column(name = "shoot_stage_skip_reason", columnDefinition = "text")
+    private String shootStageSkipReason;
+
+    @Column(name = "edit_stage_skip_reason", columnDefinition = "text")
+    private String editStageSkipReason;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "prepared_by_user_id")
     private User preparedBy;
@@ -199,12 +213,23 @@ public class ContentPlan extends BaseEntity {
         this.publishingDescription = publishingDescription;
     }
 
+    public void setShootStageSkipReason(String shootStageSkipReason) {
+        this.shootStageSkipReason = shootStageSkipReason;
+    }
+
+    public void setEditStageSkipReason(String editStageSkipReason) {
+        this.editStageSkipReason = editStageSkipReason;
+    }
+
     public void setPreparedBy(User preparedBy) {
         this.preparedBy = preparedBy;
     }
 
-    /** Always true - IdeaService#approve enforces every one of these fields before a Content Plan
-     * can even be created. Kept as an informational API field on ContentPlanResponse. */
+    /** ENG-093: plannedShootDate/plannedEditDate are legitimately null when Stages excluded that
+     * stage from the pipeline (Direct Edit skips Shoot; Direct Publishing skips both) - this
+     * returns false for those plans by design, not a sign of incomplete planning. Always true for
+     * the Standard (Shoot+Edit+Publishing) case, which is what this returned unconditionally
+     * before Stages existed. Kept as an informational API field on ContentPlanResponse. */
     public boolean isFullyPlanned() {
         return contentPriority != null && plannedLiveDate != null && plannedShootDate != null
                 && plannedEditDate != null && folderLink != null && !folderLink.isBlank();
@@ -272,6 +297,14 @@ public class ContentPlan extends BaseEntity {
 
     public String getPublishingDescription() {
         return publishingDescription;
+    }
+
+    public String getShootStageSkipReason() {
+        return shootStageSkipReason;
+    }
+
+    public String getEditStageSkipReason() {
+        return editStageSkipReason;
     }
 
     public User getPreparedBy() {

@@ -1,0 +1,19 @@
+# DEV entry point. Local/VM testing: http://VM_EXTERNAL_IP:8081 (see docker-compose.yml's
+# "8081:80" host mapping). If a DNS name is available, point dev.example.com [REQUIRES USER
+# VALUE] at the VM and swap server_name below instead of relying on the raw port.
+server {
+    listen 80;
+    server_name _;
+
+    # 10M > the app's own 5MB multipart.max-file-size/max-request-size (application.yml), so a
+    # User CSV import upload is never rejected by nginx before it even reaches the app.
+    client_max_body_size 10M;
+
+    location / {
+        proxy_pass http://kcpc-dev-app:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

@@ -40,7 +40,7 @@
             leadSelect.innerHTML = '';
             var noneOption = document.createElement('option');
             noneOption.value = '';
-            noneOption.textContent = '— None —';
+            noneOption.textContent = 'N/A';
             leadSelect.appendChild(noneOption);
             var anyChecked = false;
             for (var i = 0; i < checkboxes.length; i++) {

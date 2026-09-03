@@ -67,6 +67,9 @@ public class WorkflowParticipationInterceptor implements HandlerInterceptor {
                 && workspaceAccessService.canReachMyWork(user)) {
             return true;
         }
+        if (isUnder(uri, contextPath, "/app/my-performance") && workspaceAccessService.canReachMyPerformance(user)) {
+            return true;
+        }
         if (isUnder(uri, contextPath, "/app/reviews") && workspaceAccessService.canReachReviews(user)) {
             return true;
         }

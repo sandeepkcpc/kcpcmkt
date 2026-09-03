@@ -353,6 +353,80 @@ public class PipelineDashboardService {
     }
 
     /**
+     * Single-Content-Plan adapter over {@link #buildPlatformSummaries} - the exact same per-plan
+     * batch-loading {@code DeliverableMvcController}'s own Content Detail Publishing tab already
+     * used (moved here, unchanged, so a second caller - My Work -&gt; Dashboard -&gt; Upcoming Tasks'
+     * own Platforms column - never duplicates this business logic; {@code DeliverableMvcController}
+     * now calls this same method instead of keeping its own private copy). Fetches this plan's own
+     * Planned Outputs, their real Publication Target mappings, the latest ORIGINAL event per
+     * (output, target) pair, the latest evidence correction per representative event, and the
+     * currently-DESIGNATED N/A targets per output, then delegates to the shared pure transform
+     * above - identical rules (published only with a real, non-blank effective Evidence URL; a
+     * DESIGNATED N/A mapping excluded entirely) as the Content Pipeline dashboard already uses, so
+     * no screen can ever disagree on the same Content ID's platform/channel counts.
+     */
+    @Transactional(readOnly = true)
+    public List<PipelinePlatformSummary> buildPlatformSummariesForPlan(ContentPlan plan) {
+        List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
+        List<UUID> outputIds = outputs.stream().map(PlannedOutput::getId).toList();
+        if (outputIds.isEmpty()) {
+            return List.of();
+        }
+        List<PlannedOutputPublicationTargetMapping> allMappings = mappingRepository.findByPlannedOutput_IdIn(outputIds);
+        if (allMappings.isEmpty()) {
+            return List.of();
+        }
+        // Label fields (title/type) must be read from this already-fully-loaded map, never from
+        // mapping.getPlannedOutput() directly - that association is LAZY.
+        Map<UUID, PlannedOutput> outputsById = outputs.stream()
+                .collect(Collectors.toMap(PlannedOutput::getId, o -> o));
+        List<ActualPublicationEvent> originalEvents = actualPublicationEventRepository.findByContentPlan(plan).stream()
+                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
+        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget = new HashMap<>();
+        for (ActualPublicationEvent e : originalEvents) {
+            latestEventByOutputAndTarget
+                    .computeIfAbsent(e.getPlannedOutput().getId(), k -> new HashMap<>())
+                    .merge(e.getPublicationTarget().getId(), e,
+                            (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
+        }
+        Set<UUID> representativeEventIds = latestEventByOutputAndTarget.values().stream()
+                .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId)
+                .collect(Collectors.toSet());
+        Map<UUID, PublicationEvidenceCorrection> latestCorrectionByEventId = new HashMap<>();
+        if (!representativeEventIds.isEmpty()) {
+            for (PublicationEvidenceCorrection corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
+                latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
+                        (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
+            }
+        }
+        // A mapping currently DESIGNATED N/A is excluded entirely (not shown as pending) - matches
+        // DeliverableMvcController#buildPublishingChecklist's own rule exactly.
+        Map<UUID, Set<UUID>> naTargetIdsByOutput = new HashMap<>();
+        Set<UUID> realOutputIds = allMappings.stream()
+                .map(m -> m.getPlannedOutput().getId()).collect(Collectors.toSet());
+        for (UUID outputId : realOutputIds) {
+            PlannedOutput output = outputsById.get(outputId);
+            if (output == null) {
+                continue;
+            }
+            Map<UUID, PublicationTargetNaRecord> latestNaByTarget = new HashMap<>();
+            for (PublicationTargetNaRecord r : naRecordRepository.findByPlannedOutput(output)) {
+                latestNaByTarget.merge(r.getPublicationTarget().getId(), r,
+                        (a, b) -> a.getRecordedAt().isAfter(b.getRecordedAt()) ? a : b);
+            }
+            Set<UUID> naTargets = latestNaByTarget.values().stream()
+                    .filter(r -> r.getActionType() == NaActionType.DESIGNATED)
+                    .map(r -> r.getPublicationTarget().getId())
+                    .collect(Collectors.toSet());
+            if (!naTargets.isEmpty()) {
+                naTargetIdsByOutput.put(outputId, naTargets);
+            }
+        }
+        return buildPlatformSummaries(allMappings, outputsById, latestEventByOutputAndTarget,
+                latestCorrectionByEventId, naTargetIdsByOutput);
+    }
+
+    /**
      * Pipeline dashboard "Attention / Delayed" indicator - display-only, never a persisted or
      * workflow status (BFD's only real status catalogue entry for "delayed" is the supplementary
      * DLY flag, never used here). Delegates to {@link StageDelayPolicy}, the single shared source

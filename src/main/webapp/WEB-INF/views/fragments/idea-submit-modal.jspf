@@ -1,0 +1,21 @@
+<%-- "Create Idea" popup (Reviews -> Idea Review & Planning screen only) - opened by the
+     "+ Create Idea" button in reviews-content.jspf's tab header row. Reuses the exact same Submit
+     Idea form fragment (fragments/idea-submit-form.jspf), fields, client validation
+     (idea-submit.js) and backend endpoint/logic (IdeaMvcController#submit / IdeaService#submit) as
+     the full-page /app/ideas/new screen - this is presentation only, never a second/parallel Idea
+     submission implementation. Same permission rule as Submit Idea itself: IdeaService#submit has
+     no authority check beyond being logged in, so this button/modal is available to every viewer
+     who can reach the Reviews screen at all, matching the "Submit Idea" nav link's own reach
+     (visible unconditionally to every authenticated Access Class in fragments/nav.jsp). --%>
+<div class="kcpc-modal-overlay hidden" id="ideaCreateModalOverlay">
+    <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="ideaCreateModalTitle">
+        <div class="kcpc-modal-header">
+            <h3 id="ideaCreateModalTitle">Submit an Idea</h3>
+            <button type="button" class="kcpc-modal-close" id="ideaCreateModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="kcpc-modal-body">
+            <c:set var="ideaSubmitFormAjax" value="${true}"/>
+            <%@ include file="idea-submit-form.jspf" %>
+        </div>
+    </div>
+</div>

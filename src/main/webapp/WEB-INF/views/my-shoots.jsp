@@ -56,7 +56,6 @@
                     <th>Shoot Date</th>
                     <th>My Role</th>
                     <th>Other Talent</th>
-                    <th>Status</th>
                     <th>View</th>
                 </tr>
                 </thead>
@@ -68,12 +67,11 @@
                         <td><c:out value="${empty row.plannedShootDate ? '—' : row.plannedShootDate}"/></td>
                         <td><c:out value="${row.myRole}"/></td>
                         <td><c:out value="${empty row.otherTalent ? '—' : row.otherTalent}"/></td>
-                        <td><span class="status-pill status-neutral"><c:out value="${row.statusLabel}"/></span></td>
                         <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}">View</a></td>
                     </tr>
                 </c:forEach>
                 <c:if test="${empty upcomingShoots}">
-                    <tr><td colspan="7" class="muted">No upcoming shoots.</td></tr>
+                    <tr><td colspan="6" class="muted">No upcoming shoots.</td></tr>
                 </c:if>
                 </tbody>
             </table>
@@ -83,6 +81,12 @@
     <div class="my-work-tab-panel hidden" data-tab-panel="past">
         <div class="panel my-work-table-wrapper">
             <h2>Past Shoots</h2>
+            <%-- Every row here is, by construction, a completed personal task
+                 (LandingMvcController#isModelShootTaskCompleted is exactly what routes a plan into
+                 pastShoots instead of upcomingShoots) - historical record only, never openable:
+                 no Content ID link, no View action. DeliverableMvcController#view independently
+                 rejects a direct/typed URL for the same plan server-side, so this is presentation
+                 of an access rule already enforced, not the rule itself. --%>
             <table class="data-table">
                 <thead>
                 <tr>
@@ -91,24 +95,22 @@
                     <th>Shoot Date</th>
                     <th>My Role</th>
                     <th>Other Talent</th>
-                    <th>Status</th>
-                    <th>View</th>
+                    <th>Action</th>
                 </tr>
                 </thead>
                 <tbody>
                 <c:forEach var="row" items="${pastShoots}">
                     <tr>
-                        <td><a class="content-id-link" href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}">${row.contentId}</a></td>
+                        <td>${row.contentId}</td>
                         <td><c:out value="${row.title}"/></td>
                         <td><c:out value="${empty row.plannedShootDate ? '—' : row.plannedShootDate}"/></td>
                         <td><c:out value="${row.myRole}"/></td>
                         <td><c:out value="${empty row.otherTalent ? '—' : row.otherTalent}"/></td>
-                        <td><span class="status-pill status-neutral"><c:out value="${row.statusLabel}"/></span></td>
-                        <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${row.contentPlanId}">View</a></td>
+                        <td><span class="status-pill status-completed">Completed</span></td>
                     </tr>
                 </c:forEach>
                 <c:if test="${empty pastShoots}">
-                    <tr><td colspan="7" class="muted">No past shoots.</td></tr>
+                    <tr><td colspan="6" class="muted">No past shoots.</td></tr>
                 </c:if>
                 </tbody>
             </table>

@@ -71,6 +71,14 @@ class IdeaDetailScriptDescriptionViewerTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"idea detail script viewer test fixture grant\"}");
+        JsonNode pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Idea Detail Script Publisher\",\"email\":\"idea-detail-script-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000008\","
+                        + "\"creationReason\":\"idea detail script viewer test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"idea detail script viewer test fixture grant\"}");
         JsonNode idea = ceo.postJson("/api/v1/ideas",
                 "{\"title\":\"Approved Idea Script Viewer " + unique + "\",\"notesRemarks\":\"" + longScript + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -81,7 +89,7 @@ class IdeaDetailScriptDescriptionViewerTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/idea-detail-script-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         HttpResponse<String> page = ceo.get("/app/ideas/" + ideaId);

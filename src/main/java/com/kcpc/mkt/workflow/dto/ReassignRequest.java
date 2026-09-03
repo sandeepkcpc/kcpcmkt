@@ -9,5 +9,5 @@ import java.util.List;
 import java.util.UUID;
 
 public record ReassignRequest(@NotNull TaskStage taskStage, @NotEmpty List<UUID> newAssigneeUserIds,
-                               @NotBlank String reason) {
+                               List<UUID> newModelUserIds, @NotBlank String reason) {
 }

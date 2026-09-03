@@ -73,6 +73,7 @@ public class PlanningService {
     private final UserRepository userRepository;
     private final ActualPublicationEventRepository actualPublicationEventRepository;
     private final ContentDriveProvisioningRepository driveProvisioningRepository;
+    private final com.kcpc.mkt.masterdata.service.CategoryService categoryService;
 
     public PlanningService(ContentPlanRepository contentPlanRepository,
                             ContentPlanTalentEntryRepository talentEntryRepository,
@@ -86,7 +87,8 @@ public class PlanningService {
                             OperationalEligibilityService operationalEligibilityService,
                             AuditService auditService, UserRepository userRepository,
                             ActualPublicationEventRepository actualPublicationEventRepository,
-                            ContentDriveProvisioningRepository driveProvisioningRepository) {
+                            ContentDriveProvisioningRepository driveProvisioningRepository,
+                            com.kcpc.mkt.masterdata.service.CategoryService categoryService) {
         this.contentPlanRepository = contentPlanRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -102,6 +104,7 @@ public class PlanningService {
         this.userRepository = userRepository;
         this.actualPublicationEventRepository = actualPublicationEventRepository;
         this.driveProvisioningRepository = driveProvisioningRepository;
+        this.categoryService = categoryService;
     }
 
     private ContentPlan requireContentPlan(UUID contentPlanId) {
@@ -131,8 +134,12 @@ public class PlanningService {
         requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
         recordPreparer(plan, user);
 
+        // ENG-094: same rule as IdeaService#approve - blank/null stays allowed, a non-blank value
+        // must match a currently-active Category Catalogue entry.
+        categoryService.requireActiveNameOrBlank(categoryText);
         plan.setCategoryText(categoryText);
-        plan.setContentPriority(priority);
+        // Content Priority defaults to LOW when not explicitly provided - never left/cleared to null.
+        plan.setContentPriority(priority != null ? priority : ContentPriority.LOW);
         plan.setSku(skuReference, skuNotApplicable);
         // Once structured Drive provisioning has a known root folder, folder_link becomes a
         // derived/compatibility mirror of that root (DriveProvisioningService keeps it synced) -

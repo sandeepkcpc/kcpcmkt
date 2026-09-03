@@ -40,6 +40,7 @@ class MyWorkVisibilityTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void camerapersonSeesTaskAssignedAtoIdeaReviewApprovalImmediatelyInMyWork() throws Exception {
@@ -57,6 +58,7 @@ class MyWorkVisibilityTest {
         cam.login(camEmail, "Passw0rd!");
         String beforeApproval = cam.get("/app/my-work").body();
 
+        String pubId = createPublisherUser(ceo, "MyWork Visibility Pub " + unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Visibility " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         // Workflow redesign: Idea Review approval carries every former Planning field (including the
@@ -65,7 +67,7 @@ class MyWorkVisibilityTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/mywork-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         assertThat(beforeApproval).doesNotContain(plan.getContentId());
@@ -77,12 +79,13 @@ class MyWorkVisibilityTest {
 
     /**
      * Explicit user request: once a stage's own review has decided and the plan moved on, that
-     * assignment must drop out of Active Assignments and appear only in the read-only "My
-     * Completed Work / History" section (own stage summary + Approved result, nothing about the
-     * next stage's operational detail).
+     * assignment must drop out of Active Assignments. My Work no longer has any History section at
+     * all (see MyWorkRoleBasedNavigationTest) - the completed record now surfaces only on My
+     * Performance's own Task Performance table, reusing the exact same underlying completion data
+     * (own stage summary + Approved result), never duplicated on My Work.
      */
     @Test
-    void camerapersonTaskMovesFromActiveToCompletedHistoryOnceShootIsApproved() throws Exception {
+    void camerapersonTaskMovesFromActiveToMyPerformanceOnceShootIsApproved() throws Exception {
         long unique = Instant.now().toEpochMilli();
         TestApiClient ceo = new TestApiClient(port);
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
@@ -95,13 +98,14 @@ class MyWorkVisibilityTest {
 
         // Workflow redesign: Idea Review approval carries every former Planning field (including the
         // initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA).
+        String pubId = createPublisherUser(ceo, "MyWork History Pub " + unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork History " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/mywork-history-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
@@ -109,10 +113,10 @@ class MyWorkVisibilityTest {
         TestApiClient cam = new TestApiClient(port);
         cam.login(camEmail, "Passw0rd!");
 
-        // Still shooting (SA) - active, not yet in history.
-        String[] halvesDuringShoot = splitOnHistoryHeader(cam.get("/app/my-work").body());
-        assertThat(halvesDuringShoot[0]).contains(plan.getContentId());
-        assertThat(halvesDuringShoot[1]).doesNotContain(plan.getContentId());
+        // Still shooting (SA) - active, not yet completed, not yet on My Performance.
+        String duringShoot = cam.get("/app/my-work").body();
+        assertThat(duringShoot).contains(plan.getContentId());
+        assertThat(cam.get("/app/my-performance").body()).doesNotContain(plan.getContentId());
 
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
@@ -122,22 +126,20 @@ class MyWorkVisibilityTest {
                         + "\"editorUserIds\":[\"" + edId + "\"],\"leadEditorUserId\":\"" + edId + "\"}");
         assertThat(approved.get("status").asText()).isEqualTo("EA");
 
-        // Shoot Approved - moved out of the Active Shoot Tasks TABLE, into Completed Work with the
-        // Approve outcome, and never appears in both tables at once (ENG-057: "Completed Work", not
-        // "My Completed Work / History" - the section was renamed/restyled, same underlying
-        // data/rule).
+        // Shoot Approved - moved out of the Active Shoot Tasks table on My Work (which has no
+        // History section to fall into any more), and now appears on My Performance instead.
         String bodyAfterApproval = cam.get("/app/my-work").body();
         assertThat(activeShootTasksTableRegion(bodyAfterApproval)).doesNotContain(plan.getContentId());
-        String[] halvesAfterApproval = splitOnHistoryHeader(bodyAfterApproval);
-        assertThat(halvesAfterApproval[1]).contains(plan.getContentId()).contains("Approved");
+        assertThat(bodyAfterApproval).doesNotContain("Completed Shoot Work");
+        assertThat(cam.get("/app/my-performance").body()).contains(plan.getContentId());
     }
 
     private String activeShootTasksTableRegion(String body) {
         int start = body.indexOf("Active Shoot Tasks");
-        // Permission-driven My Work redesign: stage-prefixed data-tab-panel values (was
-        // "history", now "shoot-history") so Shoot/Edit/Publishing's own Active/History/Marks
-        // sub-tabs never collide when multiple stage panels co-exist in the DOM.
-        int end = body.indexOf("data-tab-panel=\"shoot-history\"");
+        // My Work's Active Shoot Tasks table is followed directly by its note-box paragraph now
+        // that the History sub-tab/panel has been removed entirely (see
+        // MyWorkRoleBasedNavigationTest) - a stable, stage-agnostic end marker.
+        int end = body.indexOf("Need help or have questions?");
         assertThat(start).isPositive();
         assertThat(end).isGreaterThan(start);
         return body.substring(start, end);
@@ -165,13 +167,14 @@ class MyWorkVisibilityTest {
 
         // Workflow redesign: Idea Review approval carries every former Planning field (including the
         // initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA).
+        String pubId = createPublisherUser(ceo, "MyWork Rework Pub " + unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"MyWork Rework " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/mywork-rework-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();
@@ -234,12 +237,17 @@ class MyWorkVisibilityTest {
         return editorId;
     }
 
-    private String[] splitOnHistoryHeader(String body) {
-        // ENG-058: this test's fixture user is always Camera Person, which now gets the
-        // Cameraperson-specific dashboard ("Completed Shoot Work", not the generic "Completed Work"
-        // every other Business Role still sees).
-        int splitIndex = body.indexOf("Completed Shoot Work");
-        assertThat(splitIndex).isPositive();
-        return new String[] {body.substring(0, splitIndex), body.substring(splitIndex)};
+    /** Throwaway Publisher now unconditionally required by Idea Review approval
+     * (IdeaService#approve), unrelated to these tests' own Cameraperson-focused assertions. */
+    private String createPublisherUser(TestApiClient ceo, String fullName) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + fullName.toLowerCase().replace(" ", "-")
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + PUBLISHER_ROLE_ID
+                        + "\",\"creationReason\":\"e2e test fixture\"}");
+        String publisherId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + publisherId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        return publisherId;
     }
 }

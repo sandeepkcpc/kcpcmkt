@@ -104,7 +104,8 @@ class PipelinePlatformPopoverTest {
                 Map.entry("folderLink", java.util.List.of("https://drive.example.com/ppt-" + unique)),
                 Map.entry("outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
                         + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\"]}]")),
-                Map.entry("camerapersonUserIds", java.util.List.of(camId)))).statusCode()).isEqualTo(302);
+                Map.entry("camerapersonUserIds", java.util.List.of(camId)),
+                Map.entry("publisherUserIds", java.util.List.of(pubId)))).statusCode()).isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         String planId = plan.getId().toString();
         String base = "/app/deliverables/" + planId;

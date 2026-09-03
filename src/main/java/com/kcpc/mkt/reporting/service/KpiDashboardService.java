@@ -2,6 +2,7 @@ package com.kcpc.mkt.reporting.service;
 
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
+import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.idea.domain.Idea;
 import com.kcpc.mkt.idea.repository.IdeaRepository;
@@ -20,17 +21,26 @@ import com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputPublicationTargetMappingRepository;
 import com.kcpc.mkt.planning.repository.PlannedOutputRepository;
+import com.kcpc.mkt.production.domain.EditingAssignment;
+import com.kcpc.mkt.production.domain.ShootingAssignment;
+import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
+import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.publishing.domain.ActualPublicationEvent;
 import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
+import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.reporting.dto.AttentionItem;
 import com.kcpc.mkt.reporting.dto.ContentPublishingDashboardDto;
+import com.kcpc.mkt.reporting.dto.CurrentWorkOwnershipRow;
 import com.kcpc.mkt.reporting.dto.DelayAgingBucket;
+import com.kcpc.mkt.reporting.dto.EmployeeWorkDrillDownDto;
+import com.kcpc.mkt.reporting.dto.EmployeeWorkItemRow;
 import com.kcpc.mkt.reporting.dto.IdeaFunnelDto;
 import com.kcpc.mkt.reporting.dto.LabelCountRow;
 import com.kcpc.mkt.reporting.dto.LabelValueRow;
@@ -42,6 +52,8 @@ import com.kcpc.mkt.reporting.dto.QualityReviewsDashboardDto;
 import com.kcpc.mkt.reporting.dto.ReviewStageRow;
 import com.kcpc.mkt.reporting.dto.StageHealthRow;
 import com.kcpc.mkt.reporting.dto.TargetCompletionDto;
+import com.kcpc.mkt.reporting.dto.UpcomingPlanChannelCount;
+import com.kcpc.mkt.reporting.dto.UpcomingPlanDateGroup;
 import com.kcpc.mkt.reporting.dto.WorkflowSlaDashboardDto;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReopenPurpose;
@@ -75,6 +87,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -131,6 +144,10 @@ public class KpiDashboardService {
     private final PerformanceMetricCorrectionRepository metricCorrectionRepository;
     private final PerformanceService performanceService;
     private final PerformanceEligibilityService performanceEligibilityService;
+    private final ShootingAssignmentRepository shootingAssignmentRepository;
+    private final EditingAssignmentRepository editingAssignmentRepository;
+    private final PublishingAssignmentRepository publishingAssignmentRepository;
+    private final UserRepository userRepository;
 
     public KpiDashboardService(AuthorizationService authorizationService, ContentPlanRepository contentPlanRepository,
                                 IdeaRepository ideaRepository, WorkHoldRecordRepository workHoldRecordRepository,
@@ -146,7 +163,11 @@ public class KpiDashboardService {
                                 CreativePerformanceScorecardRepository scorecardRepository,
                                 PerformanceMetricCorrectionRepository metricCorrectionRepository,
                                 PerformanceService performanceService,
-                                PerformanceEligibilityService performanceEligibilityService) {
+                                PerformanceEligibilityService performanceEligibilityService,
+                                ShootingAssignmentRepository shootingAssignmentRepository,
+                                EditingAssignmentRepository editingAssignmentRepository,
+                                PublishingAssignmentRepository publishingAssignmentRepository,
+                                UserRepository userRepository) {
         this.authorizationService = authorizationService;
         this.contentPlanRepository = contentPlanRepository;
         this.ideaRepository = ideaRepository;
@@ -164,6 +185,10 @@ public class KpiDashboardService {
         this.metricCorrectionRepository = metricCorrectionRepository;
         this.performanceService = performanceService;
         this.performanceEligibilityService = performanceEligibilityService;
+        this.shootingAssignmentRepository = shootingAssignmentRepository;
+        this.editingAssignmentRepository = editingAssignmentRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
+        this.userRepository = userRepository;
     }
 
     private void requireViewAuthority(User requester) {
@@ -461,9 +486,181 @@ public class KpiDashboardService {
         List<StageHealthRow> stageHealth = stageHealth(ctx);
         List<AttentionItem> attention = attentionItems(ctx, performanceOverdue);
         IdeaFunnelDto funnel = ideaFunnel(ctx);
+        List<CurrentWorkOwnershipRow> currentWorkOwnership = currentWorkOwnershipSummary();
+        List<UpcomingPlanDateGroup> upcomingChannelPlan = upcomingChannelPlan();
 
         return new OverviewDashboardDto(activeWip, delayed, onTime, publishedContent, avgEndToEnd, reworkRate,
-                pendingReviews, performanceOverdue, stageHealth, attention, funnel);
+                pendingReviews, performanceOverdue, stageHealth, attention, funnel, currentWorkOwnership,
+                upcomingChannelPlan);
+    }
+
+    // ================================================================================ CURRENT WORK OWNERSHIP
+    // (Overview redesign, ENG-097): who currently has pending/delayed work, evaluated at the
+    // individual employee + stage/task level - never merely from the Content ID's overall status.
+    // Deliberately a CURRENT-STATE metric, not date-ranged (a CEO selecting "last 30 days" must not
+    // hide work that is pending or delayed RIGHT NOW) - the same treatment Team Workload's own
+    // Assignee Load already gives this exact concept. Reuses the SAME governed building blocks
+    // Team Workload/the assignee-picker "N Active Tasks" count already share: AssigneeActiveWindows
+    // ("is this stage still this role's own active window" - a Shoot assignment stops counting once
+    // the plan reaches Edit, regardless of the assignment row's own is_active flag, which only
+    // reflects reassignment, never task completion) and StageDelayPolicy/PipelineDashboardService's
+    // delayDays (the single existing delay source, never a second copy of that logic). Collaborative
+    // assignments are deliberately person-wise (one real assignment row per person; a Content ID
+    // assigned to two Camerapersons contributes to both independently) - the exact same grouping
+    // TeamWorkloadService#teamWorkloadDashboard's Assignee Load panel already performs.
+
+    private record EmployeeAccumulator(User user, List<EmployeeWorkItemRow> items) {
+    }
+
+    /** Every currently-pending work item (person-wise), grouped by employee - the shared base both
+     * the Overview summary table and the per-employee drill-down are built from, so the two can
+     * never disagree with each other about what counts. */
+    private Map<UUID, EmployeeAccumulator> currentWorkItemsByEmployee() {
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Map<UUID, EmployeeAccumulator> byEmployee = new LinkedHashMap<>();
+        for (ShootingAssignment a : shootingAssignmentRepository.findByActiveTrue()) {
+            addWorkItemIfCurrentlyPending(byEmployee, a.getCameraperson(), a.getContentPlan(),
+                    AssigneeActiveWindows.SHOOT, "Shoot", today);
+        }
+        for (EditingAssignment a : editingAssignmentRepository.findByActiveTrue()) {
+            addWorkItemIfCurrentlyPending(byEmployee, a.getEditor(), a.getContentPlan(),
+                    AssigneeActiveWindows.EDIT, "Edit", today);
+        }
+        for (PublishingAssignment a : publishingAssignmentRepository.findByActiveTrue()) {
+            addWorkItemIfCurrentlyPending(byEmployee, a.getPublisher(), a.getContentPlan(),
+                    AssigneeActiveWindows.PUBLISHING, "Publishing", today);
+        }
+        return byEmployee;
+    }
+
+    private void addWorkItemIfCurrentlyPending(Map<UUID, EmployeeAccumulator> byEmployee, User assignee,
+                                                ContentPlan plan, Set<WorkflowStatus> activeWindow, String stageLabel,
+                                                LocalDate today) {
+        WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
+        // Not in this role's active window any more (stage already approved/moved on, or the plan
+        // was cancelled) - this specific assignee's task is not pending, even though the
+        // assignment row itself is still is_active (that flag only reflects reassignment).
+        if (!activeWindow.contains(status)) {
+            return;
+        }
+        LocalDate dueDate = StageDelayPolicy.currentApprovedTarget(status, plan);
+        Integer delayDays = PipelineDashboardService.delayDays(status, plan, today);
+        Idea idea = plan.getIdea();
+        EmployeeWorkItemRow row = new EmployeeWorkItemRow(plan.getId(), plan.getContentId(),
+                idea == null ? null : idea.getTitle(), stageLabel, status.getStatusName(), dueDate,
+                priorityLabel(plan.getContentPriority()), delayDays);
+        byEmployee.computeIfAbsent(assignee.getId(), id -> new EmployeeAccumulator(assignee, new ArrayList<>()))
+                .items().add(row);
+    }
+
+    private static String priorityLabel(com.kcpc.mkt.planning.domain.ContentPriority priority) {
+        if (priority == null) {
+            return "-";
+        }
+        String name = priority.name();
+        return name.charAt(0) + name.substring(1).toLowerCase();
+    }
+
+    private List<CurrentWorkOwnershipRow> currentWorkOwnershipSummary() {
+        List<CurrentWorkOwnershipRow> rows = new ArrayList<>();
+        for (EmployeeAccumulator acc : currentWorkItemsByEmployee().values()) {
+            long pending = acc.items().size();
+            long delayed = acc.items().stream().filter(i -> i.getDelayDays() != null).count();
+            Integer oldestDelay = acc.items().stream().map(EmployeeWorkItemRow::getDelayDays)
+                    .filter(d -> d != null).max(Comparator.naturalOrder()).orElse(null);
+            String roleName = acc.user().getBusinessRole() == null ? null : acc.user().getBusinessRole().getRoleName();
+            rows.add(new CurrentWorkOwnershipRow(acc.user().getId(), acc.user().getFullName(), roleName,
+                    pending, delayed, oldestDelay));
+        }
+        rows.sort(Comparator.comparingLong(CurrentWorkOwnershipRow::getDelayedCount).reversed()
+                .thenComparing(Comparator.comparingLong(CurrentWorkOwnershipRow::getPendingCount).reversed())
+                .thenComparing(CurrentWorkOwnershipRow::getEmployeeName));
+        return rows;
+    }
+
+    /** Read-only drill-down for one employee's currently pending/delayed work - reuses the exact
+     * same {@link #currentWorkItemsByEmployee()} population the summary table counts, so a drill-
+     * down can never show different rows than the count it was opened from. No action of any kind
+     * is ever exposed from this method or its DTO - reporting only. */
+    @Transactional(readOnly = true)
+    public EmployeeWorkDrillDownDto employeeWorkDrillDown(User requester, UUID employeeId) {
+        requireViewAuthority(requester);
+        EmployeeAccumulator acc = currentWorkItemsByEmployee().get(employeeId);
+        User user = acc != null ? acc.user() : userRepository.findById(employeeId).orElse(null);
+        if (user == null) {
+            return null;
+        }
+        String roleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
+        List<EmployeeWorkItemRow> pending = acc != null ? acc.items() : List.of();
+        List<EmployeeWorkItemRow> delayed = pending.stream().filter(i -> i.getDelayDays() != null)
+                .sorted(Comparator.comparing(EmployeeWorkItemRow::getDelayDays, Comparator.reverseOrder()))
+                .toList();
+        return new EmployeeWorkDrillDownDto(user.getId(), user.getFullName(), roleName, pending, delayed);
+    }
+
+    // ================================================================================ UPCOMING CHANNEL PLAN
+    // (Overview redesign, ENG-097): how much planned publication is still outstanding, grouped by
+    // Planned Live Date then Channel/Account (never Platform - spec explicit). Deliberately a
+    // CURRENT-STATE metric, not date-ranged, for the same reason Current Work Ownership isn't: it
+    // represents "still-outstanding future planned publication work" right now, not a historical
+    // window. Counting unit (verified against the schema, not assumed): one
+    // planned_output_publication_target_mappings row - the exact same row
+    // ActualPublicationEventRepository's own existence checks are keyed on
+    // (plannedOutput + publicationTarget) - so "outstanding" is precisely "this mapping row has no
+    // matching ActualPublicationEvent yet," and "exits immediately" falls out of that same check
+    // with no separate/new state. Terminal Content Plans (Cancelled/Completed/Rejected - the same
+    // NON_TERMINAL_EXCLUSIONS set already used elsewhere in this class) are excluded: a cancelled
+    // plan's obligations are void, and a completed plan has nothing left "still to go live."
+    // NOT incorporated: publication_target_na_records (a target explicitly marked Not Applicable).
+    // The spec's exit rule names only the actual-publication-event source, not N/A - an N/A'd
+    // target with no actual publication event would still show as outstanding here. Flagged in the
+    // implementation report rather than silently resolved either way.
+
+    private List<UpcomingPlanDateGroup> upcomingChannelPlan() {
+        List<PlannedOutputPublicationTargetMapping> allMappings = mappingRepository.findAll();
+        if (allMappings.isEmpty()) {
+            return List.of();
+        }
+        Set<UUID> contentPlanIds = allMappings.stream()
+                .map(m -> m.getPlannedOutput().getContentPlan().getId()).collect(Collectors.toSet());
+        Set<String> publishedKeys = eventRepository.findByContentPlan_IdIn(contentPlanIds).stream()
+                .map(e -> e.getPlannedOutput().getId() + "|" + e.getPublicationTarget().getId())
+                .collect(Collectors.toSet());
+
+        // Content IDs per (date, channel) group (KPI Dashboard Overview calendar enhancement,
+        // "Content Details" section) are collected here, from the SAME mapping rows already being
+        // walked to compute the count - no new query, no change to which rows survive or what
+        // "outstanding" means. count is always contentIds.size(); a plan's own Content ID can
+        // legitimately repeat within one group (e.g. two Reels for the same plan on the same
+        // Channel/Account both due the same Planned Live Date), matching count exactly.
+        Map<LocalDate, Map<String, List<String>>> byDateThenChannel = new TreeMap<>();
+        for (PlannedOutputPublicationTargetMapping mapping : allMappings) {
+            PlannedOutput output = mapping.getPlannedOutput();
+            ContentPlan plan = output.getContentPlan();
+            if (NON_TERMINAL_EXCLUSIONS.contains(plan.getWorkflowInstance().getCurrentStatusCode().name())) {
+                continue;
+            }
+            LocalDate liveDate = plan.getPlannedLiveDate();
+            if (liveDate == null) {
+                continue;
+            }
+            String key = output.getId() + "|" + mapping.getPublicationTarget().getId();
+            if (publishedKeys.contains(key)) {
+                continue; // already actually published - exits immediately, regardless of the date
+            }
+            String channelHandle = mapping.getPublicationTarget().getChannel().getChannelHandle();
+            byDateThenChannel.computeIfAbsent(liveDate, d -> new TreeMap<>())
+                    .computeIfAbsent(channelHandle, c -> new ArrayList<>())
+                    .add(plan.getContentId());
+        }
+        List<UpcomingPlanDateGroup> groups = new ArrayList<>();
+        for (var dateEntry : byDateThenChannel.entrySet()) {
+            List<UpcomingPlanChannelCount> channels = dateEntry.getValue().entrySet().stream()
+                    .map(e -> new UpcomingPlanChannelCount(e.getKey(), e.getValue().size(), e.getValue()))
+                    .toList();
+            groups.add(new UpcomingPlanDateGroup(dateEntry.getKey(), channels));
+        }
+        return groups;
     }
 
     /** Avg End-to-End Cycle Time (spec correction, approved): Idea.submittedAt -&gt; the ORIGINAL
@@ -596,7 +793,11 @@ public class KpiDashboardService {
                         + "join ideas i on i.idea_id = cp.idea_id where e.event_type = 'ORIGINAL' "
                         + "and i.submitted_at::date between :from and :to",
                 Map.of("from", ctx.rangeStart, "to", ctx.rangeEnd));
-        BigDecimal approvalRate = rate(approved, approved + rejected);
+        // ENG-097 (Overview redesign, locked formula): Approval Rate = Approved / Submitted * 100 -
+        // NOT the old Approved / (Approved + Rejected) shape. Submitted is the sole denominator;
+        // Retained/Rejected are visible funnel outcomes, never separate denominators. rate() already
+        // returns null (renders "N/A") on a zero denominator, never a fabricated 0%.
+        BigDecimal approvalRate = rate(approved, submitted);
         return new IdeaFunnelDto(submitted, approved, retained, rejected, planned, published, approvalRate);
     }
 

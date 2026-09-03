@@ -112,6 +112,11 @@ class CeoPipelineDashboardTest {
         PublicationTarget newTarget = publicationTargetRepository.findAll().stream()
                 .filter(t -> t.getTargetName().equals("Pipeline Test Target " + unique)).findFirst().orElseThrow();
 
+        // ENG-094: Category is now catalogue-validated - "Reels" must exist as an active Category
+        // Catalogue entry before it can be submitted on approval below.
+        assertRedirect(ceo.postForm("/app/admin/categories",
+                Map.of("name", "Reels", "catalogueReason", "pipeline dashboard test fixture")));
+
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field (priority/category/SKU/schedule/folder link/models/initial output+
         // publication scope/shoot team) in one form POST and transitions straight to Shoot Assigned
@@ -136,7 +141,8 @@ class CeoPipelineDashboardTest {
                 Map.entry("modelUserIds", java.util.List.of(model1, model2, model3)),
                 Map.entry("outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
                         + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\",\"" + newTarget.getId() + "\"]}]")),
-                Map.entry("camerapersonUserIds", java.util.List.of(cam1, cam2)))));
+                Map.entry("camerapersonUserIds", java.util.List.of(cam1, cam2)),
+                Map.entry("publisherUserIds", java.util.List.of(pubId)))));
 
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         UUID planId = plan.getId();
@@ -258,6 +264,10 @@ class CeoPipelineDashboardTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        String pubId = createUser(ceo, "Pipeline Minimal Pub", "pl-minimal-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test publisher grant\"}");
 
         String ideaTitle = "Pipeline Minimal Idea " + unique;
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
@@ -271,7 +281,8 @@ class CeoPipelineDashboardTest {
                 "contentPriority", java.util.List.of("LOW"),
                 "plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()),
                 "folderLink", java.util.List.of("https://drive.example.com/pl-minimal-" + unique),
-                "camerapersonUserIds", java.util.List.of(camId))));
+                "camerapersonUserIds", java.util.List.of(camId),
+                "publisherUserIds", java.util.List.of(pubId))));
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
 
         HttpResponse<String> pipeline = ceo.get("/app/pipeline");

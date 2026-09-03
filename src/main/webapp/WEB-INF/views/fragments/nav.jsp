@@ -27,13 +27,24 @@
                  mirroring WorkspaceAccessService exactly, the same source WorkflowParticipation-
                  Interceptor enforces server-side - nav and route reachability can never disagree. --%>
             <c:if test="${employeeCanSeeMyWork}">
-                <%-- ENG-067: Model employees get "My Shoots" (their own dedicated, read-only
-                     shoot-participation screen) instead of "My Work" - Models hold no execution
-                     assignment/permission on any stage, so the task-execution "My Work" concept
-                     doesn't apply to them. --%>
+                <%-- ENG-067: Model employees always get "My Shoots" (their own dedicated,
+                     read-only shoot-participation screen), in place of "My Work" - a Model holds
+                     no execution assignment/permission by default, so the task-execution "My
+                     Work" concept doesn't apply to them out of the box. Permission-based, not
+                     role-based: if a Model is separately granted an execution permission
+                     (SHOOT_EXECUTION/EDIT_EXECUTION/PUBLISH_EXECUTION) or holds a real Shoot/Edit/
+                     Publishing assignment, "My Work" becomes ADDITIONALLY reachable alongside "My
+                     Shoots" - landing on the exact same page every other qualifying Employee uses,
+                     whose own Shoot/Edit/Publishing tabs are already entirely permission/
+                     assignment-driven (LandingMvcController#myWork's showShootTab/showEditTab/
+                     showPublishTab - never Business-Role-checked), so a Model with
+                     EDIT_EXECUTION sees exactly an Edit tab there, no Model-specific code needed. --%>
                 <c:choose>
                     <c:when test="${businessRoleName == 'Model'}">
                         <a class="${currentPath == ctx.concat('/app/my-shoots') ? 'active' : ''}" href="${ctx}/app/my-shoots">My Shoots</a>
+                        <c:if test="${employeeHasMyWorkExecutionAccess}">
+                            <a class="${currentPath == ctx.concat('/app/my-work') ? 'active' : ''}" href="${ctx}/app/my-work">My Work</a>
+                        </c:if>
                     </c:when>
                     <c:otherwise>
                         <a class="${currentPath == ctx.concat('/app/my-work') ? 'active' : ''}" href="${ctx}/app/my-work">My Work</a>
@@ -56,6 +67,14 @@
                  no longer the my-work.jsp#my-ideas anchor ENG-057 used as a stopgap. --%>
             <a class="${currentPath == ctx.concat('/app/ideas') ? 'active' : ''}" href="${ctx}/app/ideas">My Ideas</a>
             <a class="${currentPath == ctx.concat('/app/ideas/new') ? 'active' : ''}" href="${ctx}/app/ideas/new">Submit Idea</a>
+            <%-- My Performance: the employee's own self-service marks/completion/delay dashboard
+                 (split out of My Work's former Marks sub-tab) - shown alongside My Work rather than
+                 nested inside it, mirroring the same permission/assignment-driven visibility rule
+                 (${employeeCanSeeMyPerformance}, from WorkspaceAccessService#canReachMyPerformance,
+                 the same source WorkflowParticipationInterceptor enforces server-side). --%>
+            <c:if test="${employeeCanSeeMyPerformance}">
+                <a class="${currentPath == ctx.concat('/app/my-performance') ? 'active' : ''}" href="${ctx}/app/my-performance">My Performance</a>
+            </c:if>
             <%-- spec §16.6 / audit-identified nav-backend mismatch fix: canSeeAdministration
                  already correctly evaluates true for a PERM_17-holding EMPLOYEE (it never checks
                  Access Class, only native authority OR the PERM_17 grant), but was previously only

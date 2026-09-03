@@ -373,6 +373,61 @@ public class EditingService {
         return plan;
     }
 
+    /**
+     * Skip Stage (ENG-090): mirrors {@link ShootingService#skipShootStage} - a controlled,
+     * permission-gated escape hatch usable from EA/ED/ERV (before or after an Editor ever submits
+     * for review), no self-review-prohibited check (no execution participants exist to have been
+     * one of), no performance mark attributed. Still collects the same required Publisher(s) the
+     * normal Approve path would, via {@link PublishingService#assignPublisherTeam} - no Lead
+     * field, exactly as Publisher Assignment already has none (ENG-036/ENG-044). Gated by
+     * PERM_20_SKIP_STAGE, never by PERM_07_EDIT_REVIEW.
+     */
+    @Transactional
+    public ContentPlan skipEditStage(User actor, UUID contentPlanId, String reason, List<UUID> publisherUserIds) {
+        ContentPlan plan = requirePlan(contentPlanId);
+        WorkflowInstance workflowInstance = plan.getWorkflowInstance();
+        WorkflowStatus status = workflowInstance.getCurrentStatusCode();
+        if (status != WorkflowStatus.EA && status != WorkflowStatus.ED && status != WorkflowStatus.ERV) {
+            throw new DomainException(ErrorCode.WORKFLOW_INVALID_TRANSITION, HttpStatus.CONFLICT,
+                    "Edit stage can only be skipped while Edit Assigned, Editing, or Under Review");
+        }
+        Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(actor,
+                OperationalPermission.PERM_20_SKIP_STAGE, LifecycleStage.EDITING, workflowInstance);
+        holdService.requireNoOpenHold(workflowInstance);
+
+        if (reason == null || reason.isBlank()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A reason is mandatory to skip this stage");
+        }
+        if (publisherUserIds == null || publisherUserIds.isEmpty()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "At least one Publisher must be assigned to skip this stage");
+        }
+        // Resolved up front (before any mutation below) so an invalid publisher id fails fast.
+        List<User> publishers = new ArrayList<>();
+        for (UUID publisherId : publisherUserIds) {
+            publishers.add(userRepository.findById(publisherId)
+                    .orElseThrow(() -> DomainException.notFound("User not found: " + publisherId)));
+        }
+
+        if (status == WorkflowStatus.ERV) {
+            reviewCycleRepository
+                    .findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, GateType.EDIT_REVIEW)
+                    .stream().filter(c -> c.getDecidedAt() == null).findFirst()
+                    .ifPresent(cycle -> {
+                        cycle.decide(actor, "SKIPPED", reason, actingGrant.orElse(null));
+                        reviewCycleRepository.save(cycle);
+                    });
+        }
+
+        workflowService.transition(workflowInstance, WorkflowStatus.RFP, actor, actingGrant,
+                "SKIP_EDIT_STAGE", reason);
+        auditService.record(actor, actingGrant, "EDITING", "EDIT_STAGE_SKIPPED", "content_plans",
+                plan.getId(), reason);
+
+        publishingService.assignPublisherTeam(actor, contentPlanId, publishers);
+        return plan;
+    }
+
     private int nextCycleNumber(WorkflowInstance workflowInstance, GateType gateType) {
         return reviewCycleRepository.findByWorkflowInstanceAndGateTypeOrderByCycleNumberDesc(workflowInstance, gateType)
                 .stream().findFirst().map(c -> c.getCycleNumber() + 1).orElse(1);

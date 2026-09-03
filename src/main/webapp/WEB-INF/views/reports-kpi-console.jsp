@@ -18,6 +18,15 @@
         <%@ include file="fragments/reports-kpi-console-content.jspf" %>
     </div>
 </main>
+<%-- Must load (and therefore register its delegated 'change'/'submit' listeners on
+     #reportsKpiDynamicRegion) BEFORE reports-workspace.js: both listen for the same bubbled events
+     on the same region, and DOM listeners for one event type fire in registration order - this
+     one has to compute/validate the Date Range fields first so reports-workspace.js's own
+     auto-submit-on-select-change (unchanged) always reads the freshly-calculated values, and so an
+     invalid range can stopImmediatePropagation() before that handler ever runs. --%>
+<script src="${pageContext.request.contextPath}/js/reports-kpi-date-preset.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/reports-workspace.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/reports-kpi-ownership-drilldown.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/reports-kpi-calendar.js" defer></script>
 </body>
 </html>

@@ -154,6 +154,20 @@ spring:
 # "classpath:db/migration" unchanged. db/migration-demo is only ever added under the dev profile
 # below; this is asserted by DockerFlywayProfileConfigurationTest.
 server:
+  # nginx (deploy/prod/nginx.conf) already sends X-Forwarded-Proto/-Host/-For on every proxied
+  # request, but without this, Tomcat has no reason to trust or read them - it sees only the
+  # plain-HTTP connection from the nginx container on :8080, so response.sendRedirect() with a
+  # relative path (e.g. MvcAuthEntryPoint's redirect to "/login") builds its Location header as
+  # http://<host>/login even when the real client request was https://. That mismatched scheme is
+  # exactly why an unauthenticated https://content.vedtri.com/ redirect could fail/error instead
+  # of reaching https://content.vedtri.com/login: the browser was being sent to plain HTTP.
+  # RemoteIpValve (the "native" strategy, Tomcat's own request-scheme/host resolution, applied
+  # before any servlet filter runs) makes request.getScheme()/isSecure()/getServerName() reflect
+  # the ORIGINAL client-facing request nginx forwarded - every relative sendRedirect() in the app
+  # (MvcAuthEntryPoint included) then correctly emits https://. This has no effect locally (dev/
+  # test have no reverse proxy in front, so these headers are never present) - scoped to the
+  # docker profile only, the one deployment shape that actually sits behind nginx.
+  forward-headers-strategy: native
   servlet:
     session:
       cookie:

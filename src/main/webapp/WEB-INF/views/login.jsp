@@ -19,12 +19,17 @@
         <label for="email">Email</label>
         <input type="email" id="email" name="email" required autofocus>
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
+        <div class="password-field">
+            <input type="password" id="password" name="password" required>
+            <button type="button" class="password-toggle" data-toggle-password="password"
+                    aria-label="Show password">&#128065;</button>
+        </div>
         <div class="auth-forgot-row">
             <a class="auth-forgot-link" href="${pageContext.request.contextPath}/forgot-password">Forgot Password?</a>
         </div>
         <button type="submit">Sign In</button>
     </form>
 </main>
+<script src="${pageContext.request.contextPath}/js/login-password-toggle.js" defer></script>
 </body>
 </html>

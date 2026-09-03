@@ -1,0 +1,74 @@
+<%-- Current Work Ownership -> "Open" drill-down (Reports -> KPI Dashboard -> Overview). Caller sets
+     ${drillDown} (EmployeeWorkDrillDownDto, or null if the employee id didn't resolve). READ-ONLY:
+     no reassignment/status-change/approval/rejection/completion/stage-transition/assignment-editing
+     control is ever rendered here - only an "Open Content" link into the existing, unmodified
+     Content Detail screen (/app/deliverables/{id}). --%>
+<c:choose>
+    <c:when test="${empty drillDown}">
+        <p class="muted">That employee could not be found.</p>
+    </c:when>
+    <c:otherwise>
+        <div class="kpi-drilldown-header">
+            <h3><c:out value="${drillDown.employeeName}"/></h3>
+            <p class="muted"><c:out value="${drillDown.roleName}"/></p>
+            <p class="kpi-drilldown-counts">${drillDown.pendingCount} Pending &middot; ${drillDown.delayedCount} Delayed</p>
+        </div>
+
+        <div class="kpi-drilldown-tabs">
+            <button type="button" class="kpi-drilldown-tab active" data-drilldown-tab="pending">Pending Work</button>
+            <button type="button" class="kpi-drilldown-tab" data-drilldown-tab="delayed">Delayed Work</button>
+        </div>
+
+        <div class="kpi-drilldown-panel" data-drilldown-panel="pending">
+            <table class="data-table">
+                <thead>
+                <tr><th>Content ID</th><th>Idea / Content</th><th>Current Stage</th><th>Planned Due Date</th>
+                    <th>Priority</th><th>Status</th><th>Open Content</th></tr>
+                </thead>
+                <tbody>
+                <c:forEach var="item" items="${drillDown.pendingItems}">
+                    <tr>
+                        <td><c:out value="${item.contentId}"/></td>
+                        <td><c:out value="${item.contentTitle}"/></td>
+                        <td>${item.stageLabel}</td>
+                        <td>${empty item.plannedDueDate ? '-' : item.plannedDueDate}</td>
+                        <td>${item.priorityLabel}</td>
+                        <td>${item.statusLabel}</td>
+                        <td><a class="btn-outline" target="_blank" rel="noopener noreferrer"
+                               href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">Open &rsaquo;</a></td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty drillDown.pendingItems}">
+                    <tr><td colspan="7" class="muted">No pending work currently assigned.</td></tr>
+                </c:if>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="kpi-drilldown-panel hidden" data-drilldown-panel="delayed">
+            <table class="data-table">
+                <thead>
+                <tr><th>Content ID</th><th>Idea / Content</th><th>Current Stage</th><th>Planned Due Date</th>
+                    <th>Days Delayed</th><th>Priority</th><th>Open Content</th></tr>
+                </thead>
+                <tbody>
+                <c:forEach var="item" items="${drillDown.delayedItems}">
+                    <tr>
+                        <td><c:out value="${item.contentId}"/></td>
+                        <td><c:out value="${item.contentTitle}"/></td>
+                        <td>${item.stageLabel}</td>
+                        <td>${empty item.plannedDueDate ? '-' : item.plannedDueDate}</td>
+                        <td>${item.delayDays} day<c:if test="${item.delayDays != 1}">s</c:if></td>
+                        <td>${item.priorityLabel}</td>
+                        <td><a class="btn-outline" target="_blank" rel="noopener noreferrer"
+                               href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">Open &rsaquo;</a></td>
+                    </tr>
+                </c:forEach>
+                <c:if test="${empty drillDown.delayedItems}">
+                    <tr><td colspan="7" class="muted">No delayed work currently assigned.</td></tr>
+                </c:if>
+                </tbody>
+            </table>
+        </div>
+    </c:otherwise>
+</c:choose>

@@ -81,7 +81,7 @@
                 </c:url>
                 <a class="reviews-sort-link" href="${auditSortUrl}">Timestamp <span class="sort-icon">${sort == 'asc' ? '&#8593;' : '&#8595;'}</span></a>
             </th>
-            <th>Actor</th><th>Action</th><th>Record</th><th>Module</th><th>Reason / Change</th>
+            <th>Actor</th><th>Action</th><th class="audit-content-id-col">Content ID</th><th>Record</th><th>Module</th><th>Reason / Change</th>
         </tr>
         </thead>
         <tbody>
@@ -92,13 +92,18 @@
                     <div><c:out value="${log.actorFullName}"/></div>
                 </td>
                 <td><span class="admin-action-badge admin-action-generic"><c:out value="${log.eventType}"/></span></td>
+                <%-- Content ID (business-facing, e.g. "C-0926-0001") - resolved server-side by
+                     AuditContentIdResolver, never the internal UUID. "-" for any log with no
+                     content relationship (user/permission/catalogue admin actions etc.) - never
+                     fabricated. Record (below) is unchanged and still shows its own raw reference. --%>
+                <td class="audit-content-id-col"><c:out value="${empty log.contentId ? '-' : log.contentId}"/></td>
                 <td class="reports-meta-subtext"><c:out value="${fn:replace(log.targetEntityName, '_', ' ')}"/> &middot; <c:out value="${fn:substring(log.targetEntityId, 0, 8)}"/></td>
                 <td><c:out value="${log.eventCategory}"/></td>
                 <td class="reports-reason-cell"><c:out value="${empty log.actionReason ? '-' : log.actionReason}"/></td>
             </tr>
         </c:forEach>
         <c:if test="${empty logs}">
-            <tr><td colspan="6" class="muted">No audit records match the current filters.</td></tr>
+            <tr><td colspan="7" class="muted">No audit records match the current filters.</td></tr>
         </c:if>
         </tbody>
     </table>

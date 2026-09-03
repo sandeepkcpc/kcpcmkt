@@ -58,13 +58,22 @@
     <div class="shoot-task-columns">
         <div class="shoot-task-col-main">
             <div class="panel">
-                <h2>Content &amp; Edit Information</h2>
+                <div class="card-head-row">
+                    <h2>Content &amp; Edit Information</h2>
+                    <%@ include file="fragments/idea-details-modal.jspf" %>
+                </div>
                 <div class="shoot-info-sections">
                     <div>
                         <h3 class="stage-block-heading">Content Information</h3>
                         <div class="info-list">
                             <div class="info-row"><span class="summary-field-label">Content ID</span><span class="summary-field-value">${plan.contentId}</span></div>
                             <div class="info-row"><span class="summary-field-label">Content Name</span><span class="summary-field-value"><c:out value="${plan.idea.title}"/></span></div>
+                            <div class="info-row"><span class="summary-field-label">Reference Link</span><span class="summary-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty plan.idea.referenceLink}"><a href="${plan.idea.referenceLink}" target="_blank" rel="noopener noreferrer"><c:out value="${plan.idea.referenceLink}"/></a></c:when>
+                                    <c:otherwise>&mdash;</c:otherwise>
+                                </c:choose>
+                            </span></div>
                             <div class="info-row"><span class="summary-field-label">Priority</span><span class="summary-field-value">
                                 <c:choose>
                                     <c:when test="${not empty plan.contentPriority}">
@@ -81,12 +90,25 @@
                                     <c:otherwise>&mdash;</c:otherwise>
                                 </c:choose>
                             </span></div>
-                            <div class="info-row"><span class="summary-field-label">Reel Type</span><span class="summary-field-value">
-                                <c:set var="hasReelType" value="false"/>
-                                <c:forEach var="o" items="${outputGroupRepresentatives}" varStatus="os">
-                                    <c:if test="${o.outputType == 'REEL' and not empty o.reelType}"><c:set var="hasReelType" value="true"/><c:out value="${o.reelType}"/><c:if test="${!os.last}">, </c:if></c:if>
-                                </c:forEach>
-                                <c:if test="${!hasReelType}">&mdash;</c:if>
+                            <div class="info-row"><span class="summary-field-label">SKU</span><span class="summary-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty plan.skuReference}"><c:out value="${plan.skuReference}"/></c:when>
+                                    <c:otherwise>&mdash;</c:otherwise>
+                                </c:choose>
+                            </span></div>
+                            <div class="info-row"><span class="summary-field-label">Category</span><span class="summary-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty plan.categoryText}"><c:out value="${plan.categoryText}"/></c:when>
+                                    <c:otherwise>&mdash;</c:otherwise>
+                                </c:choose>
+                            </span></div>
+                            <%-- Editor Mark - the one predefined role mark relevant to this screen
+                                 (set once at Idea Review approval, PredefinedRoleMarks). --%>
+                            <div class="info-row"><span class="summary-field-label">Mark</span><span class="summary-field-value">
+                                <c:choose>
+                                    <c:when test="${not empty marks}"><c:out value="${marks.predefinedEditorMark}"/></c:when>
+                                    <c:otherwise>&mdash;</c:otherwise>
+                                </c:choose>
                             </span></div>
                         </div>
                     </div>
@@ -317,5 +339,6 @@
     <p><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work">&larr; Back to My Work</a></p>
 </main>
 <script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/idea-details-modal.js" defer></script>
 </body>
 </html>

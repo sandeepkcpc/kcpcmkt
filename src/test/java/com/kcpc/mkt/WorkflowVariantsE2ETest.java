@@ -103,6 +103,8 @@ class WorkflowVariantsE2ETest {
 
         String camId = createUser(ceo, "Retain Flow Cam", "e2e-retain-cam-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID);
         grantShootExecutionPermission(ceo, camId);
+        String pubId = createUser(ceo, "Retain Flow Pub", "e2e-retain-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        grantPublishingPermission(ceo, pubId);
 
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Retain Flow " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -120,7 +122,7 @@ class WorkflowVariantsE2ETest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/retain-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
     }
 
@@ -262,7 +264,7 @@ class WorkflowVariantsE2ETest {
                         + "\"folderLink\":\"https://drive.example.com/na-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
         String outputId = findPlannedOutputId(contentPlanId);
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
@@ -353,7 +355,7 @@ class WorkflowVariantsE2ETest {
                         + "\"folderLink\":\"https://drive.example.com/checklist-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\",\"" + TARGET_2 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         String contentPlanId = findContentPlanId(checklistIdeaId);
         String outputId = findPlannedOutputId(contentPlanId);
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
@@ -683,15 +685,18 @@ class WorkflowVariantsE2ETest {
      * to Shoot Assigned (SA), never PL/PLRV/PLAP - the given cameraperson must already hold an
      * active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String pubId = createUser(ceo, "Default Pub " + unique, "wve-default-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        grantPublishingPermission(ceo, pubId);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
-                        + "\"folderLink\":\"https://drive.example.com/wve-" + Instant.now().toEpochMilli() + "\","
+                        + "\"folderLink\":\"https://drive.example.com/wve-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         return findContentPlanId(ideaId);
     }
 

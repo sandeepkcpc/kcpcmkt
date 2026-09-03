@@ -84,6 +84,8 @@ class ShootEditReviewParityTest {
         String camId = camIdEmail[0];
         String camEmail = camIdEmail[1];
         grantExecutionPermission(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        String[] pubIdEmail = createUser(ceo, "planning-pub", PUBLISHER_ROLE_ID, unique).split("\\|");
+        grantExecutionPermission(ceo, pubIdEmail[0], "PERM_08_PUBLISHING_EXECUTION");
 
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
@@ -93,7 +95,8 @@ class ShootEditReviewParityTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/parity-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubIdEmail[0] + "\"]}}");
 
         String planId = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow().getId().toString();

@@ -24,9 +24,12 @@ public final class AssigneeActiveWindows {
     public static final Set<WorkflowStatus> PUBLISHING = EnumSet.of(
             WorkflowStatus.RFP, WorkflowStatus.PUBG);
 
-    /** Model/Talent has no Start/Review-gated window of its own (BRS-REQ: talent participation, not
-     * a workflow-assignable stage) - "active" is simply "not yet in a closed-out status," the exact
-     * set {@link TeamWorkloadService#isActiveStatus} already excludes. */
+    /** The plan-level "not yet closed out" set - used to pre-filter which Content Plans are even
+     * considered for Team Workload at all ({@link TeamWorkloadService#isActiveStatus}). NOT a
+     * per-role active window on its own: Model/Talent's own Active Tasks count is gated by
+     * {@link #SHOOT} specifically (see {@code TeamWorkloadService#modelRow} - Model's work is tied
+     * to the Shoot stage, so it stops counting once Shoot is completed or skipped, exactly like
+     * Cameraperson's own Shoot row), not by this broader "not yet closed" set. */
     public static final Set<WorkflowStatus> CLOSED_OUT = EnumSet.of(
             WorkflowStatus.COMP, WorkflowStatus.CAN, WorkflowStatus.RJ, WorkflowStatus.RET);
 

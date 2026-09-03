@@ -17,9 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * idea-detail.jsp (/app/ideas/{id}) -> Review Decision -> Approve: the standalone page's own
  * Planned Outputs section uses the same one-row-per-Output-Type grid as Reviews -> Ideas ->
- * Approve (see ReviewsIdeaOutputFormRenderingTest) - Story/Post/Reel/Long Video (V31 redesign;
- * PHOTOGRAPHY/VIDEO retired), only two columns (Output Type, Platform/Channel), no Reel Type
- * sub-selector and no Output Description field anywhere. IdeaMvcController#decide reads the
+ * Approve (see ReviewsIdeaOutputFormRenderingTest) - Reel/Story/Post/Long Video, in OutputType's
+ * declared order (V31 redesign; PHOTOGRAPHY/VIDEO retired), only two columns (Output Type,
+ * Platform/Channel), no Reel Type sub-selector and no Output Description field anywhere. IdeaMvcController#decide reads the
  * grid's serialized state from an {@code outputsJson} form param exactly the way
  * ReviewsMvcController#decideIdea already does - see MvcScreenSmokeTest for the full
  * submit-and-create-PlannedOutput path.
@@ -66,9 +66,9 @@ class IdeaDetailOutputFormRenderingTest {
         int postIdx = body.indexOf("data-output-type=\"POST\"");
         int reelIdx = body.indexOf("data-output-type=\"REEL\"");
         int longVideoIdx = body.indexOf("data-output-type=\"LONG_VIDEO\"");
+        assertThat(reelIdx).isLessThan(storyIdx);
         assertThat(storyIdx).isLessThan(postIdx);
-        assertThat(postIdx).isLessThan(reelIdx);
-        assertThat(reelIdx).isLessThan(longVideoIdx);
+        assertThat(postIdx).isLessThan(longVideoIdx);
         assertThat(body.split("reviews-output-row reviews-output-row-disabled", -1).length - 1).isEqualTo(4);
 
         assertThat(body).doesNotContain("reviews-output-reeltype-checkbox")

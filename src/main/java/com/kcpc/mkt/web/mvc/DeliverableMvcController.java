@@ -39,7 +39,6 @@ import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
 import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
-import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
@@ -106,7 +105,6 @@ public class DeliverableMvcController {
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final EditingExecutionParticipantRepository editingParticipantRepository;
     private final ActualPublicationEventRepository eventRepository;
-    private final PublicationEvidenceCorrectionRepository evidenceCorrectionRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final PerformanceObligationRepository obligationRepository;
     private final CreativePerformanceScorecardRepository scorecardRepository;
@@ -131,6 +129,7 @@ public class DeliverableMvcController {
     private final HoldService holdService;
     private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
     private final com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService assigneeWorkloadCountService;
+    private final com.kcpc.mkt.reporting.service.PipelineDashboardService pipelineDashboardService;
 
     public DeliverableMvcController(ContentPlanRepository contentPlanRepository,
                                      PredefinedRoleMarksRepository predefinedRoleMarksRepository,
@@ -144,7 +143,6 @@ public class DeliverableMvcController {
                                      EditingAssignmentRepository editingAssignmentRepository,
                                      EditingExecutionParticipantRepository editingParticipantRepository,
                                      ActualPublicationEventRepository eventRepository,
-                                     PublicationEvidenceCorrectionRepository evidenceCorrectionRepository,
                                      PublishingAssignmentRepository publishingAssignmentRepository,
                                      PerformanceObligationRepository obligationRepository,
                                      CreativePerformanceScorecardRepository scorecardRepository,
@@ -164,7 +162,8 @@ public class DeliverableMvcController {
                                      com.kcpc.mkt.drive.repository.ContentDriveProvisioningRepository driveProvisioningRepository,
                                      HoldService holdService,
                                      com.kcpc.mkt.discussion.service.StageCommentService stageCommentService,
-                                     com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService assigneeWorkloadCountService) {
+                                     com.kcpc.mkt.reporting.service.AssigneeWorkloadCountService assigneeWorkloadCountService,
+                                     com.kcpc.mkt.reporting.service.PipelineDashboardService pipelineDashboardService) {
         this.contentPlanRepository = contentPlanRepository;
         this.predefinedRoleMarksRepository = predefinedRoleMarksRepository;
         this.plannedOutputRepository = plannedOutputRepository;
@@ -177,7 +176,6 @@ public class DeliverableMvcController {
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.editingParticipantRepository = editingParticipantRepository;
         this.eventRepository = eventRepository;
-        this.evidenceCorrectionRepository = evidenceCorrectionRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.obligationRepository = obligationRepository;
         this.scorecardRepository = scorecardRepository;
@@ -201,6 +199,7 @@ public class DeliverableMvcController {
         this.holdService = holdService;
         this.stageCommentService = stageCommentService;
         this.assigneeWorkloadCountService = assigneeWorkloadCountService;
+        this.pipelineDashboardService = pipelineDashboardService;
     }
 
     private ContentPlan requirePlan(UUID id) {
@@ -228,6 +227,50 @@ public class DeliverableMvcController {
         ContentPlan plan = requirePlan(id);
         User user = principal.user();
         WorkflowStatus status = plan.getWorkflowInstance().getCurrentStatusCode();
+        String businessRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
+        // Fetched once, early, and reused below both for the Model hard-deny gate immediately
+        // below and for the generic Shoot Execution routing branch further down (and for the
+        // Timeline tab's own display copy) - one query, one source of truth, never three separate
+        // reads of the same WorkflowTransitionHistory rows.
+        List<WorkflowTransitionHistory> shootHistory = transitionHistoryRepository
+                .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
+        boolean shootTaskCompleted = LandingMvcController.isShootTaskCompleted(shootHistory);
+
+        // A Model/Talent's access to THIS Content ends the moment their own personal shoot task
+        // is complete - independent of the Content's own further lifecycle (Edit/Review/
+        // Publishing never reopen it), and even if they separately still hold
+        // PERM_18_SHOOT_EXECUTION. Checked before any model-building below, and before the
+        // routing branches further down, so a direct/typed URL is rejected server-side exactly
+        // like every other route this Model cannot reach - never a UI-only restriction (e.g. just
+        // hiding the View button). A Model who was never actually linked to this specific plan at
+        // all is unaffected by this check (falls through to whatever the standard shell already
+        // does for them); every other Business Role/Access Class is completely unaffected too -
+        // this hard-deny is deliberately Model/Talent-specific (their job ends at task
+        // completion), unlike the generic Shoot Execution routing below which stays reachable
+        // (via the standard shell) for a Camera Person/Editor/Publisher after their own task ends.
+        //
+        // This must NOT swallow a genuinely different, still-open execution task the same Model
+        // separately holds on this exact plan (e.g. granted EDIT_EXECUTION and assigned as an
+        // Editor here too) - the architecture rule is permission + assignment decide execution
+        // access, never Business Role, so a Model with a real Edit/Publish assignment+permission
+        // on this plan must reach the standard shell exactly like any other qualifying employee.
+        // Their own finished Shoot task still doesn't reopen (shootTaskCompleted stays permanent),
+        // only their access to THIS page as a whole is preserved for the other, still-active task.
+        if ("Model".equals(businessRoleName) && shootTaskCompleted) {
+            boolean isLinkedTalent = talentEntryRepository.findByContentPlan(plan).stream()
+                    .anyMatch(e -> e.getTalentUser() != null && e.getTalentUser().getId().equals(user.getId()));
+            boolean hasOtherActiveExecutionTask =
+                    (editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                            .anyMatch(a -> a.getEditor().getId().equals(user.getId()))
+                            && allowed(user, OperationalPermission.PERM_19_EDIT_EXECUTION, LifecycleStage.EDITING, plan))
+                    || (publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                            .anyMatch(a -> a.getPublisher().getId().equals(user.getId()))
+                            && allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan));
+            if (isLinkedTalent && !hasOtherActiveExecutionTask) {
+                return "redirect:/app/my-shoots";
+            }
+        }
+
         model.addAttribute("plan", plan);
         model.addAttribute("status", status);
         // Action Center's "Current Stage" - the one canonical Status->Stage resolver (never a
@@ -247,7 +290,18 @@ public class DeliverableMvcController {
         // purely which tab starts active, never a visibility/authorization decision.
         model.addAttribute("activeTab", tab != null && CONTENT_DETAIL_TABS.contains(tab) ? tab : "overview");
 
+        // Overview -> People: the DECIDED mark for this content plan's Cameraperson/Editor/Model
+        // role - set once, at Idea Review approval, in the same transaction that creates the
+        // ContentPlan itself (IdeaService#approve), so it is always available immediately on
+        // assignment - never waits for that stage's own work to be submitted/approved. This is
+        // deliberately the role-level PredefinedRoleMarks value (same value shown to every
+        // contributor currently assigned to that role), NOT PersonalMarkAttribution (which is only
+        // awarded per-person at that stage's own Review Approve, i.e. after submission - the wrong
+        // source for this display, previously used here by mistake). No PredefinedRoleMarks field
+        // exists for Publisher, so that role's People row has no decided-mark source and keeps
+        // rendering "-", same as before.
         predefinedRoleMarksRepository.findByContentPlan(plan).ifPresent(m -> model.addAttribute("marks", m));
+
         List<PlannedOutput> outputs = plannedOutputRepository.findByContentPlan(plan);
         model.addAttribute("outputs", outputs);
 
@@ -319,7 +373,14 @@ public class DeliverableMvcController {
                 operationalEligibilityService.editExecutionCandidates(plan.getWorkflowInstance())));
         model.addAttribute("publisherUsers", assigneeWorkloadCountService.withPublishingCounts(
                 operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance())));
-        model.addAttribute("publishingAssignments", publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
+        List<PublishingAssignment> activePublishingAssignments = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan);
+        model.addAttribute("publishingAssignments", activePublishingAssignments);
+        // ENG-097: a Publisher may already be assigned from Planning time - pre-check that in the
+        // Skip Edit modal's Publisher(s) picker below (same reasoning as ReviewsMvcController's Edit
+        // Review Approve screen) so it doesn't look unselected. Derived from the same
+        // activePublishingAssignments list already loaded above - never a second query.
+        model.addAttribute("alreadyAssignedPublisherUserIds", activePublishingAssignments.stream()
+                .map(a -> a.getPublisher().getId()).collect(java.util.stream.Collectors.toSet()));
         List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
         model.addAttribute("activePublicationTargets", activeTargets);
         model.addAttribute("activePlatformNames", activeTargets.stream()
@@ -397,8 +458,7 @@ public class DeliverableMvcController {
         model.addAttribute("legacyEffectiveMetricsByObligation", legacyEffectiveMetricsByObligation);
         model.addAttribute("correctionsByObligation", correctionsByObligation);
 
-        var timeline = new java.util.ArrayList<>(transitionHistoryRepository
-                .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance()));
+        var timeline = new java.util.ArrayList<>(shootHistory);
         java.util.Collections.reverse(timeline); // UI/UX §9.15: newest first.
         model.addAttribute("timeline", timeline);
         Optional<com.kcpc.mkt.workflow.domain.WorkHoldRecord> openHold =
@@ -443,25 +503,25 @@ public class DeliverableMvcController {
         // assigned Cameraperson/Editor/Publisher only. CEO/MM's native authority deliberately does
         // NOT bypass this (unlike every other *OrNative/canX flag on this page), matching
         // ShootingService/EditingService/PublishingService#requireActiveAssignee server-side.
-        model.addAttribute("isShootActiveAssignee",
-                shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
-                        .anyMatch(a -> a.getCameraperson().getId().equals(user.getId())));
+        boolean isShootActiveAssignee = shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .anyMatch(a -> a.getCameraperson().getId().equals(user.getId()));
+        model.addAttribute("isShootActiveAssignee", isShootActiveAssignee);
         boolean canDecideShoot = allowed(user, OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, plan) && !shootSelfReviewBlocked;
         model.addAttribute("canDecideShootReview", canDecideShoot);
         model.addAttribute("shootSelfReviewBlocked", shootSelfReviewBlocked);
 
         model.addAttribute("canAssignEditor", allowed(user, OperationalPermission.PERM_06_EDIT_ASSIGNMENT, LifecycleStage.EDITING, plan));
-        model.addAttribute("isEditActiveAssignee",
-                editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
-                        .anyMatch(a -> a.getEditor().getId().equals(user.getId())));
+        boolean isEditActiveAssignee = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .anyMatch(a -> a.getEditor().getId().equals(user.getId()));
+        model.addAttribute("isEditActiveAssignee", isEditActiveAssignee);
         boolean canDecideEdit = allowed(user, OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, plan) && !editSelfReviewBlocked;
         model.addAttribute("canDecideEditReview", canDecideEdit);
         model.addAttribute("editSelfReviewBlocked", editSelfReviewBlocked);
 
         model.addAttribute("canPublishingExecute", allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan));
-        model.addAttribute("isPublishActiveAssignee",
-                publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
-                        .anyMatch(a -> a.getPublisher().getId().equals(user.getId())));
+        boolean isPublishActiveAssignee = publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                .anyMatch(a -> a.getPublisher().getId().equals(user.getId()));
+        model.addAttribute("isPublishActiveAssignee", isPublishActiveAssignee);
         // ENG-044: Publisher(s) assignment (the picker/add/remove) is native CEO/MM only - a
         // PERM_08 grant exists so a rank-and-file Publisher can execute their OWN assigned task,
         // never to assign/reassign/remove other Publishers on this plan.
@@ -471,6 +531,15 @@ public class DeliverableMvcController {
         model.addAttribute("canReassign", allowed(user, OperationalPermission.PERM_11_REASSIGN, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("canCancel", allowed(user, OperationalPermission.PERM_12_CANCEL, LifecycleStage.ADMINISTRATIVE, plan));
         model.addAttribute("isNative", nativeAuthority);
+        // Skip Stage (ENG-090): visible only while the plan is actually in the Shoot/Edit phase -
+        // PERM_20_SKIP_STAGE alone is not enough, mirroring how every other action here is gated
+        // by BOTH the permission AND a real workflow-status eligibility check, never permission alone.
+        model.addAttribute("canSkipShoot",
+                allowed(user, OperationalPermission.PERM_20_SKIP_STAGE, LifecycleStage.SHOOTING, plan)
+                        && (status == WorkflowStatus.SA || status == WorkflowStatus.SIP || status == WorkflowStatus.SRV));
+        model.addAttribute("canSkipEdit",
+                allowed(user, OperationalPermission.PERM_20_SKIP_STAGE, LifecycleStage.EDITING, plan)
+                        && (status == WorkflowStatus.EA || status == WorkflowStatus.ED || status == WorkflowStatus.ERV));
 
         // ENG-046: Description is editable by whoever can Assign for that stage (Publishing:
         // native-only, matching ENG-044); comment authorship matches whoever's currently the
@@ -504,46 +573,104 @@ public class DeliverableMvcController {
         // succeed, same contract as the Action Center's Reassign button itself.
         model.addAttribute("taskStages", availableActionService.eligibleReassignTaskStages(plan));
 
-        // ENG-064: a Camera Person viewing their own Shoot task gets a dedicated, redesigned,
-        // read-mostly detail page instead of the full CEO/MM-oriented multi-stage shell - same
-        // route, same GET handler, same underlying model-building above (reused wholesale), just a
-        // different view name, matching the established "same route, branch server-side by role"
-        // house pattern (/app/my-work, /app/pipeline, /app/ideas). Scoped to the Shoot-relevant
-        // status window (SA/SIP/SRV/SAP) - outside that window there is no "Shoot task" to show a
-        // Cameraperson-focused page for, so the standard shell renders as before.
-        String businessRoleName = user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName();
-        boolean shootRelevantStatus = status == WorkflowStatus.SA || status == WorkflowStatus.SIP
-                || status == WorkflowStatus.SRV || status == WorkflowStatus.SAP;
-        if ("Camera Person".equals(businessRoleName) && shootRelevantStatus) {
+        // Shoot Execution: a dedicated, redesigned, read-mostly detail page for whoever is
+        // actually executing this Shoot task - same route, same GET handler, same underlying
+        // model-building above (reused wholesale), just a different view name (the established
+        // "same route, branch server-side" house pattern - /app/my-work, /app/pipeline,
+        // /app/ideas). Deliberately NOT gated by Business Role name (a Model granted
+        // PERM_18_SHOOT_EXECUTION gets exactly the same access a Camera Person does, and vice
+        // versa - Business Role and Permission are separate concepts, and a future role could
+        // hold this permission too with no code change here) - the real gate is:
+        //   1. permission - a currently-valid PERM_18_SHOOT_EXECUTION grant covering this plan
+        //      (#allowed -> AuthorizationService#requireAuthority, never assumed from role alone)
+        //   2. assignment - actually participating in THIS Content's shoot: either the active
+        //      ShootingAssignment.cameraperson, or a linked ContentPlanTalentEntry.talentUser
+        //      (covers both known Shoot-participation mechanisms; a future one would extend this
+        //      same boolean, not add a new hardcoded branch)
+        //   3. outstanding - shootTaskCompleted (computed above) is false; once the Shoot phase's
+        //      own terminal event has fired (APPROVE_SHOOT/SKIP_SHOOT_STAGE), this page is no
+        //      longer offered to anyone, regardless of the Content's own further lifecycle.
+        boolean isAssignedToShootTask = isShootActiveAssignee
+                || talentEntryRepository.findByContentPlan(plan).stream()
+                        .anyMatch(e -> e.getTalentUser() != null && e.getTalentUser().getId().equals(user.getId()));
+        // (tab == null || "shoot".equals(tab)): Active Work's own links never send a ?tab= at all,
+        // so the "no explicit tab" case must keep matching exactly as before (whichever stage is
+        // actually active wins, unchanged). Only an EXPLICIT different tab (e.g. "edit"/
+        // "publishing", from My Work's Completed Work links below) should skip this branch - see
+        // the "Completed-task read-only re-entry" block further down for why this matters: without
+        // this guard, a person who is simultaneously still the resting-state Publisher on THIS
+        // exact plan (publishRelevantStatus includes PP, the Publisher's normal final resting
+        // status - see that branch's own comment) would have every ?tab= value hijacked to the
+        // Publish screen, even when they explicitly asked for their completed Shoot/Edit work.
+        if (isAssignedToShootTask && !shootTaskCompleted && (tab == null || "shoot".equals(tab))
+                && allowed(user, OperationalPermission.PERM_18_SHOOT_EXECUTION, LifecycleStage.SHOOTING, plan)) {
             addShootTaskDetailAttributes(plan, status, user, model);
             return "shoot-task-detail";
         }
-        // ENG-066: exact mirror for a Video Editor viewing their own Edit task. EAP is included
-        // defensively even though it's transient/never actually observed (ERV->EAP->RFP fires
-        // atomically in EditingService#decideEditReview) - unlike Shoot's SAP, there is no resting
-        // "Edit Approved" status, so this window is EA/ED/ERV only in practice.
+        // Edit Execution: same permission+assignment gate as Shoot Execution above, reusing the
+        // same architecture - PERM_19_EDIT_EXECUTION + actually being the active
+        // EditingAssignment.editor (isEditActiveAssignee, already computed earlier in this
+        // method), never the Business Role name. EAP is included in the status window defensively
+        // even though it's transient/never actually observed (ERV->EAP->RFP fires atomically in
+        // EditingService#decideEditReview) - unlike Shoot's SAP, there is no resting "Edit
+        // Approved" status, so this window is EA/ED/ERV only in practice.
         boolean editRelevantStatus = status == WorkflowStatus.EA || status == WorkflowStatus.ED
                 || status == WorkflowStatus.ERV || status == WorkflowStatus.EAP;
-        if ("Video Editor".equals(businessRoleName) && editRelevantStatus) {
+        if (isEditActiveAssignee && editRelevantStatus && (tab == null || "edit".equals(tab))
+                && allowed(user, OperationalPermission.PERM_19_EDIT_EXECUTION, LifecycleStage.EDITING, plan)) {
             addEditTaskDetailAttributes(plan, status, user, model);
             return "edit-task-detail";
         }
-        // ENG-068: same mirror again for a Publisher viewing their own Publishing task. Unlike
-        // Shoot/Edit, PP is included here - Publishing has no review/rework gate, so once the
-        // publication scope resolves and PP is reached, that IS the Publisher's final resting state
-        // (not a hand-off to a different stage's page the way Edit's approval hands off to
-        // Publishing) - the redesigned page keeps rendering there instead of falling back to the
-        // standard shell.
+        // Publishing Execution: same permission+assignment architecture again - PERM_08_PUBLISHING_EXECUTION
+        // + actually being the active PublishingAssignment.publisher (isPublishActiveAssignee),
+        // never the Business Role name. Unlike Shoot/Edit, PP is included here - Publishing has no
+        // review/rework gate, so once the publication scope resolves and PP is reached, that IS
+        // the Publisher's final resting state (not a hand-off to a different stage's page the way
+        // Edit's approval hands off to Publishing) - the redesigned page keeps rendering there
+        // instead of falling back to the standard shell.
         boolean publishRelevantStatus = status == WorkflowStatus.RFP || status == WorkflowStatus.PUBG
                 || status == WorkflowStatus.PP;
-        if ("Publisher".equals(businessRoleName) && publishRelevantStatus) {
+        if (isPublishActiveAssignee && publishRelevantStatus && (tab == null || "publishing".equals(tab))
+                && allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan)) {
+            addPublishTaskDetailAttributes(plan, status, model);
+            return "publish-task-detail";
+        }
+
+        // Completed-task read-only re-entry: My Work's Completed Work "View Details" links land
+        // here (?tab=shoot/edit/publishing, the same request param the generic shell's own tabs
+        // already use) once the employee's OWN task on that specific stage is done - the exact
+        // same task-specific screen Active Work already sends them to, reusing the SAME
+        // permission+assignment ownership check and the SAME addXTaskDetailAttributes model-
+        // building as the three active-task branches above (never a second/duplicate screen or a
+        // fresh authorization rule). The three status-window checks above (shootTaskCompleted/
+        // editRelevantStatus/publishRelevantStatus) are what changes: none of them are required
+        // here, since a completed task's whole point is that its stage has already moved past its
+        // own active window - that is no longer a reason to deny the view. The requested tab
+        // disambiguates which stage's screen to show, so a person who worked more than one stage
+        // on the same plan lands on the specific one they're asking about, never an arbitrary
+        // pick. This block is only ever reached after all three ACTIVE-task branches above have
+        // already failed to match, so a person with a genuinely current, still-open task on this
+        // plan is never redirected backward into a stale completed screen merely because they
+        // once also worked an earlier stage here.
+        if ("shoot".equals(tab) && isAssignedToShootTask
+                && allowed(user, OperationalPermission.PERM_18_SHOOT_EXECUTION, LifecycleStage.SHOOTING, plan)) {
+            addShootTaskDetailAttributes(plan, status, user, model);
+            return "shoot-task-detail";
+        }
+        if ("edit".equals(tab) && isEditActiveAssignee
+                && allowed(user, OperationalPermission.PERM_19_EDIT_EXECUTION, LifecycleStage.EDITING, plan)) {
+            addEditTaskDetailAttributes(plan, status, user, model);
+            return "edit-task-detail";
+        }
+        if ("publishing".equals(tab) && isPublishActiveAssignee
+                && allowed(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION, LifecycleStage.PUBLISHING, plan)) {
             addPublishTaskDetailAttributes(plan, status, model);
             return "publish-task-detail";
         }
 
         // ENG-082: CEO/MM management shell - Platforms×Channels summary (Publishing tab) and the
         // combined Planning/Shoot/Edit Review Feedback History, only needed on this fallback path.
-        model.addAttribute("platformSummaries", buildContentDetailPlatformSummaries(plan, outputs));
+        model.addAttribute("platformSummaries", pipelineDashboardService.buildPlatformSummariesForPlan(plan));
         List<ShootFeedbackEntry> feedbackHistory = buildReviewFeedbackHistory(plan);
         model.addAttribute("reviewFeedbackHistory", feedbackHistory);
         model.addAttribute("availableActions", buildAvailableActions(plan, status, model, user, nativeAuthority, openHold));
@@ -620,90 +747,6 @@ public class DeliverableMvcController {
     }
 
     /**
-     * ENG-082 (defect fix): Content Detail's Publishing tab Platform×Channel chips - reuses
-     * {@link com.kcpc.mkt.reporting.service.PipelineDashboardService#buildPlatformSummaries}
-     * verbatim (same "published only when a real ORIGINAL event exists with a non-blank, current/
-     * correction-resolved effective Evidence URL" rule the Pipeline dashboard already uses for the
-     * exact same data), scoped to this one plan instead of the dashboard's multi-plan batch.
-     * Mappings are re-queried per real output ({@code mappingRepository.findByPlannedOutput_IdIn}
-     * over every one of this plan's {@code outputs}), NOT flattened from {@code outputTargetMappings}
-     * - that map is grouped by reel-group representative for the Planning tab's editing UI (one row
-     * per group), so flattening it here would under-count exactly like the original Pipeline
-     * dashboard defect this fix addresses (e.g. a 2-Reel-Type group's second type's mappings would
-     * be silently dropped). Every screen - Publisher's checklist, Pipeline dashboard, and this
-     * Content Detail summary - must agree on the same real per-output publishing scope.
-     */
-    private List<com.kcpc.mkt.reporting.dto.PipelinePlatformSummary> buildContentDetailPlatformSummaries(
-            ContentPlan plan, List<PlannedOutput> outputs) {
-        List<UUID> outputIds = outputs.stream().map(PlannedOutput::getId).toList();
-        if (outputIds.isEmpty()) {
-            return List.of();
-        }
-        List<com.kcpc.mkt.planning.domain.PlannedOutputPublicationTargetMapping> allMappings =
-                mappingRepository.findByPlannedOutput_IdIn(outputIds);
-        if (allMappings.isEmpty()) {
-            return List.of();
-        }
-        // ENG-082 (defect fix): label fields (title/type) must be read from these already-fully-
-        // loaded PlannedOutput entities, never from mapping.getPlannedOutput() - that association is
-        // LAZY and this controller isn't @Transactional, so touching a label field on it directly
-        // would throw LazyInitializationException the moment the session that loaded it is gone.
-        Map<UUID, PlannedOutput> outputsById = outputs.stream()
-                .collect(java.util.stream.Collectors.toMap(PlannedOutput::getId, o -> o));
-        // ENG-082 (defect fix): one real ORIGINAL event per exact (Planned Output, Publication
-        // Target) pair - never collapsed across Planned Outputs sharing the same target, matching
-        // buildPublishingChecklist's own per-output event lookup exactly.
-        List<ActualPublicationEvent> originalEvents = eventRepository.findByContentPlan(plan).stream()
-                .filter(e -> e.getEventType() == PublicationEventType.ORIGINAL).toList();
-        Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget = new java.util.HashMap<>();
-        for (ActualPublicationEvent e : originalEvents) {
-            latestEventByOutputAndTarget
-                    .computeIfAbsent(e.getPlannedOutput().getId(), k -> new java.util.HashMap<>())
-                    .merge(e.getPublicationTarget().getId(), e,
-                            (a, b) -> a.getActualPublicationTimestamp().isAfter(b.getActualPublicationTimestamp()) ? a : b);
-        }
-        java.util.Set<UUID> representativeEventIds = latestEventByOutputAndTarget.values().stream()
-                .flatMap(m -> m.values().stream()).map(ActualPublicationEvent::getId)
-                .collect(java.util.stream.Collectors.toSet());
-        Map<UUID, com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection> latestCorrectionByEventId = new java.util.HashMap<>();
-        if (!representativeEventIds.isEmpty()) {
-            for (var corr : evidenceCorrectionRepository.findByEvent_IdIn(representativeEventIds)) {
-                latestCorrectionByEventId.merge(corr.getEvent().getId(), corr,
-                        (a, b) -> a.getCorrectedAt().isAfter(b.getCorrectedAt()) ? a : b);
-            }
-        }
-        // ENG-082 (defect fix): a mapping currently DESIGNATED N/A is excluded entirely - matches
-        // buildPublishingChecklist's own rule exactly, so the Content Detail's Platforms×Channels
-        // chips can never show a different task set than the Publisher's own checklist. Keyed by
-        // each mapping's REAL Planned Output id (never outputTargetMappings' reel-group key, a
-        // separate generated id that never matches any individual PlannedOutput's own id) so the
-        // lookup in buildPlatformSummaries (keyed the same real way) actually hits.
-        Map<UUID, java.util.Set<UUID>> naTargetIdsByOutput = new java.util.HashMap<>();
-        java.util.Set<UUID> realOutputIds = allMappings.stream()
-                .map(m -> m.getPlannedOutput().getId()).collect(java.util.stream.Collectors.toSet());
-        for (UUID outputId : realOutputIds) {
-            PlannedOutput output = outputsById.get(outputId);
-            if (output == null) {
-                continue;
-            }
-            Map<UUID, PublicationTargetNaRecord> latestNaByTarget = new java.util.HashMap<>();
-            for (PublicationTargetNaRecord r : naRecordRepository.findByPlannedOutput(output)) {
-                latestNaByTarget.merge(r.getPublicationTarget().getId(), r,
-                        (a, b) -> a.getRecordedAt().isAfter(b.getRecordedAt()) ? a : b);
-            }
-            java.util.Set<UUID> naTargets = latestNaByTarget.values().stream()
-                    .filter(r -> r.getActionType() == NaActionType.DESIGNATED)
-                    .map(r -> r.getPublicationTarget().getId())
-                    .collect(java.util.stream.Collectors.toSet());
-            if (!naTargets.isEmpty()) {
-                naTargetIdsByOutput.put(outputId, naTargets);
-            }
-        }
-        return com.kcpc.mkt.reporting.service.PipelineDashboardService.buildPlatformSummaries(
-                allMappings, outputsById, latestEventByOutputAndTarget, latestCorrectionByEventId, naTargetIdsByOutput);
-    }
-
-    /**
      * ENG-082: combined Review Feedback History for the CEO/MM management shell - every DECIDED
      * cycle across Shoot and Edit (never Publishing - no review gate exists for it), newest first.
      * Reuses {@link ShootFeedbackEntry} (already gate-agnostic in shape) with its ENG-082
@@ -746,11 +789,13 @@ public class DeliverableMvcController {
                                                                 UUID leadId, Map<UUID, User> reviewersById) {
         return decided.stream().map(c -> {
             boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            boolean skipped = "SKIPPED".equals(c.getDecision());
             UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
             User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
             boolean reviewerIsLead = reviewerId != null && leadId != null && reviewerId.equals(leadId);
-            return new ShootFeedbackEntry(reviewStage, c.getCycleNumber(), rework ? "Rework Required" : "Approved",
-                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+            return new ShootFeedbackEntry(reviewStage, c.getCycleNumber(),
+                    rework ? "Rework Required" : (skipped ? "Stage Skipped" : "Approved"),
+                    rework ? "status-needschanges" : (skipped ? "status-skipped" : "status-completed"), c.getDecisionReason(),
                     reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
         }).toList();
     }
@@ -842,17 +887,6 @@ public class DeliverableMvcController {
      * DTO the Content Detail page's own Review Feedback History card uses - ENG-082).
      */
     private void addShootTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, User user, Model model) {
-        boolean reworkActive = status == WorkflowStatus.SIP
-                && latestDecidedReworkReason(plan, GateType.SHOOT_REVIEW) != null;
-        model.addAttribute("shootFriendlyStatusLabel", shootFriendlyStatusLabel(status, reworkActive));
-        model.addAttribute("shootFriendlyStatusCssClass", shootFriendlyStatusCssClass(status, reworkActive));
-
-        LocalDate today = LocalDate.now(BUSINESS_ZONE);
-        Integer delayDays = (plan.getPlannedShootDate() != null && plan.getPlannedShootDate().isBefore(today)
-                && status != WorkflowStatus.SAP)
-                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedShootDate(), today) : null;
-        model.addAttribute("shootDelayDays", delayDays);
-
         List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
                 .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
         Instant assignedAt = latestTransitionTimestamp(ascending, "ACTIVATE_SHOOTING");
@@ -860,6 +894,25 @@ public class DeliverableMvcController {
         Instant reviewAt = latestTransitionTimestamp(ascending, "SUBMIT_SHOOT_REVIEW");
         Instant reworkAt = latestTransitionTimestamp(ascending, "REQUEST_REWORK_SHOOT");
         Instant approvedAt = latestTransitionTimestamp(ascending, "APPROVE_SHOOT");
+        // The Shoot stage's own outcome is frozen the instant APPROVE_SHOOT fires - the Content
+        // Plan's CURRENT overall status (the "status" method param) moves on to Edit/Publishing/
+        // Performance right after, and this screen is reached from My Work's Completed Work long
+        // after that has happened, so "status == SAP" (true only for the brief instant before
+        // Edit assignment auto-advances it) would almost always be false here even though the
+        // Shoot task itself was genuinely approved. shootApproved is the real, permanent signal;
+        // every status-derived display below uses it instead of comparing the live status to SAP.
+        boolean shootApproved = approvedAt != null;
+
+        boolean reworkActive = status == WorkflowStatus.SIP
+                && latestDecidedReworkReason(plan, GateType.SHOOT_REVIEW) != null;
+        model.addAttribute("shootFriendlyStatusLabel", shootFriendlyStatusLabel(status, reworkActive, shootApproved));
+        model.addAttribute("shootFriendlyStatusCssClass", shootFriendlyStatusCssClass(status, reworkActive, shootApproved));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedShootDate() != null && plan.getPlannedShootDate().isBefore(today)
+                && !shootApproved)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedShootDate(), today) : null;
+        model.addAttribute("shootDelayDays", delayDays);
 
         List<ShootProgressStep> progress = new ArrayList<>();
         progress.add(new ShootProgressStep("Assigned", "done", assignedAt));
@@ -868,7 +921,7 @@ public class DeliverableMvcController {
         progress.add(new ShootProgressStep("Review", reviewAt == null ? "pending"
                 : (status == WorkflowStatus.SRV ? "current" : "done"), reviewAt));
         progress.add(new ShootProgressStep("Rework Required", reworkActive ? "current" : "pending", reworkAt));
-        progress.add(new ShootProgressStep("Approved", status == WorkflowStatus.SAP ? "done" : "pending", approvedAt));
+        progress.add(new ShootProgressStep("Approved", shootApproved ? "done" : "pending", approvedAt));
         model.addAttribute("shootProgressSteps", progress);
 
         // Feedback history: decided SHOOT_REVIEW cycles only, newest first - never another gate's
@@ -889,11 +942,13 @@ public class DeliverableMvcController {
                         .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
         List<ShootFeedbackEntry> feedbackHistory = decided.stream().map(c -> {
             boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            boolean skipped = "SKIPPED".equals(c.getDecision());
             java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
             User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
             boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
-            return new ShootFeedbackEntry("Shoot Review", c.getCycleNumber(), rework ? "Rework Required" : "Approved",
-                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+            return new ShootFeedbackEntry("Shoot Review", c.getCycleNumber(),
+                    rework ? "Rework Required" : (skipped ? "Stage Skipped" : "Approved"),
+                    rework ? "status-needschanges" : (skipped ? "status-skipped" : "status-completed"), c.getDecisionReason(),
                     reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
         }).toList();
         model.addAttribute("shootFeedbackLatest", feedbackHistory.isEmpty() ? null : feedbackHistory.get(0));
@@ -907,7 +962,10 @@ public class DeliverableMvcController {
                 .map(WorkflowTransitionHistory::getTransitionTimestamp).orElse(null);
     }
 
-    private static String shootFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive) {
+    private static String shootFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive, boolean shootApproved) {
+        if (shootApproved) {
+            return "Approved";
+        }
         return switch (status) {
             case SA -> "Assigned";
             case SIP -> reworkActive ? "Rework Required" : "In Progress";
@@ -917,7 +975,10 @@ public class DeliverableMvcController {
         };
     }
 
-    private static String shootFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive) {
+    private static String shootFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive, boolean shootApproved) {
+        if (shootApproved) {
+            return "status-completed";
+        }
         return switch (status) {
             case SA -> "status-assigned";
             case SIP -> reworkActive ? "status-needschanges" : "status-inprogress";
@@ -933,17 +994,6 @@ public class DeliverableMvcController {
      * transition-timestamp/reviewer-batch-fetch pattern, EDIT_REVIEW/Editor-specific data only.
      */
     private void addEditTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, User user, Model model) {
-        boolean reworkActive = status == WorkflowStatus.ED
-                && latestDecidedReworkReason(plan, GateType.EDIT_REVIEW) != null;
-        model.addAttribute("editFriendlyStatusLabel", editFriendlyStatusLabel(status, reworkActive));
-        model.addAttribute("editFriendlyStatusCssClass", editFriendlyStatusCssClass(status, reworkActive));
-
-        LocalDate today = LocalDate.now(BUSINESS_ZONE);
-        Integer delayDays = (plan.getPlannedEditDate() != null && plan.getPlannedEditDate().isBefore(today)
-                && status != WorkflowStatus.EAP)
-                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedEditDate(), today) : null;
-        model.addAttribute("editDelayDays", delayDays);
-
         List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
                 .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
         Instant assignedAt = latestTransitionTimestamp(ascending, "ASSIGN_EDITOR");
@@ -951,6 +1001,22 @@ public class DeliverableMvcController {
         Instant reviewAt = latestTransitionTimestamp(ascending, "SUBMIT_EDIT_REVIEW");
         Instant reworkAt = latestTransitionTimestamp(ascending, "REQUEST_REWORK_EDIT");
         Instant approvedAt = latestTransitionTimestamp(ascending, "APPROVE_EDIT");
+        // Same fix as addShootTaskDetailAttributes's shootApproved - the Edit stage's own outcome
+        // is frozen the instant APPROVE_EDIT fires, but the plan's CURRENT status (the "status"
+        // param) has already moved on to Publishing/Performance by the time this screen is
+        // reached from My Work's Completed Work, so "status == EAP" is essentially never true here.
+        boolean editApproved = approvedAt != null;
+
+        boolean reworkActive = status == WorkflowStatus.ED
+                && latestDecidedReworkReason(plan, GateType.EDIT_REVIEW) != null;
+        model.addAttribute("editFriendlyStatusLabel", editFriendlyStatusLabel(status, reworkActive, editApproved));
+        model.addAttribute("editFriendlyStatusCssClass", editFriendlyStatusCssClass(status, reworkActive, editApproved));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedEditDate() != null && plan.getPlannedEditDate().isBefore(today)
+                && !editApproved)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedEditDate(), today) : null;
+        model.addAttribute("editDelayDays", delayDays);
 
         List<ShootProgressStep> progress = new ArrayList<>();
         progress.add(new ShootProgressStep("Assigned", "done", assignedAt));
@@ -959,7 +1025,7 @@ public class DeliverableMvcController {
         progress.add(new ShootProgressStep("Review", reviewAt == null ? "pending"
                 : (status == WorkflowStatus.ERV ? "current" : "done"), reviewAt));
         progress.add(new ShootProgressStep("Rework Required", reworkActive ? "current" : "pending", reworkAt));
-        progress.add(new ShootProgressStep("Approved", status == WorkflowStatus.EAP ? "done" : "pending", approvedAt));
+        progress.add(new ShootProgressStep("Approved", editApproved ? "done" : "pending", approvedAt));
         model.addAttribute("editProgressSteps", progress);
 
         // Feedback history: decided EDIT_REVIEW cycles only, newest first - never another gate's
@@ -977,11 +1043,13 @@ public class DeliverableMvcController {
                         .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
         List<ShootFeedbackEntry> feedbackHistory = decided.stream().map(c -> {
             boolean rework = "REQUEST_REWORK".equals(c.getDecision());
+            boolean skipped = "SKIPPED".equals(c.getDecision());
             java.util.UUID reviewerId = c.getReviewer() == null ? null : c.getReviewer().getId();
             User reviewer = reviewerId == null ? null : reviewersById.get(reviewerId);
             boolean reviewerIsLead = reviewerId != null && leadUserId != null && reviewerId.equals(leadUserId);
-            return new ShootFeedbackEntry("Edit Review", c.getCycleNumber(), rework ? "Rework Required" : "Approved",
-                    rework ? "status-needschanges" : "status-completed", c.getDecisionReason(),
+            return new ShootFeedbackEntry("Edit Review", c.getCycleNumber(),
+                    rework ? "Rework Required" : (skipped ? "Stage Skipped" : "Approved"),
+                    rework ? "status-needschanges" : (skipped ? "status-skipped" : "status-completed"), c.getDecisionReason(),
                     reviewer == null ? null : reviewer.getFullName(), reviewerIsLead, c.getDecidedAt());
         }).toList();
         model.addAttribute("editFeedbackLatest", feedbackHistory.isEmpty() ? null : feedbackHistory.get(0));
@@ -989,7 +1057,10 @@ public class DeliverableMvcController {
                 feedbackHistory.isEmpty() ? List.of() : feedbackHistory.subList(1, feedbackHistory.size()));
     }
 
-    private static String editFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive) {
+    private static String editFriendlyStatusLabel(WorkflowStatus status, boolean reworkActive, boolean editApproved) {
+        if (editApproved) {
+            return "Approved";
+        }
         return switch (status) {
             case EA -> "Assigned";
             case ED -> reworkActive ? "Rework Required" : "In Progress";
@@ -999,7 +1070,10 @@ public class DeliverableMvcController {
         };
     }
 
-    private static String editFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive) {
+    private static String editFriendlyStatusCssClass(WorkflowStatus status, boolean reworkActive, boolean editApproved) {
+        if (editApproved) {
+            return "status-completed";
+        }
         return switch (status) {
             case EA -> "status-assigned";
             case ED -> reworkActive ? "status-needschanges" : "status-inprogress";
@@ -1021,20 +1095,26 @@ public class DeliverableMvcController {
      * specific milestones instead of the Shoot/Edit Assigned/In Progress/Review/Rework/Approved shape.
      */
     private void addPublishTaskDetailAttributes(ContentPlan plan, WorkflowStatus status, Model model) {
-        model.addAttribute("publishFriendlyStatusLabel", publishFriendlyStatusLabel(status));
-        model.addAttribute("publishFriendlyStatusCssClass", publishFriendlyStatusCssClass(status));
-
-        LocalDate today = LocalDate.now(BUSINESS_ZONE);
-        Integer delayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today)
-                && status != WorkflowStatus.PP)
-                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today) : null;
-        model.addAttribute("publishDelayDays", delayDays);
-
         List<WorkflowTransitionHistory> ascending = transitionHistoryRepository
                 .findByWorkflowInstanceOrderByTransitionTimestampAsc(plan.getWorkflowInstance());
         Instant readyAt = latestTransitionToStatus(ascending, WorkflowStatus.RFP);
         Instant publishingAt = latestTransitionTimestamp(ascending, "START_PUBLISHING");
         Instant scopeResolvedAt = latestTransitionTimestamp(ascending, "PUBLICATION_SCOPE_RESOLVED");
+        // Same fix as Shoot/Edit's own approved flag - Publishing's own outcome is frozen once its
+        // publication scope resolves (entering PP, the Publisher's normal resting state), but the
+        // plan can keep moving beyond PP later (e.g. to COMP once Performance is updated), so
+        // "status == PP" would eventually go false for a Publishing task that was genuinely
+        // completed. publishingComplete is the real, permanent signal.
+        boolean publishingComplete = scopeResolvedAt != null;
+
+        model.addAttribute("publishFriendlyStatusLabel", publishFriendlyStatusLabel(status, publishingComplete));
+        model.addAttribute("publishFriendlyStatusCssClass", publishFriendlyStatusCssClass(status, publishingComplete));
+
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Integer delayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today)
+                && !publishingComplete)
+                ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today) : null;
+        model.addAttribute("publishDelayDays", delayDays);
 
         // Unlike Shoot/Edit Assignment, Publisher assignment triggers no workflow transition (the
         // plan is already at RFP before and after) - its own milestone date comes from the
@@ -1046,10 +1126,10 @@ public class DeliverableMvcController {
         progress.add(new ShootProgressStep("Assigned", assignedAt == null ? "pending" : "done", assignedAt));
         progress.add(new ShootProgressStep("Ready for Publishing", "done", readyAt));
         progress.add(new ShootProgressStep("Publishing",
-                status == WorkflowStatus.RFP ? "pending" : (status == WorkflowStatus.PUBG ? "current" : "done"),
+                publishingComplete ? "done" : (status == WorkflowStatus.PUBG ? "current" : "pending"),
                 publishingAt));
-        progress.add(new ShootProgressStep("Scope Resolved", status == WorkflowStatus.PP ? "done" : "pending", scopeResolvedAt));
-        progress.add(new ShootProgressStep("Performance Pending", status == WorkflowStatus.PP ? "done" : "pending", scopeResolvedAt));
+        progress.add(new ShootProgressStep("Scope Resolved", publishingComplete ? "done" : "pending", scopeResolvedAt));
+        progress.add(new ShootProgressStep("Performance Pending", publishingComplete ? "done" : "pending", scopeResolvedAt));
         model.addAttribute("publishProgressSteps", progress);
     }
 
@@ -1059,7 +1139,10 @@ public class DeliverableMvcController {
                 .map(WorkflowTransitionHistory::getTransitionTimestamp).orElse(null);
     }
 
-    private static String publishFriendlyStatusLabel(WorkflowStatus status) {
+    private static String publishFriendlyStatusLabel(WorkflowStatus status, boolean publishingComplete) {
+        if (publishingComplete) {
+            return "Performance Pending";
+        }
         return switch (status) {
             case RFP -> "Ready for Publishing";
             case PUBG -> "Publishing";
@@ -1068,7 +1151,10 @@ public class DeliverableMvcController {
         };
     }
 
-    private static String publishFriendlyStatusCssClass(WorkflowStatus status) {
+    private static String publishFriendlyStatusCssClass(WorkflowStatus status, boolean publishingComplete) {
+        if (publishingComplete) {
+            return "status-completed";
+        }
         return switch (status) {
             case RFP -> "status-assigned";
             case PUBG -> "status-inprogress";
@@ -2206,12 +2292,58 @@ public class DeliverableMvcController {
 
     @PostMapping("/reassign")
     public String reassign(@PathVariable UUID id, @RequestParam TaskStage taskStage,
-                            @RequestParam List<UUID> newAssigneeUserIds, @RequestParam String reason,
+                            @RequestParam List<UUID> newAssigneeUserIds,
+                            @RequestParam(required = false) List<UUID> newModelUserIds, @RequestParam String reason,
                             @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
         try {
-            adminActionService.reassign(principal.user(), id, taskStage, newAssigneeUserIds, reason);
+            adminActionService.reassign(principal.user(), id, taskStage, newAssigneeUserIds, newModelUserIds, reason);
             ra.addFlashAttribute("successMessage", "Reassignment recorded.");
         } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Skip Stage (ENG-090): PERM_20_SKIP_STAGE-gated, distinct from the Shoot Review decision above. */
+    @PostMapping("/shooting/skip")
+    public Object skipShootStage(@PathVariable UUID id, @RequestParam String reason,
+                                  @RequestParam(required = false) List<UUID> editorUserIds,
+                                  @RequestParam(required = false) UUID leadEditorUserId,
+                                  @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                  jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            shootingService.skipShootStage(principal.user(), id, reason, editorUserIds, leadEditorUserId);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Shoot stage skipped.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return redirect(id);
+    }
+
+    /** Skip Stage (ENG-090): PERM_20_SKIP_STAGE-gated, distinct from the Edit Review decision below. */
+    @PostMapping("/editing/skip")
+    public Object skipEditStage(@PathVariable UUID id, @RequestParam String reason,
+                                 @RequestParam(required = false) List<UUID> publisherUserIds,
+                                 @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                 @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra,
+                                 jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            editingService.skipEditStage(principal.user(), id, reason, publisherUserIds);
+            if (isAjax(requestedWith)) {
+                return ResponseEntity.ok().build();
+            }
+            ra.addFlashAttribute("successMessage", "Edit stage skipped.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return redirect(id);

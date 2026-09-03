@@ -57,6 +57,10 @@ class DriveProvisioningDisabledFeedbackTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"drive disabled feedback test grant\"}");
+        String pubId = createPublisher(ceo, "Disabled Drive Pub", "disabled-drive-pub-" + unique + "@kcpcbandhani.local");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"drive disabled feedback test grant\"}");
         // Workflow redesign: approval carries every former Planning field and transitions straight
         // to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Disabled Drive Feedback " + unique + "\"}");
@@ -65,7 +69,8 @@ class DriveProvisioningDisabledFeedbackTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/disabled-drive-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
 
@@ -93,6 +98,13 @@ class DriveProvisioningDisabledFeedbackTest {
         JsonNode response = ceo.postJson("/api/v1/admin/users",
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000004\",\"creationReason\":\"drive disabled feedback test fixture\"}");
+        return response.get("userId").asText();
+    }
+
+    private String createPublisher(TestApiClient ceo, String fullName, String email) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
+                        + "\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000008\",\"creationReason\":\"drive disabled feedback test fixture\"}");
         return response.get("userId").asText();
     }
 }

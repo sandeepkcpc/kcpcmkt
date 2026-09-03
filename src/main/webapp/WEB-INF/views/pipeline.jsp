@@ -17,6 +17,7 @@
         <%@ include file="fragments/pipeline-content.jspf" %>
     </div>
 </main>
+<script src="${pageContext.request.contextPath}/js/platform-chip-popover.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/pipeline-dashboard.js" defer></script>
 </body>
 </html>

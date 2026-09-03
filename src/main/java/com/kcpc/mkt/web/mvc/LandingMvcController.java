@@ -23,6 +23,7 @@ import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.web.mvc.dto.ActiveWorkItem;
 import com.kcpc.mkt.web.mvc.dto.CompletedWorkItem;
 import com.kcpc.mkt.web.mvc.dto.MyShootRow;
+import com.kcpc.mkt.web.mvc.dto.UpcomingWorkItem;
 import com.kcpc.mkt.workflow.domain.GateType;
 import com.kcpc.mkt.workflow.domain.ReviewCycle;
 import com.kcpc.mkt.workflow.domain.WorkHoldRecord;
@@ -46,6 +47,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +72,8 @@ public class LandingMvcController {
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final PersonalMarkAttributionRepository markAttributionRepository;
+    private final com.kcpc.mkt.marks.repository.MarkCatalogueEntryRepository markCatalogueEntryRepository;
+    private final com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository publicationEventRepository;
     private final ReviewCycleRepository reviewCycleRepository;
     private final WorkHoldRecordRepository workHoldRecordRepository;
     private final WorkflowTransitionHistoryRepository transitionHistoryRepository;
@@ -87,6 +91,19 @@ public class LandingMvcController {
             EnumSet.of(WorkflowStatus.EA, WorkflowStatus.ED, WorkflowStatus.ERV);
     private static final Set<WorkflowStatus> PUBLISH_ACTIVE_WINDOW =
             EnumSet.of(WorkflowStatus.RFP, WorkflowStatus.PUBG);
+    // ENG-097: the genuinely PRE-Publishing statuses a Publisher's assigned plan can be at - Shoot/
+    // Edit still in progress, including the two brief inter-stage transitional statuses (SAP, EAP).
+    // Explicit allow-list (not "everything not Active/closed-out") on purpose: WorkflowStatus has
+    // real statuses AFTER Publishing too (PP/PFUP - Performance Pending/Update, reached once
+    // publication scope resolves - see PublishingService#recordActualPublication) that are neither
+    // this Publishing active window nor a closed-out status, but are absolutely NOT "upcoming" from
+    // a Publisher's own perspective (their actual-publication work is already done at that point) -
+    // an allow-list for Upcoming, rather than a deny-list for History, is what correctly routes
+    // those to History without needing to separately enumerate every non-Upcoming status that exists
+    // or might be added later.
+    private static final Set<WorkflowStatus> PUBLISH_UPCOMING_WINDOW = EnumSet.of(
+            WorkflowStatus.SA, WorkflowStatus.SIP, WorkflowStatus.SRV, WorkflowStatus.SAP,
+            WorkflowStatus.EA, WorkflowStatus.ED, WorkflowStatus.ERV, WorkflowStatus.EAP);
 
     // ENG-069: Content Pipeline KPI-card groupings - display-only, grouped by the row's own
     // friendly status label (WorkflowStatus.getStatusName()), never a new backend status.
@@ -114,6 +131,8 @@ public class LandingMvcController {
                                  EditingAssignmentRepository editingAssignmentRepository,
                                  PublishingAssignmentRepository publishingAssignmentRepository,
                                  PersonalMarkAttributionRepository markAttributionRepository,
+                                 com.kcpc.mkt.marks.repository.MarkCatalogueEntryRepository markCatalogueEntryRepository,
+                                 com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository publicationEventRepository,
                                  ReviewCycleRepository reviewCycleRepository,
                                  WorkHoldRecordRepository workHoldRecordRepository,
                                  WorkflowTransitionHistoryRepository transitionHistoryRepository,
@@ -129,6 +148,8 @@ public class LandingMvcController {
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.markAttributionRepository = markAttributionRepository;
+        this.markCatalogueEntryRepository = markCatalogueEntryRepository;
+        this.publicationEventRepository = publicationEventRepository;
         this.reviewCycleRepository = reviewCycleRepository;
         this.workHoldRecordRepository = workHoldRecordRepository;
         this.transitionHistoryRepository = transitionHistoryRepository;
@@ -218,6 +239,11 @@ public class LandingMvcController {
 
         List<ActiveWorkItem> activeWork = new ArrayList<>();
         List<CompletedWorkItem> completedWork = new ArrayList<>();
+        // ENG-097: Publisher-only third bucket - a PublishingAssignment whose plan hasn't reached
+        // Publishing yet (still Shoot/Edit) is neither Active nor genuinely completed History; kept
+        // as its own list from the start (not filtered out of activeWork/completedWork afterward)
+        // so it can never accidentally leak into either of those two stages' own tables.
+        List<UpcomingWorkItem> upcomingPublishWork = new ArrayList<>();
         boolean anyActiveShootLead = false;
         String shootLeadDisplayName = null;
         boolean anyActiveEditLead = false;
@@ -304,21 +330,47 @@ public class LandingMvcController {
                 PublishingService.TargetResolutionSummary targets = publishingService.summarizeTargets(plan);
                 pendingTargetsTotal += targets.totalCount() - targets.resolvedCount();
                 String statusLabel = activeStatusLabel(s, null, plan.getWorkflowInstance().getId(), reviewCyclesByInstance);
+                // Same "past planned date and not yet completed" rule as Shoot/Edit (ENG-058), based
+                // on the Publishing-specific planned date - was previously hardcoded null, meaning a
+                // Publishing task could never show as delayed even when genuinely past due.
+                Integer delayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today))
+                        ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today)
+                        : null;
                 boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
                 boolean publishBlocked = !operationalEligibilityService.isPublishingExecutionEligible(user, plan.getWorkflowInstance());
                 boolean repost = publishingService.currentPublishingCycleStart(plan.getWorkflowInstance()) != null;
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Publisher",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
-                        plan.getPlannedLiveDate(), null, false, publisherNames, statusLabel, statusCssClass(statusLabel), null,
-                        (onHold || publishBlocked) ? null : actionLabel(statusLabel, false, "Publisher"), plan.getFolderLink(),
+                        plan.getPlannedLiveDate(), null, false, publisherNames, statusLabel, statusCssClass(statusLabel), delayDays,
+                        (onHold || publishBlocked) ? null : actionLabel(statusLabel, delayDays != null, "Publisher"), plan.getFolderLink(),
                         targets.resolvedCount() + " / " + targets.totalCount(), onHold, "PUBLISH", repost, publishBlocked));
+            } else if (PUBLISH_UPCOMING_WINDOW.contains(s)) {
+                // ENG-097: still Shoot/Edit (not yet Publishing) - Upcoming, never History. Reuses
+                // the same summarizeTargets call the Active branch above uses (no workflow-status
+                // dependency in that method - safe regardless of current stage).
+                PublishingService.TargetResolutionSummary targets = publishingService.summarizeTargets(plan);
+                // My Work -> Dashboard: same "past Planned Live Date, not yet completed" formula
+                // the Active branch above already uses - never a second/different delay calculation.
+                Integer upcomingDelayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today))
+                        ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today)
+                        : null;
+                upcomingPublishWork.add(new UpcomingWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan),
+                        plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
+                        priorityCssClass(plan.getContentPriority()), plan.getPlannedLiveDate(), stageLabel(s),
+                        targets.resolvedCount() + " / " + targets.totalCount(), plan.getFolderLink(), upcomingDelayDays,
+                        pipelineDashboardService.buildPlatformSummariesForPlan(plan)));
             } else {
-                // No review/decision gate exists for Publishing - Final Result stays blank.
+                // Everything else (PP/PFUP once publication scope has resolved, COMP, and the
+                // terminal/dormant CAN/RJ/RET) - genuinely done from the Publisher's own
+                // perspective, never Upcoming. No review/decision gate exists for Publishing -
+                // Final Result stays blank.
                 completedWork.add(completedItem(plan, t.getId(), "PUBLISH", null, PUBLISH_ACTIVE_WINDOW,
                         plan.getPlannedLiveDate(), null, transitionsByInstance, reviewCyclesByInstance));
             }
         }
+        upcomingPublishWork.sort(Comparator.comparing(UpcomingWorkItem::getPlannedDate,
+                Comparator.nullsLast(Comparator.naturalOrder())));
         completedWork.sort(Comparator.comparing(CompletedWorkItem::getCompletedOn,
                 Comparator.nullsLast(Comparator.reverseOrder())));
 
@@ -339,7 +391,9 @@ public class LandingMvcController {
         // above (filtered by roleLabel/stageWorked) - never a separate count query - so a
         // count/table mismatch is structurally impossible.
         List<ActiveWorkItem> shootActiveWork = activeWork.stream()
-                .filter(item -> "Cameraperson".equals(item.getRoleLabel())).toList();
+                .filter(item -> "Cameraperson".equals(item.getRoleLabel()))
+                .sorted(Comparator.comparing(ActiveWorkItem::getPlannedDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
         List<CompletedWorkItem> shootCompletedWork = completedWork.stream()
                 .filter(item -> "SHOOT".equals(item.getStageWorked())).toList();
         model.addAttribute("shootActiveWork", shootActiveWork);
@@ -356,7 +410,9 @@ public class LandingMvcController {
                 hasShootExecutionPermission || !shootActiveWork.isEmpty() || !shootCompletedWork.isEmpty());
 
         List<ActiveWorkItem> editActiveWork = activeWork.stream()
-                .filter(item -> "Editor".equals(item.getRoleLabel())).toList();
+                .filter(item -> "Editor".equals(item.getRoleLabel()))
+                .sorted(Comparator.comparing(ActiveWorkItem::getPlannedDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
         List<CompletedWorkItem> editCompletedWork = completedWork.stream()
                 .filter(item -> "EDIT".equals(item.getStageWorked())).toList();
         model.addAttribute("editActiveWork", editActiveWork);
@@ -378,26 +434,31 @@ public class LandingMvcController {
         // "resolved / total" Targets column, so the KPI number and the table's per-row figures can
         // never drift apart.
         List<ActiveWorkItem> publishActiveWork = activeWork.stream()
-                .filter(item -> "Publisher".equals(item.getRoleLabel())).toList();
+                .filter(item -> "Publisher".equals(item.getRoleLabel()))
+                .sorted(Comparator.comparing(ActiveWorkItem::getPlannedDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
         List<CompletedWorkItem> publishCompletedWork = completedWork.stream()
                 .filter(item -> "PUBLISH".equals(item.getStageWorked())).toList();
         model.addAttribute("publishActiveWork", publishActiveWork);
         model.addAttribute("publishCompletedWork", publishCompletedWork);
+        // ENG-097: upcomingPublishWork is already its own dedicated list (built directly in the
+        // main Publishing loop above, never filtered out of activeWork/completedWork afterward), so
+        // it's used as-is - already sorted by Planned Live Date ascending.
+        model.addAttribute("upcomingPublishWork", upcomingPublishWork);
+        model.addAttribute("upcomingPublishingCount", upcomingPublishWork.size());
         model.addAttribute("activePublishingCount", publishActiveWork.size());
         model.addAttribute("pendingTargetsCount", pendingTargetsTotal);
+        model.addAttribute("delayedPublishingCount", publishActiveWork.stream().filter(ActiveWorkItem::isDelayed).count());
         model.addAttribute("publishCompletedCount", publishCompletedWork.size());
         boolean hasPublishingExecutionPermission =
                 authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION);
         model.addAttribute("hasPublishingExecutionPermission", hasPublishingExecutionPermission);
         model.addAttribute("showPublishTab",
-                hasPublishingExecutionPermission || !publishActiveWork.isEmpty() || !publishCompletedWork.isEmpty());
+                hasPublishingExecutionPermission || !upcomingPublishWork.isEmpty()
+                        || !publishActiveWork.isEmpty() || !publishCompletedWork.isEmpty());
 
-        List<com.kcpc.mkt.marks.domain.PersonalMarkAttribution> allMarks = markAttributionRepository.findByRecipient(user);
-        model.addAttribute("myMarks", allMarks);
-        model.addAttribute("shootMarks", allMarks.stream()
-                .filter(m -> m.getRoleType() == com.kcpc.mkt.marks.domain.RoleType.CAMERAPERSON).toList());
-        model.addAttribute("editMarks", allMarks.stream()
-                .filter(m -> m.getRoleType() == com.kcpc.mkt.marks.domain.RoleType.EDITOR).toList());
+        // Marks moved to the dedicated /app/my-performance page (see #myPerformance below) - My
+        // Work stays scoped to work management (Active Work/History) only, never marks/performance.
 
         // Assignment Management (PERM_04/06/11 - assignment authority, distinct from execution) -
         // a delegated, actionable queue, never a historical/broader list (see
@@ -517,6 +578,362 @@ public class LandingMvcController {
                 .collect(Collectors.groupingBy(c -> c.getWorkflowInstance().getId()));
     }
 
+    // ================================================================= My Performance =========
+
+    /**
+     * "/app/my-performance" - the employee's own personal performance dashboard, split out of My
+     * Work's former "Marks" sub-tab (ENG-067-follow-up). Strictly employee-scoped: {@code user} is
+     * resolved from the authenticated principal ONLY, exactly like every other page in this
+     * controller (My Work, My Shoots) - there is no request parameter anywhere on this route that
+     * can name a different employee, so a direct/typed URL can never expose another employee's
+     * marks/tasks (see also the tests: an attempt to add a userId/employeeId query param is simply
+     * ignored, never bound to anything this handler reads).
+     *
+     * <p>Reuses the exact same sources of truth as My Work's own Completed Work list and My
+     * Shoots' Upcoming/Past split, never a second/parallel definition:
+     * <ul>
+     *   <li>"completed" for Cameraperson/Editor/Publisher = the plan's current status has left that
+     *   stage's own {@code *_ACTIVE_WINDOW} (identical to {@link #myWork}'s own bucketing).</li>
+     *   <li>"completed" for Model/Talent = {@link #isShootTaskCompleted} (identical to My Shoots).</li>
+     *   <li>marks = {@link PersonalMarkAttributionRepository#findByRecipient} (the one mark ledger,
+     *   never re-derived) - Publisher rows simply have no mark, since RoleType has no PUBLISHER
+     *   value and this system has never attributed one; they still appear for their completion/
+     *   delay/on-time contribution, just excluded from Total/Average Mark.</li>
+     *   <li>delay = completedOn (the same transition-history-derived timestamp {@link
+     *   #completedItem} already computes) vs the stage's own planned date (plannedShootDate for
+     *   Shoot/Model, plannedEditDate for Edit, plannedLiveDate for Publish) - there was no existing
+     *   "was this already-finished task late" calculation anywhere in the codebase (the only
+     *   existing delay logic, StageDelayPolicy, is for a still-open task's live overdue check), so
+     *   this is newly written from existing inputs, not a duplicate of anything.</li>
+     * </ul>
+     *
+     * <p>KPI cards and the Marks/Delay summaries are scoped to the date range ONLY (never the
+     * stage/role/status/delay/search filters below them) - matching "(Selected Range)" answering
+     * "how did I do in this window", independent of whichever slice of that window the Task
+     * Performance table happens to be narrowed to. The table itself applies every filter together,
+     * server-side, over the full row set (never a second client-side-filtered copy of the data).
+     */
+    @GetMapping("/app/my-performance")
+    public String myPerformance(@AuthenticationPrincipal KcpcUserPrincipal principal,
+                                 @RequestParam(required = false) String stage,
+                                 @RequestParam(required = false) String role,
+                                 @RequestParam(required = false) String status,
+                                 @RequestParam(required = false) String delay,
+                                 @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate fromDate,
+                                 @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate toDate,
+                                 @RequestParam(required = false) String q,
+                                 @RequestParam(required = false, defaultValue = "1") int page,
+                                 @RequestParam(required = false, defaultValue = "10") int pageSize,
+                                 Model model) {
+        User user = principal.user();
+        model.addAttribute("user", user);
+        model.addAttribute("businessRoleName", user.getBusinessRole() == null ? null : user.getBusinessRole().getRoleName());
+        // Mark visibility (UI only, never affects the underlying calculation/data below): the
+        // Total Marks KPI card and the Mark column are only meaningful for a Shoot/Cameraperson or
+        // Edit/Editor-execution-eligible employee - a Publisher-only (or Model/Talent-only, which is
+        // never a mark-eligibility signal on its own) employee has no mark scale of their own and
+        // would otherwise see an always-empty "Mark: —" column. Base-role-blind by design, exactly
+        // like every other tab-visibility gate in this controller (#myWork's showShootTab/
+        // showEditTab/showPublishTab): permission-driven, never Business Role-driven.
+        boolean markVisibilityEligible = authorizationService.hasAnyActiveGrant(user,
+                OperationalPermission.PERM_18_SHOOT_EXECUTION, OperationalPermission.PERM_19_EDIT_EXECUTION);
+        model.addAttribute("markVisibilityEligible", markVisibilityEligible);
+        model.addAttribute("fromDate", fromDate);
+        model.addAttribute("toDate", toDate);
+        model.addAttribute("stage", stage == null ? "" : stage);
+        model.addAttribute("role", role == null ? "" : role);
+        model.addAttribute("status", status == null ? "" : status);
+        model.addAttribute("delay", delay == null ? "" : delay);
+        model.addAttribute("q", q == null ? "" : q);
+
+        List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> allRows = buildPerformanceRows(user);
+
+        List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> inRange = allRows.stream()
+                .filter(r -> withinDateRange(r.getCompletedOn(), fromDate, toDate))
+                .toList();
+
+        // --------------------------------------------------------------- KPI cards (date range only)
+        List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> markedInRange =
+                inRange.stream().filter(r -> r.getMark() != null).toList();
+        java.math.BigDecimal totalMarks = markedInRange.stream().map(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getMark)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        java.math.BigDecimal possibleMarks = markedInRange.stream().map(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getMarkMax)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        java.math.BigDecimal averageMark = markedInRange.isEmpty() ? null
+                : totalMarks.divide(java.math.BigDecimal.valueOf(markedInRange.size()), 2, java.math.RoundingMode.HALF_UP);
+        java.math.BigDecimal averageMarkMax = markedInRange.isEmpty() ? null
+                : possibleMarks.divide(java.math.BigDecimal.valueOf(markedInRange.size()), 2, java.math.RoundingMode.HALF_UP);
+        long tasksCompleted = inRange.size();
+        long delayedTasks = inRange.stream().filter(r -> "DELAYED".equals(r.getDelayStatus())).count();
+        long onTimeTasks = inRange.stream().filter(r -> "ON_TIME".equals(r.getDelayStatus())).count();
+        Integer onTimeRatePercent = tasksCompleted == 0 ? null : (int) Math.round(onTimeTasks * 100.0 / tasksCompleted);
+
+        model.addAttribute("totalMarks", totalMarks);
+        model.addAttribute("possibleMarks", possibleMarks);
+        model.addAttribute("averageMark", averageMark);
+        model.addAttribute("averageMarkMax", averageMarkMax);
+        model.addAttribute("tasksCompletedCount", tasksCompleted);
+        model.addAttribute("delayedTasksCount", delayedTasks);
+        model.addAttribute("onTimeTasksCount", onTimeTasks);
+        model.addAttribute("onTimeRatePercent", onTimeRatePercent);
+
+        // --------------------------------------------------------------- Marks Summary (date range only)
+        Map<String, List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow>> markedByGroup = markedInRange.stream()
+                .collect(Collectors.groupingBy(r -> stageLabel(r.getStage()) + " (" + r.getRoleLabel() + ")", LinkedHashMap::new, Collectors.toList()));
+        List<com.kcpc.mkt.web.mvc.dto.PerformanceMarksSummaryEntry> marksSummary = markedByGroup.entrySet().stream()
+                .map(e -> {
+                    java.math.BigDecimal groupTotal = e.getValue().stream().map(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getMark)
+                            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                    java.math.BigDecimal groupMax = e.getValue().stream().map(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getMarkMax)
+                            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                    int percent = groupMax.signum() == 0 ? 0
+                            : groupTotal.multiply(java.math.BigDecimal.valueOf(100))
+                                    .divide(groupMax, 0, java.math.RoundingMode.HALF_UP).intValue();
+                    return new com.kcpc.mkt.web.mvc.dto.PerformanceMarksSummaryEntry(e.getKey(), groupTotal, groupMax, percent);
+                })
+                .sorted(Comparator.comparing(com.kcpc.mkt.web.mvc.dto.PerformanceMarksSummaryEntry::getLabel))
+                .toList();
+        model.addAttribute("marksSummary", marksSummary);
+
+        // --------------------------------------------------------------- Delay Summary (date range only)
+        List<Integer> delayedDays = inRange.stream().filter(r -> "DELAYED".equals(r.getDelayStatus()))
+                .map(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getDelayDays).toList();
+        Double averageDelayDays = delayedDays.isEmpty() ? null
+                : delayedDays.stream().mapToInt(Integer::intValue).average().orElse(0);
+        Integer mostDelayedDays = delayedDays.isEmpty() ? null : delayedDays.stream().max(Integer::compareTo).orElse(null);
+        model.addAttribute("totalDelayedCount", delayedDays.size());
+        model.addAttribute("averageDelayDays", averageDelayDays == null ? null
+                : java.math.BigDecimal.valueOf(averageDelayDays).setScale(1, java.math.RoundingMode.HALF_UP));
+        model.addAttribute("mostDelayedDays", mostDelayedDays);
+
+        // --------------------------------------------------------------- Task Performance table (all filters)
+        String qLower = q == null ? "" : q.trim().toLowerCase();
+        List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> filtered = allRows.stream()
+                .filter(r -> withinDateRange(r.getCompletedOn(), fromDate, toDate))
+                .filter(r -> isBlankOrAll(stage) || stage.equalsIgnoreCase(r.getStage()))
+                .filter(r -> isBlankOrAll(role) || role.equalsIgnoreCase(r.getRoleLabel()))
+                .filter(r -> matchesStatusFilter(r, status))
+                .filter(r -> isBlankOrAll(delay) || delay.equalsIgnoreCase(r.getDelayStatus()))
+                .filter(r -> qLower.isEmpty() || r.getContentId().toLowerCase().contains(qLower)
+                        || r.getTitle().toLowerCase().contains(qLower))
+                .sorted(Comparator.comparing(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow::getCompletedOn,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        int effectivePageSize = pageSize == 25 || pageSize == 50 ? pageSize : 10;
+        int totalCount = filtered.size();
+        int totalPages = Math.max(1, (int) Math.ceil(totalCount / (double) effectivePageSize));
+        int currentPage = Math.max(1, Math.min(page, totalPages));
+        int fromIdx = Math.min((currentPage - 1) * effectivePageSize, totalCount);
+        int toIdx = Math.min(fromIdx + effectivePageSize, totalCount);
+        model.addAttribute("performanceRows", filtered.subList(fromIdx, toIdx));
+        model.addAttribute("performanceRowsTotalCount", totalCount);
+        model.addAttribute("currentPage", currentPage);
+        model.addAttribute("totalPages", totalPages);
+        model.addAttribute("pageSize", effectivePageSize);
+
+        return "my-performance";
+    }
+
+    private static boolean isBlankOrAll(String value) {
+        return value == null || value.isBlank() || "ALL".equalsIgnoreCase(value);
+    }
+
+    /** Status is deliberately literal per spec: "Completed" always matches (every row here already
+     * IS a completed task by construction) and "Delayed"/"On Time" mirror the Delay filter's own
+     * values - kept as two independently-working filters rather than merged, exactly as specified. */
+    private static boolean matchesStatusFilter(com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow row, String status) {
+        if (isBlankOrAll(status) || "COMPLETED".equalsIgnoreCase(status)) {
+            return true;
+        }
+        return status.equalsIgnoreCase(row.getDelayStatus());
+    }
+
+    private static boolean withinDateRange(Instant completedOn, LocalDate fromDate, LocalDate toDate) {
+        if (completedOn == null) {
+            return fromDate == null && toDate == null;
+        }
+        LocalDate completedDate = completedOn.atZone(BUSINESS_ZONE).toLocalDate();
+        if (fromDate != null && completedDate.isBefore(fromDate)) {
+            return false;
+        }
+        return toDate == null || !completedDate.isAfter(toDate);
+    }
+
+    private static String stageLabel(String stage) {
+        return switch (stage) {
+            case "SHOOT" -> "Shoot";
+            case "EDIT" -> "Edit";
+            case "PUBLISH" -> "Publishing";
+            default -> stage;
+        };
+    }
+
+    /**
+     * Every completed performance-bearing involvement this employee has ever had, across all four
+     * participation mechanisms - unfiltered, all-time. Mirrors {@link #myWork}'s own batched-query
+     * shape (transitions/review cycles fetched once for every relevant WorkflowInstance, never
+     * per-row) to avoid N+1, and reuses {@link #completedItem} for finalResult/remarks (and, for
+     * Shoot/Edit/Model, completedOn too - there is no completion signal in this data model finer
+     * than the one shared stage-review-approval event those roles' teammates all share). Publisher
+     * rows are the one exception: each Publisher's own {@code completedOn} is instead derived from
+     * their own {@code ActualPublicationEvent} rows (see {@link #toPerformanceRow}), never the
+     * plan-wide "all targets published" transition a co-assigned Publisher would otherwise share.
+     */
+    private List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> buildPerformanceRows(User user) {
+        List<com.kcpc.mkt.marks.domain.PersonalMarkAttribution> myMarks = markAttributionRepository.findByRecipient(user);
+        Map<UUID, List<com.kcpc.mkt.marks.domain.PersonalMarkAttribution>> marksByPlan = myMarks.stream()
+                .collect(Collectors.groupingBy(m -> m.getContentPlan().getId()));
+
+        List<ShootingAssignment> shootTasks = shootingAssignmentRepository.findByCamerapersonAndActiveTrue(user);
+        List<EditingAssignment> editTasks = editingAssignmentRepository.findByEditorAndActiveTrue(user);
+        List<PublishingAssignment> publishTasks = publishingAssignmentRepository.findByPublisherAndActiveTrue(user);
+        List<ContentPlanTalentEntry> talentEntries = talentEntryRepository.findByTalentUser(user);
+
+        // ContentPlanTalentEntry#contentPlan is LAZY (unlike ShootingAssignment/EditingAssignment/
+        // PublishingAssignment#contentPlan, which are EAGER - see ShootingAssignment's own ENG-005
+        // comment) - walking straight to .getWorkflowInstance() on it would throw
+        // LazyInitializationException once the entry's own fetch has closed its session. #getId()
+        // on the proxy itself is always safe (Hibernate resolves it from the FK column, no lazy
+        // init needed), so batch-fetch the real ContentPlan rows the same way #myShoots already does.
+        Set<UUID> talentPlanIds = talentEntries.stream().map(t -> t.getContentPlan().getId())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, ContentPlan> talentPlansById = talentPlanIds.isEmpty() ? Map.of()
+                : contentPlanRepository.findAllById(talentPlanIds).stream()
+                        .collect(Collectors.toMap(ContentPlan::getId, p -> p));
+
+        Set<UUID> instanceIds = new LinkedHashSet<>();
+        shootTasks.forEach(t -> instanceIds.add(t.getContentPlan().getWorkflowInstance().getId()));
+        editTasks.forEach(t -> instanceIds.add(t.getContentPlan().getWorkflowInstance().getId()));
+        publishTasks.forEach(t -> instanceIds.add(t.getContentPlan().getWorkflowInstance().getId()));
+        talentPlansById.values().forEach(p -> instanceIds.add(p.getWorkflowInstance().getId()));
+
+        Map<UUID, List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory>> transitionsByInstance = instanceIds.isEmpty()
+                ? Map.of()
+                : transitionHistoryRepository.findByWorkflowInstance_IdInOrderByTransitionTimestampAsc(instanceIds).stream()
+                        .collect(Collectors.groupingBy(t -> t.getWorkflowInstance().getId()));
+        Map<UUID, List<ReviewCycle>> reviewCyclesByInstance = instanceIds.isEmpty()
+                ? Map.of()
+                : reviewCycleRepository.findByWorkflowInstance_IdIn(instanceIds).stream()
+                        .collect(Collectors.groupingBy(c -> c.getWorkflowInstance().getId()));
+
+        // Unlike Shoot/Edit (whose only completion signal is the one shared Shoot/Edit Review
+        // approval event, identical for every teammate - see the class-level note on this method),
+        // Publishing genuinely does carry a per-publisher completion signal: ActualPublicationEvent
+        // records WHO (publishedBy) recorded WHICH target, WHEN (actualPublicationTimestamp) - so a
+        // Publisher's own "Completed On" must be derived from their own events here, never from the
+        // plan-wide "all targets published" transition every co-assigned Publisher would otherwise
+        // share (see #toPerformanceRow's publisherIdentity handling below).
+        Set<UUID> publishPlanIds = publishTasks.stream().map(t -> t.getContentPlan().getId())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, List<com.kcpc.mkt.publishing.domain.ActualPublicationEvent>> publicationEventsByPlan = publishPlanIds.isEmpty()
+                ? Map.of()
+                : publicationEventRepository.findByContentPlan_IdIn(publishPlanIds).stream()
+                        .collect(Collectors.groupingBy(e -> e.getContentPlan().getId()));
+
+        List<com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow> rows = new ArrayList<>();
+
+        for (ShootingAssignment t : shootTasks) {
+            ContentPlan plan = t.getContentPlan();
+            if (!SHOOT_ACTIVE_WINDOW.contains(plan.getWorkflowInstance().getCurrentStatusCode())) {
+                rows.add(toPerformanceRow(plan, "SHOOT", "Cameraperson", com.kcpc.mkt.marks.domain.RoleType.CAMERAPERSON,
+                        SHOOT_ACTIVE_WINDOW, GateType.SHOOT_REVIEW, plan.getPlannedShootDate(),
+                        marksByPlan, transitionsByInstance, reviewCyclesByInstance, null, publicationEventsByPlan));
+            }
+        }
+        for (EditingAssignment t : editTasks) {
+            ContentPlan plan = t.getContentPlan();
+            if (!EDIT_ACTIVE_WINDOW.contains(plan.getWorkflowInstance().getCurrentStatusCode())) {
+                rows.add(toPerformanceRow(plan, "EDIT", "Editor", com.kcpc.mkt.marks.domain.RoleType.EDITOR,
+                        EDIT_ACTIVE_WINDOW, GateType.EDIT_REVIEW, plan.getPlannedEditDate(),
+                        marksByPlan, transitionsByInstance, reviewCyclesByInstance, null, publicationEventsByPlan));
+            }
+        }
+        for (PublishingAssignment t : publishTasks) {
+            ContentPlan plan = t.getContentPlan();
+            if (!PUBLISH_ACTIVE_WINDOW.contains(plan.getWorkflowInstance().getCurrentStatusCode())) {
+                // Publishing has no mark-attribution gate and no RoleType of its own (see class
+                // javadoc) - roleType stays null, so toPerformanceRow never looks up a mark for it.
+                // publisherIdentity = t.getPublisher(): this row's "Completed On" must be THIS
+                // Publisher's own recorded publication(s), never a co-assigned Publisher's.
+                rows.add(toPerformanceRow(plan, "PUBLISH", "Publisher", null,
+                        PUBLISH_ACTIVE_WINDOW, null, plan.getPlannedLiveDate(),
+                        marksByPlan, transitionsByInstance, reviewCyclesByInstance, t.getPublisher(), publicationEventsByPlan));
+            }
+        }
+        for (ContentPlanTalentEntry t : talentEntries) {
+            ContentPlan plan = talentPlansById.get(t.getContentPlan().getId());
+            if (plan == null) {
+                continue;
+            }
+            List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory> history =
+                    transitionsByInstance.getOrDefault(plan.getWorkflowInstance().getId(), List.of());
+            // Same completion definition My Shoots' own Upcoming/Past split already uses - a Model's
+            // task is done once the Shoot phase itself has concluded, never re-derived a second way.
+            if (isShootTaskCompleted(history)) {
+                rows.add(toPerformanceRow(plan, "SHOOT", "Model", com.kcpc.mkt.marks.domain.RoleType.MODEL,
+                        SHOOT_ACTIVE_WINDOW, GateType.SHOOT_REVIEW, plan.getPlannedShootDate(),
+                        marksByPlan, transitionsByInstance, reviewCyclesByInstance, null, publicationEventsByPlan));
+            }
+        }
+        return rows;
+    }
+
+    private com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow toPerformanceRow(
+            ContentPlan plan, String stage, String roleLabel, com.kcpc.mkt.marks.domain.RoleType roleType,
+            Set<WorkflowStatus> activeWindow, GateType gateType, LocalDate plannedDate,
+            Map<UUID, List<com.kcpc.mkt.marks.domain.PersonalMarkAttribution>> marksByPlan,
+            Map<UUID, List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory>> transitionsByInstance,
+            Map<UUID, List<ReviewCycle>> reviewCyclesByInstance, User publisherIdentity,
+            Map<UUID, List<com.kcpc.mkt.publishing.domain.ActualPublicationEvent>> publicationEventsByPlan) {
+        CompletedWorkItem item = completedItem(plan, null, stage, gateType, activeWindow, plannedDate, null,
+                transitionsByInstance, reviewCyclesByInstance);
+
+        // Employee-specific completion: Shoot/Edit/Model have no completion signal finer than the
+        // one shared stage-review-approval event (see #buildPerformanceRows), so item.getCompletedOn
+        // stays authoritative for them. Publishing is different - ActualPublicationEvent genuinely
+        // records WHO published WHAT, WHEN, so a Publisher's own "Completed On" must be THIS
+        // publisher's own latest recorded event, never the plan-wide "all targets done" transition
+        // every co-assigned Publisher would otherwise share. If this publisher personally recorded
+        // no event on this plan, completedOn stays null (no fabricated/borrowed date) - the row is
+        // then correctly excluded once any Completed-On date-range filter is applied.
+        Instant completedOn = item.getCompletedOn();
+        if (publisherIdentity != null) {
+            completedOn = publicationEventsByPlan.getOrDefault(plan.getId(), List.of()).stream()
+                    .filter(e -> e.getPublishedBy() != null && e.getPublishedBy().getId().equals(publisherIdentity.getId()))
+                    .map(com.kcpc.mkt.publishing.domain.ActualPublicationEvent::getActualPublicationTimestamp)
+                    .filter(java.util.Objects::nonNull)
+                    .max(Instant::compareTo)
+                    .orElse(null);
+        }
+
+        Integer delayDays = null;
+        String delayStatus = null;
+        if (completedOn != null && plannedDate != null) {
+            LocalDate completedDate = completedOn.atZone(BUSINESS_ZONE).toLocalDate();
+            delayDays = (int) java.time.temporal.ChronoUnit.DAYS.between(plannedDate, completedDate);
+            delayStatus = delayDays > 0 ? "DELAYED" : delayDays < 0 ? "EARLY" : "ON_TIME";
+        }
+
+        java.math.BigDecimal mark = null;
+        java.math.BigDecimal markMax = null;
+        if (roleType != null) {
+            mark = marksByPlan.getOrDefault(plan.getId(), List.of()).stream()
+                    .filter(m -> m.getRoleType() == roleType)
+                    .map(com.kcpc.mkt.marks.domain.PersonalMarkAttribution::getAttributedMarkValue)
+                    .findFirst().orElse(null);
+            if (mark != null) {
+                List<com.kcpc.mkt.marks.domain.MarkCatalogueEntry> activeEntries =
+                        markCatalogueEntryRepository.findByRoleTypeAndActiveTrueOrderByMarkValueAsc(roleType);
+                markMax = activeEntries.isEmpty() ? mark : activeEntries.get(activeEntries.size() - 1).getMarkValue();
+            }
+        }
+
+        return new com.kcpc.mkt.web.mvc.dto.EmployeePerformanceRow(plan.getId(), plan.getContentId(), contentTitle(plan),
+                stage, roleLabel, completedOn, plannedDate, delayDays, delayStatus, mark, markMax,
+                item.getFinalResult(), item.getRemarks());
+    }
+
     private static String contentTitle(ContentPlan plan) {
         return plan.getIdea() == null ? plan.getContentId() : plan.getIdea().getTitle();
     }
@@ -569,6 +986,25 @@ public class LandingMvcController {
             case "Rework Required" -> "View Feedback";
             case "Submitted for Review" -> null;
             default -> "View Details";
+        };
+    }
+
+    /**
+     * ENG-097: which stage a Content Plan is actually in right now - for the Upcoming Publishing
+     * table's "Current Stage" column only (never the assignment's own role/stage, which is always
+     * "PUBLISH" for a Publisher row). A local copy of the same grouping
+     * KpiDashboardService#stageLabel already uses (kept local rather than shared/refactored, same
+     * reasoning PUBLISH_ACTIVE_WINDOW/PUBLISH_CLOSED_OUT above are already local copies of
+     * AssigneeActiveWindows) - never called for RFP/PUBG (Active) or CLOSED_OUT (History) rows.
+     */
+    private static String stageLabel(WorkflowStatus status) {
+        // Same grouping as KpiDashboardService#stageLabel (EAP groups with Publishing, not Edit -
+        // it is the transitional status immediately following Edit Review Approve, in the same
+        // transaction as the RFP transition itself, kept consistent with that existing convention).
+        return switch (status) {
+            case SA, SIP, SRV, SAP -> "Shoot";
+            case EA, ED, ERV -> "Edit";
+            default -> "Publishing";
         };
     }
 
@@ -857,6 +1293,17 @@ public class LandingMvcController {
      * screen. Scoped by the {@code ContentPlanTalentEntry.talentUser} link (not free-text name
      * matching) so this is a real backend-enforced own-data-only view, matching the privacy rule
      * (SRS-REQ-067) already applied to My Work/My Ideas.
+     *
+     * <p>Deliberately never derives a Model's row from the Content Plan's overall
+     * {@code WorkflowStatus} (see MyShootRow's own header comment) - a Model's participation is
+     * independent of the downstream content lifecycle, so there is nothing here for Edit/Review/
+     * Publishing to make "pending" again once the shoot itself is assigned.
+     *
+     * <p>Upcoming vs Past is likewise NOT the planned shoot date vs today (a future-dated shoot
+     * whose Model task is already complete must still show as Past - see
+     * {@link #isShootTaskCompleted}) - it is purely whether the Model's own task on that plan is
+     * still outstanding or already complete per that same helper. The planned shoot date is only
+     * ever used to order rows within whichever bucket they land in.
      */
     @GetMapping("/app/my-shoots")
     public String myShoots(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
@@ -871,8 +1318,12 @@ public class LandingMvcController {
                 .collect(Collectors.toMap(ContentPlan::getId, p -> p));
         Map<UUID, List<ContentPlanTalentEntry>> allTalentByPlan = talentEntryRepository.findByContentPlan_IdIn(planIds)
                 .stream().collect(Collectors.groupingBy(e -> e.getContentPlan().getId()));
+        Set<UUID> instanceIds = plansById.values().stream()
+                .map(p -> p.getWorkflowInstance().getId()).collect(Collectors.toSet());
+        Map<UUID, List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory>> historyByInstance =
+                transitionHistoryRepository.findByWorkflowInstance_IdInOrderByTransitionTimestampAsc(instanceIds).stream()
+                        .collect(Collectors.groupingBy(t -> t.getWorkflowInstance().getId()));
 
-        LocalDate today = LocalDate.now(BUSINESS_ZONE);
         List<MyShootRow> upcoming = new ArrayList<>();
         List<MyShootRow> past = new ArrayList<>();
         for (ContentPlanTalentEntry myEntry : myEntries) {
@@ -880,15 +1331,15 @@ public class LandingMvcController {
             if (plan == null) {
                 continue;
             }
-            boolean isUpcoming = plan.getPlannedShootDate() == null || !plan.getPlannedShootDate().isBefore(today);
+            boolean taskCompleted = isShootTaskCompleted(
+                    historyByInstance.getOrDefault(plan.getWorkflowInstance().getId(), List.of()));
             String otherTalent = allTalentByPlan.getOrDefault(plan.getId(), List.of()).stream()
                     .filter(e -> !e.getId().equals(myEntry.getId()))
                     .map(ContentPlanTalentEntry::getTalentName)
                     .collect(Collectors.joining(", "));
             MyShootRow row = new MyShootRow(plan.getId(), plan.getContentId(), contentTitle(plan),
-                    plan.getPlannedShootDate(), "Model", otherTalent,
-                    plan.getWorkflowInstance().getCurrentStatusCode().getStatusName());
-            (isUpcoming ? upcoming : past).add(row);
+                    plan.getPlannedShootDate(), "Model", otherTalent);
+            (taskCompleted ? past : upcoming).add(row);
         }
         upcoming.sort(Comparator.comparing(MyShootRow::getPlannedShootDate,
                 Comparator.nullsLast(Comparator.naturalOrder())));
@@ -907,5 +1358,25 @@ public class LandingMvcController {
                 nextShootDate.map(d -> d.format(DateTimeFormatter.ofPattern("dd MMM"))).orElse("--"));
 
         return "my-shoots";
+    }
+
+    /** The one real business event that ends the Shoot phase for THIS Content, and with it every
+     * participant's own Shoot-side task (Cameraperson, Model/Talent, or any future assignee type)
+     * - not a Model-specific concept, purely a property of the Shoot stage itself reaching its own
+     * terminal state: either Shoot Review approving it ({@code APPROVE_SHOOT}, WorkflowStatus.SAP)
+     * or an admin explicitly skipping the whole Shoot stage ({@code SKIP_SHOOT_STAGE}, straight to
+     * WorkflowStatus.EA). Both are permanent {@code WorkflowTransitionHistory} rows, so once
+     * either has fired it stays true forever regardless of anything that happens afterward
+     * (Edit/Review/Publishing). Deliberately NOT the Content Plan's current
+     * {@code WorkflowStatus} - that keeps changing long after the Shoot phase itself is over, and
+     * checking "is status still SA/SIP/SRV" would incorrectly flip back and forth were the plan
+     * ever reassigned/reopened, whereas this history check cannot. Package-visible: reused as-is
+     * by DeliverableMvcController's own generic Shoot Execution routing decision (same concept,
+     * same source of truth, never re-derived a second way) and by its Model/Talent-specific
+     * hard-deny gate. */
+    static boolean isShootTaskCompleted(List<com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory> historyForInstance) {
+        return historyForInstance.stream()
+                .map(com.kcpc.mkt.workflow.domain.WorkflowTransitionHistory::getTriggerCommand)
+                .anyMatch(t -> "APPROVE_SHOOT".equals(t) || "SKIP_SHOOT_STAGE".equals(t));
     }
 }

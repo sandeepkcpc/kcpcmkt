@@ -113,13 +113,17 @@ public class ReportingMvcController {
     private final BusinessRoleRepository businessRoleRepository;
     private final UserRepository userRepository;
     private final ContentPlanRepository contentPlanRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.kcpc.mkt.audit.service.AuditContentIdResolver auditContentIdResolver;
 
     public ReportingMvcController(KpiService kpiService, KpiDashboardService kpiDashboardService,
                                    AdminReportingService adminReportingService,
                                    SystemAuditLogRepository auditLogRepository, AuthorizationService authorizationService,
                                    MultiFormatExportService multiFormatExportService, TeamWorkloadService teamWorkloadService,
                                    BusinessRoleRepository businessRoleRepository, UserRepository userRepository,
-                                   ContentPlanRepository contentPlanRepository) {
+                                   ContentPlanRepository contentPlanRepository,
+                                   com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                   com.kcpc.mkt.audit.service.AuditContentIdResolver auditContentIdResolver) {
         this.kpiService = kpiService;
         this.kpiDashboardService = kpiDashboardService;
         this.adminReportingService = adminReportingService;
@@ -130,6 +134,24 @@ public class ReportingMvcController {
         this.businessRoleRepository = businessRoleRepository;
         this.userRepository = userRepository;
         this.contentPlanRepository = contentPlanRepository;
+        this.objectMapper = objectMapper;
+        this.auditContentIdResolver = auditContentIdResolver;
+    }
+
+    /**
+     * Upcoming Channel Plan calendar UX: serializes the exact same
+     * {@code List<UpcomingPlanDateGroup>} the existing date-grouped list already renders (never a
+     * second query/DTO) - embedded as a {@code <script type="application/json">} block (see
+     * reports-kpi-overview.jspf), mirroring DeliverableMvcController#buildPlanningOptionsJson's
+     * exact pattern. {@code "<"} is escaped so a Channel handle containing {@code </script>} can
+     * never break out of the block.
+     */
+    private String buildUpcomingChannelPlanJson(List<com.kcpc.mkt.reporting.dto.UpcomingPlanDateGroup> groups) {
+        try {
+            return objectMapper.writeValueAsString(groups).replace("<", "\\u003c");
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize Upcoming Channel Plan calendar data", e);
+        }
     }
 
     private static boolean isAjax(String requestedWith) {
@@ -222,9 +244,20 @@ public class ReportingMvcController {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         LocalDate effectiveStart = startDate != null ? startDate : today.minusDays(29);
         LocalDate effectiveEnd = endDate != null ? endDate : today;
+        // Date Range Filter Enhancement: an inverted range (e.g. a hand-edited URL bypassing the
+        // client-side Apply-time validation) must never silently compute KPIs backwards - fall
+        // back to the exact same default window the missing-param case already uses, rather than
+        // swapping the values or rejecting the request (this AJAX region has no error-response
+        // handling of its own; a 400 here would trigger reports-workspace.js's real-navigation
+        // fallback, a jarring full-page reload for what is really just a malformed filter).
+        if (effectiveStart.isAfter(effectiveEnd)) {
+            effectiveStart = today.minusDays(29);
+            effectiveEnd = today;
+        }
         model.addAttribute("kpiView", effectiveView);
         model.addAttribute("selectedDateFrom", effectiveStart);
         model.addAttribute("selectedDateTo", effectiveEnd);
+        model.addAttribute("selectedDatePreset", matchingDatePreset(effectiveStart, effectiveEnd, today));
         switch (effectiveView) {
             case "workflow" -> model.addAttribute("workflowSla",
                     kpiDashboardService.workflowSla(principal.user(), effectiveStart, effectiveEnd));
@@ -234,11 +267,74 @@ public class ReportingMvcController {
                     kpiDashboardService.qualityReviews(principal.user(), effectiveStart, effectiveEnd));
             case "performance" -> model.addAttribute("performanceDashboard",
                     kpiDashboardService.performance(principal.user(), effectiveStart, effectiveEnd));
-            default -> model.addAttribute("overview",
-                    kpiDashboardService.overview(principal.user(), effectiveStart, effectiveEnd));
+            default -> {
+                var overview = kpiDashboardService.overview(principal.user(), effectiveStart, effectiveEnd);
+                model.addAttribute("overview", overview);
+                // Upcoming Channel Plan calendar UX: the exact same, already-computed
+                // overview.upcomingChannelPlan the existing date-grouped list already renders -
+                // embedded as JSON purely so the calendar can highlight/browse it client-side
+                // without a second query or a second "outstanding" definition. No new business
+                // calculation; this is a different presentation of data already on the page.
+                model.addAttribute("upcomingChannelPlanJson",
+                        buildUpcomingChannelPlanJson(overview.getUpcomingChannelPlan()));
+            }
         }
         addReportsShellAttributes(model, "kpis", principal);
         return isAjax(requestedWith) ? "reports-kpi-console-content" : "reports-kpi-console";
+    }
+
+    /**
+     * Date Range Filter Enhancement: presets are resolved to concrete {@code startDate}/
+     * {@code endDate} entirely client-side before submit (kpiDashboard() above never receives or
+     * needs a "preset" input - the existing startDate/endDate contract is completely unchanged) -
+     * this is the reverse lookup purely for which {@code <option>} the Date Range dropdown should
+     * render as selected, computed with the exact same Asia/Kolkata {@code today} the effective
+     * range itself already uses. Display-only; never used for KPI filtering.
+     */
+    private String matchingDatePreset(LocalDate start, LocalDate end, LocalDate today) {
+        if (start.equals(today) && end.equals(today)) {
+            return "today";
+        }
+        LocalDate yesterday = today.minusDays(1);
+        if (start.equals(yesterday) && end.equals(yesterday)) {
+            return "yesterday";
+        }
+        if (start.equals(today.minusDays(6)) && end.equals(today)) {
+            return "last7";
+        }
+        if (start.equals(today.minusDays(29)) && end.equals(today)) {
+            return "last30";
+        }
+        LocalDate firstOfThisMonth = today.withDayOfMonth(1);
+        if (start.equals(firstOfThisMonth) && end.equals(today)) {
+            return "thisMonth";
+        }
+        LocalDate firstOfLastMonth = firstOfThisMonth.minusMonths(1);
+        LocalDate lastOfLastMonth = firstOfThisMonth.minusDays(1);
+        if (start.equals(firstOfLastMonth) && end.equals(lastOfLastMonth)) {
+            return "lastMonth";
+        }
+        return "custom";
+    }
+
+    /**
+     * Overview -&gt; Current Work Ownership -&gt; "Open" drill-down: a read-only, on-demand fragment
+     * for exactly one employee's currently pending/delayed work (never computed for every employee
+     * up front on the main KPI page load). PERM_15_TEAM_KPI_VIEW is re-checked here independently -
+     * this endpoint is its own authorization boundary, not merely hidden behind a link on a page
+     * that already checked it. Renders a small fragment (never JSON) to match this app's existing
+     * AJAX-partial convention; a request with no valid session lands on /login exactly like any
+     * other /app/** route (see SecurityConfig's appFilterChain), never a raw 401/JSON leak.
+     */
+    @GetMapping("/reports/kpis/ownership-drilldown")
+    public String ownershipDrilldown(@RequestParam UUID employeeId,
+                                      @AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        if (!allowed(principal, OperationalPermission.PERM_15_TEAM_KPI_VIEW)) {
+            return "redirect:/app/home";
+        }
+        var drillDown = kpiDashboardService.employeeWorkDrillDown(principal.user(), employeeId);
+        model.addAttribute("drillDown", drillDown);
+        return "reports-kpi-ownership-drilldown";
     }
 
     /** All authenticated roles, read-scoped server-side (SRS-REQ-002/066/067) - no separate MVC gate needed. */
@@ -375,7 +471,14 @@ public class ReportingMvcController {
                     actionType != null && !actionType.isBlank() ? actionType : null, targetEntityId,
                     eventCategory != null && !eventCategory.isBlank() ? eventCategory : null, from, to,
                     PageRequest.of(zeroBasedPage, effectiveSize, Sort.by(direction, "eventTimestamp")));
-            logs = resultPage.getContent().stream().map(AuditLogResponse::from).toList();
+            // Content ID column (Logs page enhancement): resolved per row, display-only - never
+            // changes which rows match the search/filters above, never a second "outstanding"
+            // definition, never touches audit creation. See AuditContentIdResolver's own header
+            // comment for the full target-entity-name -> Content Plan resolution map.
+            logs = resultPage.getContent().stream()
+                    .map(log -> AuditLogResponse.from(log,
+                            auditContentIdResolver.resolveContentId(log.getTargetEntityName(), log.getTargetEntityId())))
+                    .toList();
             totalCount = resultPage.getTotalElements();
             totalPages = Math.max(1, resultPage.getTotalPages());
             currentPage = resultPage.getNumber() + 1;

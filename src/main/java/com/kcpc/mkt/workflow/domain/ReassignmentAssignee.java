@@ -20,7 +20,7 @@ import java.time.Instant;
 /** ERD-TBL-031: previous/new assignee detail per reassignment episode (ERD-CON-045/046). */
 @Entity
 @Table(name = "reassignment_assignees",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"reassignment_id", "user_id", "set_side"}))
+        uniqueConstraints = @UniqueConstraint(columnNames = {"reassignment_id", "user_id", "assignee_role", "set_side"}))
 @AttributeOverride(name = "id", column = @Column(name = "reassignment_assignee_id"))
 public class ReassignmentAssignee extends BaseEntity {
 

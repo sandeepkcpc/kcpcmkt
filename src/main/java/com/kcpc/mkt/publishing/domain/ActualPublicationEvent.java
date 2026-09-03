@@ -93,6 +93,10 @@ public class ActualPublicationEvent extends BaseEntity {
         return evidenceUrl;
     }
 
+    public User getPublishedBy() {
+        return publishedBy;
+    }
+
     /**
      * System-assigned insertion time - immutable and never user-suppliable (unlike
      * {@link #getActualPublicationTimestamp()}, which the recorder freely enters). Used to

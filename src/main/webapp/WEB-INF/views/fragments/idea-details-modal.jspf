@@ -1,0 +1,31 @@
+<%-- Read-only "Idea Details" popup, shared by every Employee My Work / Task Detail screen
+     (shoot/edit/publish-task-detail.jsp), triggered by the small Note icon in the top-right corner
+     of the "Content & Shoot/Edit/Publishing Information" card header (${plan.idea.title}/Title and
+     Reference Link are shown directly in the Content Information block instead - never duplicated
+     here). Shows only the Idea Submission's Description (notesRemarks) - Additional Note is
+     deliberately not shown here at all, per explicit product decision. Read straight from
+     ${plan.idea} - the exact same association ${plan.idea.title} already uses elsewhere on this
+     page, never a copy of the data stored anywhere else. Purely a view: no form, no edit control,
+     no Idea Review/approval/audit/history control of any kind. The trigger stays visible even when
+     Description is empty (shown as "-" in that case) so the employee can always open this popup.
+     Only reachable at all from a page the assigned employee's own role/status already gates (see
+     DeliverableMvcController's shootRelevantStatus/editRelevantStatus/publishRelevantStatus + role
+     checks) - this fragment adds no separate permission check of its own. --%>
+<button type="button" class="icon-btn idea-details-trigger" data-idea-details-trigger
+        aria-label="View Idea Details" title="View Idea Details">&#128221;</button>
+
+<dialog id="ideaDetailsDialog" class="idea-details-dialog">
+    <button type="button" class="idea-details-close" aria-label="Close">&#10005;</button>
+    <div class="idea-details-body">
+        <h2 class="idea-details-heading">&#128221; Idea Details</h2>
+        <div class="idea-details-field">
+            <div class="idea-details-field-label">Description</div>
+            <div class="idea-details-field-value">
+                <c:choose>
+                    <c:when test="${not empty plan.idea.notesRemarks}"><c:out value="${plan.idea.notesRemarks}"/></c:when>
+                    <c:otherwise>&mdash;</c:otherwise>
+                </c:choose>
+            </div>
+        </div>
+    </div>
+</dialog>

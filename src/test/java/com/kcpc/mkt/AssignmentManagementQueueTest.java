@@ -45,6 +45,7 @@ class AssignmentManagementQueueTest {
     private static final String HR_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000003";
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void perm04OnlyHrCanReachDeliverableDetailAndMyWorkWithoutAnyExecutionPermission() throws Exception {
@@ -334,13 +335,17 @@ class AssignmentManagementQueueTest {
      * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
      * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        String publisherId = createUser(ceo, "AQ Default Publisher " + unique,
+                "aq-default-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        grant(ceo, publisherId, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/aq-" + Instant.now().toEpochMilli() + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + publisherId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         return plan.getId().toString();

@@ -173,7 +173,8 @@ class ActionCenterEligibilityTest {
                         + "\"folderLink\":\"https://drive.example.com/ace-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + f.camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + f.camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + f.pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         f.contentPlanId = findContentPlanId(ideaId);
         f.outputId = findPlannedOutputId(f.contentPlanId);

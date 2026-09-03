@@ -18,16 +18,43 @@
 <%-- The SAME date range applies to every KPI view (spec requirement) - the hidden view field
      carries the currently-active view forward whenever this form is submitted, and each view-tab
      link below carries the current date range forward too, so switching either dimension never
-     resets the other. --%>
+     resets the other.
+
+     Date Range Filter Enhancement: the Preset select reuses this form's existing, pre-established
+     "selects auto-submit on change, no separate Apply needed" behavior (reports-workspace.js's
+     generic change handler - unchanged) - reports-kpi-date-preset.js (loaded before
+     reports-workspace.js so its listener runs first on the same bubbled change event) computes and
+     fills From/To the instant a preset is chosen, so the auto-submit that follows immediately
+     always carries the freshly-calculated dates, never the stale ones. Choosing Custom does NOT
+     auto-submit (only <select> changes do, per the existing generic handler; typing into a date
+     <input> never did) - the explicit Apply button below is the only way to submit a custom range,
+     which is also where the ${selectedDatePreset} server-side reverse-match (ReportingMvcController
+     #matchingDatePreset - display-only, never used for filtering) keeps the dropdown honest after
+     any navigation, AJAX swap, or direct URL edit. ${kpiDateRangeError} is populated only by
+     reports-kpi-date-preset.js's own From>To/missing-date pre-submit check, reusing the existing
+     .reviews-schedule-error style (shared, not Reviews-specific behavior) rather than adding new CSS. --%>
 <form method="get" action="${pageContext.request.contextPath}/app/reports/kpis" class="reports-filters kpi-date-toolbar" id="reportsKpiFilterForm">
     <input type="hidden" name="view" value="${kpiView}">
     <div class="filter-field kpi-date-field">
-        <label for="kpiDateFrom">Date Range</label>
+        <label for="kpiDatePreset">Date Range</label>
         <div class="filter-date-range">
-            <input type="date" name="startDate" id="kpiDateFrom" value="${selectedDateFrom}">
+            <select name="preset" id="kpiDatePreset">
+                <option value="today" ${selectedDatePreset == 'today' ? 'selected' : ''}>Today</option>
+                <option value="yesterday" ${selectedDatePreset == 'yesterday' ? 'selected' : ''}>Yesterday</option>
+                <option value="last7" ${selectedDatePreset == 'last7' ? 'selected' : ''}>Last 7 Days</option>
+                <option value="last30" ${selectedDatePreset == 'last30' ? 'selected' : ''}>Last 30 Days</option>
+                <option value="thisMonth" ${selectedDatePreset == 'thisMonth' ? 'selected' : ''}>This Month</option>
+                <option value="lastMonth" ${selectedDatePreset == 'lastMonth' ? 'selected' : ''}>Last Month</option>
+                <option value="custom" ${selectedDatePreset == 'custom' ? 'selected' : ''}>Custom</option>
+            </select>
+            <input type="date" name="startDate" id="kpiDateFrom" value="${selectedDateFrom}"
+                   ${selectedDatePreset != 'custom' ? 'readonly' : ''}>
             <span class="filter-date-sep">&ndash;</span>
-            <input type="date" name="endDate" id="kpiDateTo" value="${selectedDateTo}">
+            <input type="date" name="endDate" id="kpiDateTo" value="${selectedDateTo}"
+                   ${selectedDatePreset != 'custom' ? 'readonly' : ''}>
+            <button type="submit" class="btn-outline kpi-date-apply-btn" id="kpiDateApplyBtn">Apply</button>
         </div>
+        <span class="reviews-schedule-error hidden" id="kpiDateRangeError"></span>
     </div>
 </form>
 

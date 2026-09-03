@@ -21,8 +21,12 @@
 </main>
 <script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/stages-picker.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/publication-scope.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/idea-reference-link-edit.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/idea-submit.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/idea-create-modal.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/reviews-workspace.js" defer></script>
 </body>
 </html>

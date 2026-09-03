@@ -52,6 +52,7 @@ class AssignmentPickerTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String TARGET_1 = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -186,6 +187,10 @@ class AssignmentPickerTest {
         String editor = createUser(ceo, "Pub Picker Editor", editorEmail, VIDEO_EDITOR_ROLE_ID, "PERM_19_EDIT_EXECUTION");
         String publisher = createUser(ceo, "Pub Picker Publisher", "e2e-pubpicker-pub-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID); // deliberately NOT the Publisher Business Role, to prove the 403 path below
+        // Idea Review approval always requires at least one Publisher now - a throwaway one here,
+        // distinct from "publisher" (the subject of the 403/permission narrative below).
+        String ideaReviewPublisher = createUser(ceo, "Pub Picker IR Publisher",
+                "e2e-pubpicker-irpub-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field (including the initial output+publication scope+shoot team) and transitions
         // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
@@ -197,7 +202,7 @@ class AssignmentPickerTest {
                         + "\"folderLink\":\"https://drive.example.com/pubpicker-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"],\"publisherUserIds\":[\"" + ideaReviewPublisher + "\"]}}");
         String planId = findContentPlanId(ideaId);
         String outputId = plannedOutputIdFor(planId);
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson/Editor.
@@ -231,7 +236,9 @@ class AssignmentPickerTest {
                         + "\"publisherUserIds\":[\"" + throwawayPublisher + "\"]}");
         assertThat(editApproved.get("status").asText()).isEqualTo("RFP");
         // Only "publisher" (the subject of the rest of this test) should end up as the active
-        // Publisher, so the size==1 assertions below stay meaningful.
+        // Publisher, so the size==1 assertions below stay meaningful - remove both the Idea Review
+        // fold-in Publisher and the Edit Review throwaway one.
+        ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments/" + ideaReviewPublisher + "/remove", "");
         ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments/" + throwawayPublisher + "/remove", "");
 
         // ENG-044: Publisher assignment is native CEO/MM only now, regardless of PERM_08 - this
@@ -292,6 +299,10 @@ class AssignmentPickerTest {
         String pubA = createUser(ceo, "Pub Exec Publisher A", pubAEmail, CAMERA_PERSON_ROLE_ID);
         String pubB = createUser(ceo, "Pub Exec Publisher B", "e2e-pubexec-pubb-" + unique + "@kcpcbandhani.local",
                 CAMERA_PERSON_ROLE_ID);
+        // Idea Review approval always requires at least one Publisher now - a throwaway one here,
+        // removed by CEO before the hasSize(1) assertion below so only pubA remains active.
+        String ideaReviewPublisher = createUser(ceo, "Pub Exec IR Publisher",
+                "e2e-pubexec-irpub-" + unique + "@kcpcbandhani.local", CAMERA_PERSON_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field (including the initial output+publication scope+shoot team) and transitions
         // straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
@@ -303,7 +314,7 @@ class AssignmentPickerTest {
                         + "\"folderLink\":\"https://drive.example.com/pubexec-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"],\"publisherUserIds\":[\"" + ideaReviewPublisher + "\"]}}");
         String planId = findContentPlanId(ideaId);
         String outputId = plannedOutputIdFor(planId);
         TestApiClient camClient = new TestApiClient(port);
@@ -339,6 +350,9 @@ class AssignmentPickerTest {
         HttpResponse<String> removeOwnAttempt = pubAClient.post(
                 "/api/v1/content-plans/" + planId + "/publishing/assignments/" + pubA + "/remove", "");
         assertThat(removeOwnAttempt.statusCode()).isEqualTo(403);
+
+        // Only pubA (the subject of this test) should end up as the active Publisher.
+        ceo.post("/api/v1/content-plans/" + planId + "/publishing/assignments/" + ideaReviewPublisher + "/remove", "");
 
         ContentPlan plan = contentPlanRepository.findById(UUID.fromString(planId)).orElseThrow();
         assertThat(publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)).hasSize(1);
@@ -597,13 +611,16 @@ class AssignmentPickerTest {
      * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
      * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        String publisherId = createUser(ceo, "APT Default Publisher " + unique,
+                "apt-default-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/apt-" + Instant.now().toEpochMilli() + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + publisherId + "\"]}}");
         return findContentPlanId(ideaId);
     }
 

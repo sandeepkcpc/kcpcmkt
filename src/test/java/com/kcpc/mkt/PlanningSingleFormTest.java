@@ -41,6 +41,7 @@ class PlanningSingleFormTest {
     ContentPlanRepository contentPlanRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     /**
      * The Review Decision form is one {@code <form id="idea-review-form">} with no separate
@@ -147,6 +148,7 @@ class PlanningSingleFormTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
         long unique = Instant.now().toEpochMilli();
         String camId = createCameraperson(ceo, unique);
+        String pubId = createPublisher(ceo, unique);
         String title = "Single Form Happy Path " + unique;
         assertThat(ceo.postForm("/app/ideas", Map.of("title", title)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
@@ -161,7 +163,8 @@ class PlanningSingleFormTest {
                 "contentPriority", java.util.List.of("MEDIUM"),
                 "plannedLiveDate", java.util.List.of(liveDate),
                 "folderLink", java.util.List.of("https://drive.example.com/happy-" + unique),
-                "camerapersonUserIds", java.util.List.of(camId)));
+                "camerapersonUserIds", java.util.List.of(camId),
+                "publisherUserIds", java.util.List.of(pubId)));
         assertThat(response.statusCode()).isEqualTo(302);
 
         Idea reloaded = ideaRepository.findById(idea.getId()).orElseThrow();
@@ -180,6 +183,18 @@ class PlanningSingleFormTest {
         String userId = response.get("userId").asText();
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"single form test fixture grant\"}");
+        return userId;
+    }
+
+    private String createPublisher(TestApiClient ceo, long unique) throws Exception {
+        var response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Single Form Publisher\",\"email\":\"single-form-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + PUBLISHER_ROLE_ID + "\","
+                        + "\"creationReason\":\"single form test fixture\"}");
+        String userId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"single form test fixture grant\"}");
         return userId;
     }

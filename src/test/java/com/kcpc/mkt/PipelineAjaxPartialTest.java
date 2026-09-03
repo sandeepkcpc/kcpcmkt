@@ -80,6 +80,14 @@ class PipelineAjaxPartialTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"ajax partial test fixture grant\"}");
+        var pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Ajax Partial Pub\",\"email\":\"ajax-partial-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000008\","
+                        + "\"creationReason\":\"ajax partial test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"ajax partial test fixture grant\"}");
         String ideaTitle = "Ajax Partial Test " + unique;
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
@@ -94,7 +102,8 @@ class PipelineAjaxPartialTest {
                 "contentPriority", java.util.List.of("HIGH"),
                 "plannedLiveDate", java.util.List.of(java.time.LocalDate.now().plusDays(10).toString()),
                 "folderLink", java.util.List.of("https://drive.example.com/ajax-partial-" + unique),
-                "camerapersonUserIds", java.util.List.of(camId))).statusCode())
+                "camerapersonUserIds", java.util.List.of(camId),
+                "publisherUserIds", java.util.List.of(pubId))).statusCode())
                 .isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         ceo.postJson("/api/v1/content-plans/" + plan.getId() + "/parameters",

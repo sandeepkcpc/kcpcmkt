@@ -121,6 +121,40 @@
                         <div class="reviews-field-row"><span class="reviews-field-label">Idea / Content Title</span><span class="reviews-field-value"><c:out value="${row.ideaTitle}"/></span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">SKU</span><span class="reviews-field-value">${kcpc:dash(row.sku)}</span></div>
                         <div class="reviews-field-row"><span class="reviews-field-label">Priority</span><span class="reviews-field-value">${empty row.priority ? '-' : row.priority}</span></div>
+                        <%-- Same Reference Link/Description widgets as Reviews -> Ideas' "Reviewing Idea"
+                             card (idea-reference-link-edit.jspf/idea-description-modal*.jspf), reused
+                             read-only here (refLinkEditCanEdit/ideaDescModalCanEdit false - this is the
+                             Idea's own record, editable only from Ideas review) so an Edit reviewer has
+                             the same contextual info without having to separately open the Idea. Backed
+                             by the same Idea entity via plan.idea - no new/duplicated data. --%>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Reference Link</span>
+                            <span class="reviews-field-value">
+                                <c:set var="refLinkEditIdea" value="${plan.idea}"/>
+                                <c:set var="refLinkEditCanEdit" value="${false}"/>
+                                <c:set var="refLinkEditAjax" value="${true}"/>
+                                <%@ include file="idea-reference-link-edit.jspf" %>
+                            </span>
+                        </div>
+                        <c:set var="ideaDescModalIdea" value="${plan.idea}"/>
+                        <c:set var="ideaDescModalCanEdit" value="${false}"/>
+                        <c:set var="ideaDescModalAjax" value="${true}"/>
+                        <c:set var="ideaDescModalAlwaysShow" value="${true}"/>
+                        <c:set var="ideaDescModalTriggerClass" value=""/>
+                        <div class="reviews-field-row"><span class="reviews-field-label">Description / Details</span>
+                            <span class="reviews-field-value reviews-field-value-with-icon">
+                                <c:choose>
+                                    <c:when test="${not empty plan.idea.notesRemarks}">
+                                        <c:choose>
+                                            <c:when test="${fn:length(plan.idea.notesRemarks) > 100}"><c:out value="${fn:substring(plan.idea.notesRemarks, 0, 100)}"/>&hellip;</c:when>
+                                            <c:otherwise><c:out value="${plan.idea.notesRemarks}"/></c:otherwise>
+                                        </c:choose>
+                                    </c:when>
+                                    <c:otherwise><span class="muted">-</span></c:otherwise>
+                                </c:choose>
+                                <%@ include file="idea-description-modal-trigger.jspf" %>
+                            </span>
+                        </div>
+                        <%@ include file="idea-description-modal.jspf" %>
                     </div>
 
                     <div class="reviews-detail-section">
@@ -201,10 +235,17 @@
                                                 <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
                                             </div>
                                             <div class="kcpc-model-checklist">
+                                                <%-- ENG-097: pre-check a Publisher already assigned from Planning
+                                                     time, so this doesn't look unselected - PublishingAssignment
+                                                     stays the single source of truth either way; leaving it
+                                                     checked/unchecked here only changes who assignPublisherTeam is
+                                                     called with (already-idempotent, additive - never a removal). --%>
                                                 <c:forEach var="pu" items="${publisherCandidateUsers}">
                                                     <label class="model-check-item">
-                                                        <input type="checkbox" name="nextTeamUserIds" value="${pu.id}" data-name="${pu.fullName}"> ${pu.fullName}
+                                                        <input type="checkbox" name="nextTeamUserIds" value="${pu.id}" data-name="${pu.fullName}"
+                                                               <c:if test="${alreadyAssignedPublisherUserIds.contains(pu.id)}">checked</c:if>> ${pu.fullName}
                                                         <span class="muted assignee-task-count">(<c:out value="${pu.activeTaskLabel}"/>)</span>
+                                                        <c:if test="${alreadyAssignedPublisherUserIds.contains(pu.id)}"><span class="muted"> (already assigned)</span></c:if>
                                                     </label>
                                                 </c:forEach>
                                             </div>

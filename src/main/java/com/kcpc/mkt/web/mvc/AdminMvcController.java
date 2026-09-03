@@ -30,6 +30,9 @@ import com.kcpc.mkt.identity.service.UserCsvImportService;
 import com.kcpc.mkt.masterdata.repository.CompanyChannelRepository;
 import com.kcpc.mkt.masterdata.repository.PlatformRepository;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
+import com.kcpc.mkt.marks.domain.RoleType;
+import com.kcpc.mkt.marks.service.MarkCatalogueService;
+import com.kcpc.mkt.masterdata.service.CategoryService;
 import com.kcpc.mkt.masterdata.service.MasterCatalogueService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
@@ -48,6 +51,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -86,6 +90,8 @@ public class AdminMvcController {
     private final BusinessRoleAdminService businessRoleAdminService;
     private final PermissionGrantAdminService permissionGrantAdminService;
     private final MasterCatalogueService masterCatalogueService;
+    private final MarkCatalogueService markCatalogueService;
+    private final CategoryService categoryService;
     private final UserCsvImportService userCsvImportService;
 
     public AdminMvcController(UserRepository userRepository, BusinessRoleRepository businessRoleRepository,
@@ -99,6 +105,8 @@ public class AdminMvcController {
                                BusinessRoleAdminService businessRoleAdminService,
                                PermissionGrantAdminService permissionGrantAdminService,
                                MasterCatalogueService masterCatalogueService,
+                               MarkCatalogueService markCatalogueService,
+                               CategoryService categoryService,
                                UserCsvImportService userCsvImportService) {
         this.userRepository = userRepository;
         this.businessRoleRepository = businessRoleRepository;
@@ -115,6 +123,8 @@ public class AdminMvcController {
         this.businessRoleAdminService = businessRoleAdminService;
         this.permissionGrantAdminService = permissionGrantAdminService;
         this.masterCatalogueService = masterCatalogueService;
+        this.markCatalogueService = markCatalogueService;
+        this.categoryService = categoryService;
         this.userCsvImportService = userCsvImportService;
     }
 
@@ -419,6 +429,35 @@ public class AdminMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return "redirect:/app/admin/users/" + id;
+    }
+
+    /**
+     * Users page Edit User modal: Full Name/Email/Business Role/Status saved together in one
+     * request - see {@link UserAdminService#updateUser}. AJAX-only (no full-page-redirect fallback,
+     * matching {@link #quickGrantPermission}'s exact same "checkbox/modal write, JSON response, the
+     * page's own JS refreshes what it needs" contract) since the Edit modal has no non-JS form of
+     * its own to fall back to.
+     */
+    @PostMapping("/users/{id}/edit")
+    public ResponseEntity<?> updateUser(@PathVariable UUID id, @RequestParam String fullName,
+                                         @RequestParam String email, @RequestParam UUID businessRoleId,
+                                         @RequestParam boolean active, @RequestParam String reason,
+                                         @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                         HttpServletRequest request) {
+        try {
+            User user = userAdminService.updateUser(principal.user(), id, fullName, email, businessRoleId, active, reason);
+            return ResponseEntity.ok(Map.of(
+                    "userId", user.getId(),
+                    "fullName", user.getFullName(),
+                    "email", user.getEmail(),
+                    "businessRoleId", user.getBusinessRole().getId(),
+                    "businessRoleName", user.getBusinessRole().getRoleName(),
+                    "accessClass", user.resolvedAccessClass().name(),
+                    "active", user.isActive()));
+        } catch (DomainException e) {
+            return ResponseEntity.status(e.getHttpStatus())
+                    .body(ApiErrorResponse.of(e.getErrorCode(), e.getMessage(), request.getRequestURI()));
+        }
     }
 
     @PostMapping("/users/{id}/activate")
@@ -730,5 +769,102 @@ public class AdminMvcController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return "redirect:/app/admin/catalogue";
+    }
+
+    // ---------------------------------------------------------- Mark Catalogue
+
+    @GetMapping("/marks")
+    public String marks(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        if (!isCeo(principal)) {
+            return "redirect:/app/home";
+        }
+        model.addAttribute("markEntries", markCatalogueService.listAll());
+        model.addAttribute("activeAdminTab", "marks");
+        return "admin-marks";
+    }
+
+    @PostMapping("/marks")
+    public String createMark(@RequestParam RoleType roleType, @RequestParam BigDecimal markValue,
+                              @RequestParam String catalogueReason, @AuthenticationPrincipal KcpcUserPrincipal principal,
+                              RedirectAttributes ra) {
+        try {
+            markCatalogueService.createEntry(principal.user(), roleType, markValue, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Mark created.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/marks";
+    }
+
+    @PostMapping("/marks/{id}")
+    public String updateMark(@PathVariable UUID id, @RequestParam(required = false) BigDecimal markValue,
+                              @RequestParam(required = false) Boolean isActive, @RequestParam String catalogueReason,
+                              @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            markCatalogueService.updateEntry(principal.user(), id, markValue, isActive, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Mark updated.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/marks";
+    }
+
+    @PostMapping("/marks/{id}/delete")
+    public String deleteMark(@PathVariable UUID id, @RequestParam String catalogueReason,
+                              @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            markCatalogueService.deleteEntry(principal.user(), id, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Mark deleted.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/marks";
+    }
+
+    @GetMapping("/categories")
+    public String categories(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+        if (!isCeo(principal)) {
+            return "redirect:/app/home";
+        }
+        model.addAttribute("categoryEntries", categoryService.listAll());
+        model.addAttribute("activeAdminTab", "categories");
+        return "admin-categories";
+    }
+
+    @PostMapping("/categories")
+    public String createCategory(@RequestParam String name, @RequestParam String catalogueReason,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            categoryService.createEntry(principal.user(), name, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Category created.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/categories";
+    }
+
+    @PostMapping("/categories/{id}")
+    public String updateCategory(@PathVariable UUID id, @RequestParam(required = false) String name,
+                                  @RequestParam(required = false) Boolean isActive, @RequestParam String catalogueReason,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            categoryService.updateEntry(principal.user(), id, name, isActive, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Category updated.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/categories";
+    }
+
+    @PostMapping("/categories/{id}/delete")
+    public String deleteCategory(@PathVariable UUID id, @RequestParam String catalogueReason,
+                                  @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes ra) {
+        try {
+            categoryService.deleteEntry(principal.user(), id, catalogueReason);
+            ra.addFlashAttribute("successMessage", "Category deleted.");
+        } catch (DomainException e) {
+            ra.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/admin/categories";
     }
 }

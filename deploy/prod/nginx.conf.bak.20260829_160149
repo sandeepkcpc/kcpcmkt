@@ -1,0 +1,48 @@
+# PROD entry point. Serves plain HTTP on :80 until a real domain + TLS certificate exist (see the
+# commented HTTPS server block below) - at that point COOKIE_SECURE must also flip to true in
+# .env (see docker-compose.yml), never before, or the login cookie will be silently dropped.
+#
+# REQUIRES USER VALUE: replace app.example.com below with the real production domain once DNS is
+# pointed at the VM, and provision a certificate for it (e.g. `certbot --nginx -d app.example.com`
+# run on the VM, or a GCP-managed certificate if fronted by an HTTPS Load Balancer instead of
+# this nginx container directly terminating TLS - pick one, don't do both).
+
+server {
+    listen 80;
+    server_name _;
+
+    # 10M > the app's own 5MB multipart.max-file-size/max-request-size (application.yml), so a
+    # User CSV import upload is never rejected by nginx before it even reaches the app.
+    client_max_body_size 10M;
+
+    # Uncomment once the HTTPS server block below is live, to force every plain-HTTP request to
+    # upgrade instead of being served insecurely:
+    # location / { return 301 https://$host$request_uri; }
+
+    location / {
+        proxy_pass http://kcpc-prod-app:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# --- HTTPS (enable once a certificate exists at the paths below) ---------------------------
+# server {
+#     listen 443 ssl;
+#     server_name app.example.com;  # REQUIRES USER VALUE
+#
+#     ssl_certificate     /etc/letsencrypt/live/app.example.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
+#
+#     client_max_body_size 10M;
+#
+#     location / {
+#         proxy_pass http://kcpc-prod-app:8080;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#     }
+# }

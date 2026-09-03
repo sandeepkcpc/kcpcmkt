@@ -38,6 +38,7 @@ class ShootTaskDetailTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void camerapersonSeesRedesignedPageThroughTheFullLifecycleWhileCeoSeesTheStandardShell() throws Exception {
@@ -53,6 +54,15 @@ class ShootTaskDetailTest {
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
 
+        String pubEmail = "e2e-shoot-detail-pub-" + unique + "@kcpcbandhani.local";
+        JsonNode pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Shoot Detail Pub\",\"email\":\"" + pubEmail + "\",\"password\":\"Passw0rd!\","
+                        + "\"businessRoleId\":\"" + PUBLISHER_ROLE_ID + "\",\"creationReason\":\"e2e test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Shoot Detail Test " + unique + "\"}");
@@ -61,7 +71,8 @@ class ShootTaskDetailTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/shoot-detail-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();

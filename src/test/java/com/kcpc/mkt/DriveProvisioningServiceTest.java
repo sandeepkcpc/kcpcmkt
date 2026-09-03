@@ -83,6 +83,7 @@ class DriveProvisioningServiceTest {
     }
 
     private static final String HR_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000003";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     private TestApiClient ceo() throws Exception {
         TestApiClient ceo = new TestApiClient(port);
@@ -113,12 +114,15 @@ class DriveProvisioningServiceTest {
         String camId = createUser(ceo, "Drive Test Cam " + Instant.now().toEpochMilli(),
                 "drive-cam-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local", HR_MANAGER_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        String publisherId = createUser(ceo, "Drive Test Publisher " + Instant.now().toEpochMilli(),
+                "drive-pub-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        grant(ceo, publisherId, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + publisherId + "\"]}}");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         return contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
     }

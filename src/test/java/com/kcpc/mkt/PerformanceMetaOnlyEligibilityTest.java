@@ -106,7 +106,8 @@ class PerformanceMetaOnlyEligibilityTest {
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/meta-" + label + "-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\",\"publicationTargetIds\":[" + targetIdsJson + "]}],"
-                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camIdEmail[0] + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubIdEmail[0] + "\"]}}");
         ContentPlan plan = contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
                 .orElseThrow();
         String planId = plan.getId().toString();

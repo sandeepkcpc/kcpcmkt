@@ -2,7 +2,8 @@ package com.kcpc.mkt.identity.domain;
 
 /**
  * ERD-TBL-004 operational_permissions catalogue (fixed reference data, seeded by V1 migration;
- * PERM_18/PERM_19 added by V24 for permission-driven Shoot/Edit execution eligibility).
+ * PERM_18/PERM_19 added by V24 for permission-driven Shoot/Edit execution eligibility;
+ * PERM_20 added by V34 for the Skip Stage feature).
  * Represented as an enum since the permission catalogue is governed/frozen (API_Specification.md §9).
  */
 public enum OperationalPermission {
@@ -27,7 +28,14 @@ public enum OperationalPermission {
     // permissions: eligible to be selected as an assignee AND to execute an actively assigned
     // task, mirroring what PERM_08 already means for Publishing. Never repurpose PERM_04/06.
     PERM_18_SHOOT_EXECUTION(18),
-    PERM_19_EDIT_EXECUTION(19);
+    PERM_19_EDIT_EXECUTION(19),
+    // Skip Stage (ENG-090): a controlled, permission-gated transition that moves a Content Plan
+    // directly to the next stage without the normal execution/review cycle, still collecting the
+    // same next-stage team assignment a real approval would require. Granted per LifecycleStage
+    // exactly like every other operational permission - SHOOTING scope authorizes Skip Shoot,
+    // EDITING scope authorizes Skip Edit. Deliberately distinct from PERM_05/PERM_07 (Review
+    // authority): holding Shoot/Edit Review does not imply the ability to skip a stage.
+    PERM_20_SKIP_STAGE(20);
 
     private final int number;
 

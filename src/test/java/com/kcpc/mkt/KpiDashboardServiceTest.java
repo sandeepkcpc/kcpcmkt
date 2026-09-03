@@ -478,11 +478,12 @@ class KpiDashboardServiceTest {
                 .statusCode()).isEqualTo(302);
         assertThat(ceo.post("/api/v1/ideas/" + idea.getId() + "/reopen", "").statusCode()).isEqualTo(200);
         String camId = createCameraperson(ceo, unique, "Funnel");
+        String pubId = createPublisher(ceo, unique, "Funnel");
         assertThat(ceo.postJson("/api/v1/ideas/" + idea.getId() + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/kpi-funnel-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}").has("ideaId")).isTrue();
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}").has("ideaId")).isTrue();
 
         var after = kpiDashboardService.overview(ceoUser(), today, today).getFunnel();
         assertThat(after.getSubmitted()).isEqualTo(before.getSubmitted() + 1);
@@ -703,17 +704,25 @@ class KpiDashboardServiceTest {
         return "kpi-cam-" + suffix + "-" + unique + "@kcpcbandhani.local";
     }
 
+    private String createPublisher(TestApiClient ceo, long unique, String suffix) throws Exception {
+        String userId = createUser(ceo, "KPI Pub " + suffix,
+                "kpi-pub-" + suffix + "-" + unique + "@kcpcbandhani.local", HR_MANAGER_ROLE_ID);
+        grant(ceo, userId, "PERM_08_PUBLISHING_EXECUTION");
+        return userId;
+    }
+
     /** Workflow redesign: Idea Review approval now carries every former Planning field (including
      * the initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA) - the
      * given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId, long unique) throws Exception {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
+        String pubId = createPublisher(ceo, unique, "Approve" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000));
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/kpi-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
@@ -734,6 +743,7 @@ class KpiDashboardServiceTest {
         String camEmail = "kpi-otd-cam-" + unique + "-" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000) + "@kcpcbandhani.local";
         String camId = createUser(ceo, "Kpi Otd Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         grant(ceo, camId, "PERM_18_SHOOT_EXECUTION");
+        String placeholderPubId = createPublisher(ceo, unique, "OtdPlaceholder" + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000));
 
         // Standard scheduling requires a future date (BR-REQ-093, >= 5 days out) - always approve
         // with a safe placeholder Planned Live Date first, then move to the actually-desired
@@ -747,7 +757,7 @@ class KpiDashboardServiceTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + placeholderLiveDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/kpi-otd-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + placeholderPubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         String planId = contentPlanRepository.findByIdea(ideaEntity).orElseThrow().getId().toString();

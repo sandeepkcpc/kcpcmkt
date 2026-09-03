@@ -40,6 +40,7 @@ class PipelineFilterSortTest {
     ContentPlanRepository contentPlanRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void filterSortAndPaginateWorkTogetherOverOwnFixtureRows() throws Exception {
@@ -171,21 +172,27 @@ class PipelineFilterSortTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
+        String pubEmail = "pfs-pub-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local";
+        String pubId = createUser(ceo, "Filter Sort Pub", pubEmail, PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         assertThat(ceo.postForm("/app/ideas", java.util.Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
-        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", java.util.Map.of(
-                "decision", java.util.List.of("APPROVE"),
-                "cameramanMark", java.util.List.of("1.0"),
-                "editorMark", java.util.List.of("1.0"),
-                "modelMark", java.util.List.of("1.0"),
-                "contentPriority", java.util.List.of(priority),
-                "skuReference", java.util.List.of(sku),
-                "plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()),
-                "folderLink", java.util.List.of("https://drive.example.com/pfs-" + sku),
-                "camerapersonUserIds", java.util.List.of(camId))).statusCode()).isEqualTo(302);
+        assertThat(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", java.util.Map.ofEntries(
+                java.util.Map.entry("decision", java.util.List.of("APPROVE")),
+                java.util.Map.entry("cameramanMark", java.util.List.of("1.0")),
+                java.util.Map.entry("editorMark", java.util.List.of("1.0")),
+                java.util.Map.entry("modelMark", java.util.List.of("1.0")),
+                java.util.Map.entry("contentPriority", java.util.List.of(priority)),
+                java.util.Map.entry("skuReference", java.util.List.of(sku)),
+                java.util.Map.entry("plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString())),
+                java.util.Map.entry("folderLink", java.util.List.of("https://drive.example.com/pfs-" + sku)),
+                java.util.Map.entry("camerapersonUserIds", java.util.List.of(camId)),
+                java.util.Map.entry("publisherUserIds", java.util.List.of(pubId)))).statusCode()).isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         return plan.getId().toString();
     }
@@ -195,6 +202,11 @@ class PipelineFilterSortTest {
         String camId = createUser(ceo, "Filter Sort Cam", camEmail, CAMERA_PERSON_ROLE_ID);
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
+        String pubEmail = "pfs-pub-" + Instant.now().toEpochMilli() + "@kcpcbandhani.local";
+        String pubId = createUser(ceo, "Filter Sort Pub", pubEmail, PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline filter/sort test fixture grant\"}");
 
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
@@ -219,7 +231,8 @@ class PipelineFilterSortTest {
                 java.util.Map.entry("shootDate", java.util.List.of(pastShoot)),
                 java.util.Map.entry("editDate", java.util.List.of(pastEdit)),
                 java.util.Map.entry("urgencyReason", java.util.List.of("pipeline filter/sort test fixture")),
-                java.util.Map.entry("camerapersonUserIds", java.util.List.of(camId)))).statusCode()).isEqualTo(302);
+                java.util.Map.entry("camerapersonUserIds", java.util.List.of(camId)),
+                java.util.Map.entry("publisherUserIds", java.util.List.of(pubId)))).statusCode()).isEqualTo(302);
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         // Plan is now Shoot Assigned (SA) with a Planned Shoot Date 2 days in the past - delayed.
 

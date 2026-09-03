@@ -30,6 +30,18 @@ public class AuthMvcController {
         this.passwordResetService = passwordResetService;
     }
 
+    /** Root URL - never publicly reachable: SecurityConfig's {@code anyRequest().authenticated()}
+     *  already covers "/" exactly like every other unmapped path (it is not in the appFilterChain's
+     *  permitAll list), so an unauthenticated request is redirected to /login by MvcAuthEntryPoint
+     *  before this method is ever invoked - this handler only ever runs for an already-authenticated
+     *  user, and simply hands off to the exact same role-appropriate landing target doLogin() itself
+     *  redirects to right after a fresh sign-in, so "/" and a completed login always land the user
+     *  in the same place via the same, single dispatch path (LandingMvcController#home). */
+    @GetMapping("/")
+    public String root() {
+        return "redirect:/app/home";
+    }
+
     @GetMapping("/login")
     public String loginPage(@RequestParam(required = false) String reason, Model model) {
         if ("denied".equals(reason)) {

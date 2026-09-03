@@ -73,6 +73,10 @@ class CorrectionLedgerFlowTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"correction test fixture grant\"}");
+        String pubId = createUser(ceo, "Correction Marks Pub", "corr-marks-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"correction test fixture grant\"}");
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Correction Marks Test " + unique + "\"}");
@@ -81,33 +85,35 @@ class CorrectionLedgerFlowTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/corr-marks-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
 
-        // First correction: 1.0/1.0 -> 2.0/0.5.
+        // First correction: 1.0/1.0 -> 0.5/0.5 (ENG-092: values restricted to the Mark Catalogue's
+        // current allowed set [0, 0.1, 0.5, 1.0], not the old hardcoded [0, 0.5, 1.0, 2.0, 3.0]).
         JsonNode first = ceo.postJson("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":2.0,\"newEditorMarks\":0.5,\"newModelMarks\":0.5,"
+                "{\"newCamerapersonMarks\":0.5,\"newEditorMarks\":0.5,\"newModelMarks\":0.5,"
                         + "\"correctionReason\":\"Complexity re-evaluated.\"}");
         assertThat(first.get("priorCamerapersonMark").asDouble()).isEqualTo(1.0);
         assertThat(first.get("priorEditorMark").asDouble()).isEqualTo(1.0);
-        assertThat(first.get("newCamerapersonMark").asDouble()).isEqualTo(2.0);
+        assertThat(first.get("newCamerapersonMark").asDouble()).isEqualTo(0.5);
         assertThat(first.get("newEditorMark").asDouble()).isEqualTo(0.5);
         assertThat(first.get("supersedesCorrectionId").isNull()).isTrue();
 
         Idea ideaEntity = ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow();
         ContentPlan plan = contentPlanRepository.findByIdea(ideaEntity).orElseThrow();
         PredefinedRoleMarks activeMarks = predefinedRoleMarksRepository.findByContentPlan(plan).orElseThrow();
-        assertThat(activeMarks.getPredefinedCameramanMark().doubleValue()).isEqualTo(2.0);
+        assertThat(activeMarks.getPredefinedCameramanMark().doubleValue()).isEqualTo(0.5);
         assertThat(activeMarks.getPredefinedEditorMark().doubleValue()).isEqualTo(0.5);
 
         // Second correction chains onto the first: prior must equal the first correction's new values.
         JsonNode second = ceo.postJson("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
-                "{\"newCamerapersonMarks\":3.0,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,"
+                "{\"newCamerapersonMarks\":0.1,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,"
                         + "\"correctionReason\":\"Further re-evaluation after review.\"}");
-        assertThat(second.get("priorCamerapersonMark").asDouble()).isEqualTo(2.0);
+        assertThat(second.get("priorCamerapersonMark").asDouble()).isEqualTo(0.5);
         assertThat(second.get("priorEditorMark").asDouble()).isEqualTo(0.5);
         assertThat(second.get("supersedesCorrectionId").asText()).isEqualTo(first.get("correctionId").asText());
 
-        // ERD-CON-029: corrected marks must be from the controlled list.
+        // ERD-CON-029 / ENG-092: corrected marks must be from the (now catalogue-driven) allowed set.
         HttpResponse<String> rejected = ceo.post("/api/v1/ideas/" + ideaId + "/predefined-marks/corrections",
                 "{\"newCamerapersonMarks\":1.7,\"newEditorMarks\":1.0,\"newModelMarks\":1.0,\"correctionReason\":\"Invalid value.\"}");
         assertThat(rejected.statusCode()).isEqualTo(400);
@@ -159,7 +165,8 @@ class CorrectionLedgerFlowTest {
                         + "\"folderLink\":\"https://drive.example.com/corr-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
         String outputId = findPlannedOutputId(contentPlanId);
         cam.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");

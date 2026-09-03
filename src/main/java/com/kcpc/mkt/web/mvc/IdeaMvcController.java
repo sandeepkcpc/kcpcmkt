@@ -68,7 +68,10 @@ public class IdeaMvcController {
     private final OperationalEligibilityService operationalEligibilityService;
     private final AssigneeWorkloadCountService assigneeWorkloadCountService;
     private final PublicationTargetRepository publicationTargetRepository;
+    private final com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService;
+    private final com.kcpc.mkt.masterdata.service.CategoryService categoryService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository;
 
     /** Package-visible: reused as-is by ReviewsMvcController's Ideas tab (see {@link #statusLabel}). */
     static final Set<String> IDEA_LIFECYCLE_TRIGGER_COMMANDS =
@@ -81,7 +84,10 @@ public class IdeaMvcController {
                               UserRepository userRepository, OperationalEligibilityService operationalEligibilityService,
                               AssigneeWorkloadCountService assigneeWorkloadCountService,
                               PublicationTargetRepository publicationTargetRepository,
-                              com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+                              com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService,
+                              com.kcpc.mkt.masterdata.service.CategoryService categoryService,
+                              com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                              com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository) {
         this.ideaService = ideaService;
         this.ideaRepository = ideaRepository;
         this.contentPlanRepository = contentPlanRepository;
@@ -92,7 +98,10 @@ public class IdeaMvcController {
         this.operationalEligibilityService = operationalEligibilityService;
         this.assigneeWorkloadCountService = assigneeWorkloadCountService;
         this.publicationTargetRepository = publicationTargetRepository;
+        this.markCatalogueService = markCatalogueService;
+        this.categoryService = categoryService;
         this.objectMapper = objectMapper;
+        this.systemAuditLogRepository = systemAuditLogRepository;
     }
 
     @GetMapping("/app/ideas/new")
@@ -100,17 +109,31 @@ public class IdeaMvcController {
         return "idea-submit";
     }
 
+    /**
+     * Dual-mode, same shape as {@link #updateDescription}/{@link #updateReferenceLink} - shared by
+     * the full-page /app/ideas/new form (plain POST, redirect) and the Reviews Workspace's
+     * "+ Create Idea" popup (AJAX, idea-submit.js's data-ajax branch) - branched by the same
+     * X-Requested-With convention. Same endpoint/validation/logic either way, never a second Idea
+     * submission implementation.
+     */
     @PostMapping("/app/ideas")
-    public String submit(@RequestParam String title, @RequestParam(required = false) String referenceLink,
+    public Object submit(@RequestParam String title, @RequestParam(required = false) String referenceLink,
                           @RequestParam(required = false) String notesRemarks,
                           @RequestParam(required = false) String additionalNote,
+                          @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
                           @AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
-                          RedirectAttributes redirectAttributes) {
+                          RedirectAttributes redirectAttributes, jakarta.servlet.http.HttpServletRequest request) {
         try {
             ideaService.submit(principal.user(), title, referenceLink, notesRemarks, additionalNote);
+            if (isAjax(requestedWith)) {
+                return org.springframework.http.ResponseEntity.ok(Map.of("status", "ok"));
+            }
             redirectAttributes.addFlashAttribute("successMessage", "Idea submitted successfully.");
             return "redirect:/app/ideas";
         } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
             // ENG-060: client-side JS validates the same rules first in the common case, but
             // backend validation stays authoritative (e.g. no-JS fallback) - on failure, preserve
             // every entered value so nothing already typed is lost, and point the message at the
@@ -411,6 +434,25 @@ public class IdeaMvcController {
                 .toList();
     }
 
+    /** "Last Updated" = the newest of: the latest lifecycle transition (Submitted/Approved/
+     * Rejected/Retained/Reopened), the latest Reference Link edit, or - if neither has ever
+     * happened - the Idea's own submittedAt. Package-visible: reused as-is by
+     * ReviewsMvcController's Ideas tab, same sharing pattern as {@link #toHistoryEvents}. Computed
+     * here in Java (not JSP EL) so the Instant comparison is unambiguous - Description edits are
+     * deliberately NOT included (out of scope for this feature; unchanged pre-existing behavior). */
+    static java.time.Instant computeLastUpdated(Idea idea, List<IdeaHistoryEvent> historyEvents,
+            com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository) {
+        java.time.Instant latest = historyEvents.isEmpty() ? idea.getSubmittedAt() : historyEvents.get(0).getTimestamp();
+        java.time.Instant latestReferenceLinkUpdate = systemAuditLogRepository
+                .findByTargetEntityIdInAndEventTypeIn(List.of(idea.getId()), List.of("IDEA_REFERENCE_LINK_UPDATED"))
+                .stream().map(com.kcpc.mkt.audit.domain.SystemAuditLog::getEventTimestamp)
+                .max(java.time.Instant::compareTo).orElse(null);
+        if (latestReferenceLinkUpdate != null && (latest == null || latestReferenceLinkUpdate.isAfter(latest))) {
+            return latestReferenceLinkUpdate;
+        }
+        return latest;
+    }
+
     static String lifecycleEventLabel(String triggerCommand) {
         return switch (triggerCommand) {
             case "SUBMIT_IDEA" -> "Submitted";
@@ -450,12 +492,16 @@ public class IdeaMvcController {
         // CEO/Marketing Manager only (native authority) - see IdeaService#updateDescription. Gates
         // the note-icon modal's Edit control; the backend re-checks this independently.
         model.addAttribute("canEditIdeaDescription", authorizationService.hasNativeAuthority(currentUser));
+        // CEO/Marketing Manager only (native authority) - see IdeaService#updateReferenceLink.
+        // Gates the Reference Link edit control; the backend re-checks this independently.
+        model.addAttribute("canEditReferenceLink", authorizationService.hasNativeAuthority(currentUser));
         model.addAttribute("canDecide", canDecide(currentUser, idea));
         model.addAttribute("ideaStatusLabel", ideaStatusLabel);
         model.addAttribute("ideaStatusCssClass", statusCssClass(ideaStatusLabel));
         model.addAttribute("ideaFeedback", latestFeedback(idea));
         model.addAttribute("ideaStatusHistory", historyEvents);
         model.addAttribute("ideaStatusHistoryAsc", historyEventsAsc);
+        model.addAttribute("idtLastUpdated", computeLastUpdated(idea, historyEvents, systemAuditLogRepository));
         contentPlanRepository.findByIdea(idea).ifPresent(plan -> model.addAttribute("contentPlanId", plan.getId()));
 
         if (idea.getWorkflowInstance().getCurrentStatusCode() == WorkflowStatus.PA) {
@@ -468,6 +514,23 @@ public class IdeaMvcController {
                     userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
             model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
                     operationalEligibilityService.shootExecutionCandidates(idea.getWorkflowInstance())));
+            // ENG-091 (Stages): same as ReviewsMvcController#buildIdeasTab - Direct Edit/Direct
+            // Publishing collect Editor(s)/Publisher(s) right here, no later fold-in point exists.
+            model.addAttribute("editorCandidateUsers", assigneeWorkloadCountService.withEditCounts(
+                    operationalEligibilityService.editExecutionCandidates(idea.getWorkflowInstance())));
+            model.addAttribute("publisherCandidateUsers", assigneeWorkloadCountService.withPublishingCounts(
+                    operationalEligibilityService.publishingExecutionCandidates(idea.getWorkflowInstance())));
+            // ENG-092 (Mark Catalogue): same as ReviewsMvcController#buildIdeasTab - Team Marks
+            // dropdowns are driven by the live admin-managed catalogue, not a hardcoded option list.
+            model.addAttribute("cameramanMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.CAMERAPERSON));
+            model.addAttribute("editorMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.EDITOR));
+            model.addAttribute("modelMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.MODEL));
+            // ENG-094 (Category Catalogue): Planning Category dropdown is driven by the live
+            // admin-managed catalogue, not free text - see CategoryService/admin-categories.jsp.
+            model.addAttribute("categoryOptions", categoryService.listActive());
             List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
             model.addAttribute("activePublicationTargets", activeTargets);
             model.addAttribute("activePlatformNames", activeTargets.stream()
@@ -508,6 +571,10 @@ public class IdeaMvcController {
                           @RequestParam(required = false) String outputsJson,
                           @RequestParam(required = false) List<UUID> camerapersonUserIds,
                           @RequestParam(required = false) UUID leadCamerapersonUserId,
+                          @RequestParam(required = false) List<com.kcpc.mkt.idea.dto.PlanningStage> stages,
+                          @RequestParam(required = false) List<UUID> editorUserIds,
+                          @RequestParam(required = false) UUID leadEditorUserId,
+                          @RequestParam(required = false) List<UUID> publisherUserIds,
                           @AuthenticationPrincipal KcpcUserPrincipal principal, RedirectAttributes redirectAttributes) {
         // SKU Reference has no separate "N/A" checkbox in the UI - leaving it blank simply IS N/A,
         // derived here exactly as DeliverableMvcController#isSkuBlank already does for ongoing edits.
@@ -528,7 +595,7 @@ public class IdeaMvcController {
         PlanningApprovalRequest planning = decision != IdeaReviewDecision.APPROVE ? null : new PlanningApprovalRequest(
                 categoryText, contentPriority, skuReference, skuNotApplicable, planningMode, plannedLiveDate,
                 shootDate, editDate, urgencyReason, folderLink, modelUserIds, outputs,
-                camerapersonUserIds, leadCamerapersonUserId);
+                camerapersonUserIds, leadCamerapersonUserId, stages, editorUserIds, leadEditorUserId, publisherUserIds);
         try {
             ideaService.decide(principal.user(), ideaId, decision, reason, cameramanMark, editorMark, modelMark, planning);
             redirectAttributes.addFlashAttribute("successMessage", "Review decision recorded.");
@@ -569,6 +636,33 @@ public class IdeaMvcController {
                 return org.springframework.http.ResponseEntity.ok(Map.of("status", "ok"));
             }
             redirectAttributes.addFlashAttribute("successMessage", "Idea Description updated.");
+        } catch (DomainException e) {
+            if (isAjax(requestedWith)) {
+                return ajaxError(e, request);
+            }
+            redirectAttributes.addFlashAttribute("errorMessage", e.getMessage());
+        }
+        return "redirect:/app/ideas/" + ideaId;
+    }
+
+    /**
+     * CEO/Marketing Manager only (IdeaService#updateReferenceLink enforces this independently of
+     * the "canEditReferenceLink" view-model attribute that just hides the Edit icon otherwise).
+     * Same dual-mode shape as {@link #updateDescription} above - shared by idea-detail.jsp's own
+     * inline edit (plain form POST, redirect+flash) and the Reviews Workspace's identical inline
+     * edit (AJAX, idea-reference-link-edit.js) - branched by the same X-Requested-With convention.
+     */
+    @PostMapping("/app/ideas/{ideaId}/reference-link")
+    public Object updateReferenceLink(@PathVariable UUID ideaId, @RequestParam(required = false) String referenceLink,
+                                       @RequestHeader(value = "X-Requested-With", required = false) String requestedWith,
+                                       @AuthenticationPrincipal KcpcUserPrincipal principal,
+                                       RedirectAttributes redirectAttributes, jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            ideaService.updateReferenceLink(principal.user(), ideaId, referenceLink);
+            if (isAjax(requestedWith)) {
+                return org.springframework.http.ResponseEntity.ok(Map.of("status", "ok"));
+            }
+            redirectAttributes.addFlashAttribute("successMessage", "Reference Link updated.");
         } catch (DomainException e) {
             if (isAjax(requestedWith)) {
                 return ajaxError(e, request);

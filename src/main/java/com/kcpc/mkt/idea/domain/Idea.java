@@ -89,6 +89,13 @@ public class Idea extends BaseEntity {
         this.notesRemarks = notesRemarks;
     }
 
+    /** See {@code IdeaService#updateReferenceLink} - CEO/Marketing Manager only, validated as a
+     *  real http(s) URL before this is ever called. Same Idea record, same Idea ID - never a new
+     *  version. */
+    public void updateReferenceLink(String referenceLink) {
+        this.referenceLink = referenceLink;
+    }
+
     public String getAdditionalNote() {
         return additionalNote;
     }

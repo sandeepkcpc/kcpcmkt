@@ -49,6 +49,7 @@ class AssigneeWorkloadCountDisplayTest {
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
     private static final String PUBLICATION_TARGET_ID = "01926e3e-000a-7000-8000-000000000001";
 
     @Test
@@ -149,6 +150,18 @@ class AssigneeWorkloadCountDisplayTest {
         return editorId;
     }
 
+    private String createPublisherUser(TestApiClient ceo, String fullName) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"" + fullName + "\",\"email\":\"" + fullName.toLowerCase().replace(" ", "-")
+                        + "@kcpcbandhani.local\",\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + PUBLISHER_ROLE_ID
+                        + "\",\"creationReason\":\"workload count test fixture\"}");
+        String publisherId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + publisherId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"workload count test grant\"}");
+        return publisherId;
+    }
+
     /** Workflow redesign: Idea Review approval now carries every former Planning field (including
      * the initial Shoot Team and initial Output/Publication Scope) in one call and transitions
      * straight to Shoot Assigned (SA), never PL/PLRV/PLAP - parameterized by which cameraperson
@@ -156,6 +169,7 @@ class AssigneeWorkloadCountDisplayTest {
     private String createPlanAssignedToShoot(TestApiClient ceo, String cameramanUserId, long unique, String label)
             throws Exception {
         String liveDate = LocalDate.now().plusDays(10).toString();
+        String publisherId = createPublisherUser(ceo, "Workload Pub " + label + " " + unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Workload Count " + label + " " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
@@ -164,7 +178,8 @@ class AssigneeWorkloadCountDisplayTest {
                         + "\"folderLink\":\"https://drive.example.com/workload-" + label + "-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cameramanUserId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cameramanUserId + "\"],"
+                        + "\"publisherUserIds\":[\"" + publisherId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         return findContentPlanId(ideaId);
     }
@@ -178,13 +193,15 @@ class AssigneeWorkloadCountDisplayTest {
     private String createFreshPlanningPlan(TestApiClient ceo, long unique, String label) throws Exception {
         String observerCamId = createUser(ceo, "Workload Observer Cam " + unique, "e2e-workload-observer-" + unique + "@kcpcbandhani.local");
         grantShootExecution(ceo, observerCamId);
+        String observerPublisherId = createPublisherUser(ceo, "Workload Observer Pub " + unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Workload Count " + label + " " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/workload-observer-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + observerCamId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + observerCamId + "\"],"
+                        + "\"publisherUserIds\":[\"" + observerPublisherId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         return findContentPlanId(ideaId);
     }

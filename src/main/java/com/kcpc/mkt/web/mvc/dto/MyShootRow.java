@@ -8,6 +8,14 @@ import java.util.UUID;
  * {@code ContentPlanTalentEntry} on (ENG-067). Plain class, not a record: rendered directly by a
  * JSP, whose EL only recognizes getX() JavaBean accessors, not a record's canonical accessors
  * (ENG-031).
+ *
+ * <p>Deliberately carries no overall Content/Workflow status: a Model's participation is
+ * independent of the downstream content lifecycle (Edit/Review/Publishing) - their task is
+ * considered complete once the shoot is assigned/approved per the existing workflow, and is never
+ * re-derived as "pending" by a later stage. Exposing the raw {@code WorkflowStatus} here (as this
+ * row used to) would leak internal lifecycle detail the Model has no reason to track; the
+ * "Shoot Execution screen" reached via View (see DeliverableMvcController#view's Model branch)
+ * shows the actually-relevant Shoot-phase-only progress instead.
  */
 public class MyShootRow {
 
@@ -17,17 +25,15 @@ public class MyShootRow {
     private final LocalDate plannedShootDate;
     private final String myRole;
     private final String otherTalent;
-    private final String statusLabel;
 
     public MyShootRow(UUID contentPlanId, String contentId, String title, LocalDate plannedShootDate, String myRole,
-                       String otherTalent, String statusLabel) {
+                       String otherTalent) {
         this.contentPlanId = contentPlanId;
         this.contentId = contentId;
         this.title = title;
         this.plannedShootDate = plannedShootDate;
         this.myRole = myRole;
         this.otherTalent = otherTalent;
-        this.statusLabel = statusLabel;
     }
 
     public UUID getContentPlanId() {
@@ -52,9 +58,5 @@ public class MyShootRow {
 
     public String getOtherTalent() {
         return otherTalent;
-    }
-
-    public String getStatusLabel() {
-        return statusLabel;
     }
 }

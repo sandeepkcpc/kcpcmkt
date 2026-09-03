@@ -39,100 +39,18 @@
     // --- Platforms column popovers ------------------------------------------------------------
     // ENG-076: one popover per active (at-least-one-channel-published) Platform chip, listing each
     // Channel's real publication status. Rendered as a <body>-level fixed-position overlay (moved
-    // there by portalizePlatformPopovers() below) instead of positioned relative to its own table
-    // cell - the table's own .pipeline-scroll (overflow-x:auto) container, and any stacking context
-    // a sticky cell creates, would otherwise clip the popover or bury it behind later rows.
-    // ENG-081: portalizePlatformPopovers()/removeAllPopovers() now also run around every AJAX
-    // content swap, not just once at page load - #pipelineDynamicRegion's innerHTML is replaced on
-    // every filter/sort/pagination interaction, which would otherwise (a) leave the PREVIOUS
-    // render's already-portalled popovers orphaned as stale duplicates directly under <body>, since
-    // they're no longer inside the swapped region by the time it's replaced, and (b) leave the NEW
-    // render's popovers un-portalled (still sitting inline in the fresh table markup).
-    function removeAllPopovers() {
-        document.querySelectorAll('.pipeline-platform-popover').forEach(function (popover) {
-            popover.remove();
-        });
-    }
-    function portalizePlatformPopovers() {
-        region.querySelectorAll('.pipeline-platform-popover').forEach(function (popover) {
-            document.body.appendChild(popover);
-        });
-    }
-
-    var openPlatformPopover = null;
-    var openPlatformTrigger = null;
-
-    function positionPlatformPopover(popover, trigger) {
-        var triggerRect = trigger.getBoundingClientRect();
-        var popoverRect = popover.getBoundingClientRect();
-        var margin = 6;
-        var viewportWidth = document.documentElement.clientWidth;
-        var viewportHeight = document.documentElement.clientHeight;
-
-        var top = triggerRect.bottom + margin;
-        if (top + popoverRect.height > viewportHeight - margin && triggerRect.top - popoverRect.height - margin > 0) {
-            // Not enough room below - open upward instead.
-            top = triggerRect.top - popoverRect.height - margin;
-        }
-        top = Math.max(margin, Math.min(top, viewportHeight - popoverRect.height - margin));
-
-        var left = triggerRect.left;
-        left = Math.max(margin, Math.min(left, viewportWidth - popoverRect.width - margin));
-
-        popover.style.top = top + 'px';
-        popover.style.left = left + 'px';
-    }
-
-    function repositionOpenPlatformPopover() {
-        if (openPlatformPopover && openPlatformTrigger) {
-            positionPlatformPopover(openPlatformPopover, openPlatformTrigger);
-        }
-    }
-
-    function closeOpenPlatformPopover() {
-        if (openPlatformPopover) {
-            openPlatformPopover.classList.add('hidden');
-            if (openPlatformTrigger) {
-                openPlatformTrigger.setAttribute('aria-expanded', 'false');
-            }
-            openPlatformPopover = null;
-            openPlatformTrigger = null;
-            window.removeEventListener('scroll', repositionOpenPlatformPopover, true);
-            window.removeEventListener('resize', repositionOpenPlatformPopover);
-        }
-    }
-
-    function togglePlatformPopover(trigger) {
-        var popover = document.getElementById(trigger.getAttribute('data-popup-target'));
-        if (!popover) {
-            return;
-        }
-        var alreadyOpen = popover === openPlatformPopover;
-        closeOpenPlatformPopover();
-        if (!alreadyOpen) {
-            popover.classList.remove('hidden');
-            positionPlatformPopover(popover, trigger);
-            trigger.setAttribute('aria-expanded', 'true');
-            openPlatformPopover = popover;
-            openPlatformTrigger = trigger;
-            window.addEventListener('scroll', repositionOpenPlatformPopover, true);
-            window.addEventListener('resize', repositionOpenPlatformPopover);
-        }
-    }
-
-    document.addEventListener('click', function (event) {
-        // A click on the popover's own content (e.g. an "Open" link) shouldn't close it first -
-        // target="_blank" links still navigate normally regardless of this.
-        if (openPlatformPopover && openPlatformPopover.contains(event.target)) {
-            return;
-        }
-        closeOpenPlatformPopover();
-    });
-    document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape') {
-            closeOpenPlatformPopover();
-        }
-    });
+    // there by PlatformChipPopover.portalize() below) instead of positioned relative to its own
+    // table cell - the table's own .pipeline-scroll (overflow-x:auto) container, and any stacking
+    // context a sticky cell creates, would otherwise clip the popover or bury it behind later rows.
+    // ENG-081: portalize()/removeAll() now also run around every AJAX content swap, not just once
+    // at page load - #pipelineDynamicRegion's innerHTML is replaced on every filter/sort/pagination
+    // interaction, which would otherwise (a) leave the PREVIOUS render's already-portalled popovers
+    // orphaned as stale duplicates directly under <body>, since they're no longer inside the
+    // swapped region by the time it's replaced, and (b) leave the NEW render's popovers
+    // un-portalled (still sitting inline in the fresh table markup).
+    // Extracted (unchanged behavior) into the shared platform-chip-popover.js module so My Work ->
+    // Dashboard -> Upcoming Tasks' own Platforms column can reuse the exact same open/close/
+    // position/outside-click/Escape/reposition-on-scroll implementation instead of a second one.
 
     // --- AJAX navigation (filters/search/sort/stage tabs/pagination/per-page) ------------------
     // ENG-081: one shared loader - fetches the same URL a normal click/submit would have navigated
@@ -230,11 +148,11 @@
                 if (controller.signal.aborted) {
                     return;
                 }
-                closeOpenPlatformPopover();
-                removeAllPopovers();
+                window.PlatformChipPopover.closeOpen();
+                window.PlatformChipPopover.removeAll();
                 applyPipelineHtml(html);
                 setLoading(false);
-                portalizePlatformPopovers();
+                window.PlatformChipPopover.portalize(region);
                 syncStickyColumnOffset();
                 restoreScrollLeft(savedScrollLeft);
                 if (pushHistory) {
@@ -277,20 +195,16 @@
         loadPipeline(select.dataset.baseUrl + select.value, true);
     });
 
-    // Platform chips (popover open/close) and every other in-page navigation link (stage tabs,
-    // Content ID/date-column sort links, pagination prev/next/page-number, Clear) share one
-    // delegated click listener. Everything else in the table - the Content ID link itself, the
+    // Platform chips (popover open/close, wired by platform-chip-popover.js below) and every other
+    // in-page navigation link (stage tabs, Content ID/date-column sort links, pagination
+    // prev/next/page-number, Clear) share this region - the chip click is handled by that shared
+    // module's own listener (registered separately on this same `region`), so this listener only
+    // needs its own navLink branch. Everything else in the table - the Content ID link itself, the
     // Drive Link icon, the Reference Link, the Performance link, a platform popover's "Open ↗"
     // evidence link - intentionally does NOT match any of these selectors, so it keeps navigating
     // normally (the "navigation exception": these open Content Detail or an external URL, not an
     // in-place pipeline table update).
     region.addEventListener('click', function (event) {
-        var chipTrigger = event.target.closest('.pipeline-platform-chip[data-popup-target]');
-        if (chipTrigger) {
-            event.stopPropagation();
-            togglePlatformPopover(chipTrigger);
-            return;
-        }
         var navLink = event.target.closest(
             '.pipeline-stage-tab, .pipeline-sort-link, .pagination-controls a, .pipeline-filter-bar .btn-outline'
         );
@@ -299,6 +213,7 @@
             loadPipeline(navLink.href, true);
         }
     });
+    window.PlatformChipPopover.wireClicks(region);
 
     // Back/Forward: re-fetch and re-render for whatever URL the browser just navigated to, without
     // pushing a new history entry (the browser already moved the history pointer itself).
@@ -308,6 +223,6 @@
 
     // Initial render (full page load, not an AJAX swap) still needs the same one-time setup.
     syncStickyColumnOffset();
-    portalizePlatformPopovers();
+    window.PlatformChipPopover.portalize(region);
     rememberPipelineUrl();
 })();

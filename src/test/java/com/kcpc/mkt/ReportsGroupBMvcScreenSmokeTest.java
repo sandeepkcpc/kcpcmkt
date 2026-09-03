@@ -37,8 +37,13 @@ class ReportsGroupBMvcScreenSmokeTest {
         // old flat KPI-001..030 console at this same route.
         HttpResponse<String> overview = ceo.get("/app/reports/kpis");
         assertOk(overview);
+        // ENG-097: Overview redesigned to the 3 executive blocks (Current Work Ownership /
+        // Upcoming Channel Plan / Idea -> Publish Funnel) - the old 8 KPI cards (Active WIP among
+        // them) + Stage Bottleneck Summary + Attention Needed are no longer rendered here (their
+        // underlying calculations are untouched and still used elsewhere - see KpiDashboardService).
         assertThat(overview.body()).contains("Marketing KPI Dashboard")
-                .contains("class=\"kpi-view-tab active\"").contains("Active WIP").contains("Idea").contains("Publish Funnel");
+                .contains("class=\"kpi-view-tab active\"").contains("Current Work Ownership")
+                .contains("Upcoming Channel Plan").contains("Idea").contains("Publish Funnel");
         // Overview's chart pass was scoped back out (rollback request) - the funnel is the
         // pre-chart stacked-block presentation again, never the .kpi-hbar-chart proportional bars
         // used by the other 4 views below.
@@ -71,7 +76,7 @@ class ReportsGroupBMvcScreenSmokeTest {
         // Invalid view falls back to Overview, never a 500/blank screen.
         HttpResponse<String> invalidView = ceo.get("/app/reports/kpis?view=not-a-real-view");
         assertOk(invalidView);
-        assertThat(invalidView.body()).contains("Active WIP");
+        assertThat(invalidView.body()).contains("Current Work Ownership");
 
         // Empty-state branches (no data in range) must render safely too - a zero-count donut/
         // segmented-bar must never divide by zero or render a misleading empty shape. Overview's

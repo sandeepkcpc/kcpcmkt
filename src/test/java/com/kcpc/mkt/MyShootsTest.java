@@ -21,9 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * ENG-067: "My Shoots" (Model employee screen) - a Model sees only the shoots they're linked to
  * via {@code ContentPlanTalentEntry.talentUser} (never another user's), split into Upcoming/Past
- * by the physical planned shoot date, with the raw WorkflowStatus name shown (not a friendly
- * per-stage relabel, since a Model isn't executing a specific stage) and other co-talent names
- * listed under "Other Talent".
+ * by the physical planned shoot date, with other co-talent names listed under "Other Talent".
+ *
+ * <p>No overall Content/Workflow status is shown here at all (nor a "Status" column header) - a
+ * Model's participation is independent of the downstream content lifecycle (Edit/Review/
+ * Publishing), so there is nothing on this screen for those later stages to make "pending" again
+ * once the shoot itself is assigned. See MyShootsModelViewRoutingTest for the "View" button's own
+ * permission-gated Shoot Execution routing.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -39,6 +43,7 @@ class MyShootsTest {
 
     private static final String MODEL_ROLE_ID = "01926e3e-0001-7000-8000-000000000009";
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void modelSeesOnlyOwnLinkedShootsSplitIntoUpcomingAndPast() throws Exception {
@@ -84,9 +89,11 @@ class MyShootsTest {
         assertThat(body).contains(upcomingPlan.getContentId());
         assertThat(body).contains("Neha Kapoor " + unique); // other talent on the upcoming plan
         assertThat(body).doesNotContain("Aisha Sharma " + unique + "</td>"); // never lists self as "Other Talent"
-        // Workflow redesign: approval now lands directly on Shoot Assigned (SA) - raw WorkflowStatus
-        // name, never a friendly per-stage relabel (a Model isn't executing a specific stage).
-        assertThat(body).contains(">Shoot Assigned<");
+        // No overall Content/Workflow status column at all - neither the header nor any raw
+        // WorkflowStatus name (the plan is at Shoot Assigned/SA here) is ever exposed to a Model.
+        assertThat(body).doesNotContain(">Status<");
+        assertThat(body).doesNotContain("Shoot Assigned").doesNotContain("Performance Pending")
+                .doesNotContain("Edit Assigned").doesNotContain("Shoot Review");
 
         // Past tab: this plan's row too - model1 is linked, shoot date is in the past.
         assertThat(body).contains(pastPlan.getContentId());
@@ -121,6 +128,10 @@ class MyShootsTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"my shoots test fixture grant\"}");
+        String pubId = createUser(ceo, "My Shoots Default Pub " + unique, "ms-default-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"my shoots test fixture grant\"}");
         assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
         Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
                 .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
@@ -134,6 +145,7 @@ class MyShootsTest {
         reviewParams.put("folderLink", java.util.List.of("https://drive.example.com/my-shoots-" + unique));
         reviewParams.put("camerapersonUserIds", java.util.List.of(camId));
         reviewParams.put("modelUserIds", modelUserIds);
+        reviewParams.put("publisherUserIds", java.util.List.of(pubId));
         assertRedirect(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", reviewParams));
         return contentPlanRepository.findByIdea(idea).orElseThrow();
     }

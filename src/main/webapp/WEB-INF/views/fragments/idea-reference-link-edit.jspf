@@ -1,0 +1,44 @@
+<%-- Reference Link inline view/edit widget. Shared by idea-detail.jsp (a real <form>, plain
+     POST/redirect) and the Reviews Workspace's "Reviewing Idea" panel (reviews-ideas.jspf, AJAX
+     via idea-reference-link-edit.js) - the caller sets these variables with <c:set> immediately
+     before including this fragment:
+       refLinkEditIdea    - the Idea entity (.id / .referenceLink)
+       refLinkEditCanEdit - boolean, CEO/Marketing Manager only (native authority - see
+                            IdeaService#updateReferenceLink, which enforces this independently of
+                            this flag; this only hides/shows the pencil icon)
+       refLinkEditAjax    - boolean, true only for the Reviews Workspace's AJAX-swapped copy
+
+     Same Idea record, same Idea ID - this only ever updates the Reference Link field, never
+     creates a new Idea/version and never touches Title/Description/Additional Note/Priority/
+     Stages/assignments/workflow status. The read-only display stays clickable exactly as before;
+     only CEO/Marketing Manager additionally see the pencil icon that swaps it for an editable
+     input with Save/Cancel. --%>
+<span class="ref-link-view" id="refLinkView">
+    <c:choose>
+        <c:when test="${not empty refLinkEditIdea.referenceLink}">
+            <a class="idea-detail-ref-link" href="${fn:escapeXml(refLinkEditIdea.referenceLink)}" target="_blank" rel="noopener noreferrer">
+                <c:out value="${refLinkEditIdea.referenceLink}"/>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+        </c:when>
+        <c:otherwise><span class="muted">&mdash;</span></c:otherwise>
+    </c:choose>
+    <c:if test="${refLinkEditCanEdit}">
+        <button type="button" class="script-description-icon-btn" id="refLinkEditToggle"
+                aria-label="Edit Reference Link" title="Edit Reference Link">&#9998;</button>
+    </c:if>
+</span>
+<c:if test="${refLinkEditCanEdit}">
+    <form method="post" class="ref-link-edit-form hidden" id="refLinkEditForm"
+          action="${pageContext.request.contextPath}/app/ideas/${refLinkEditIdea.id}/reference-link"
+          data-ajax="${refLinkEditAjax}">
+        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+        <input type="url" name="referenceLink" id="refLinkEditInput" class="ref-link-edit-input"
+               value="${fn:escapeXml(refLinkEditIdea.referenceLink)}" placeholder="https://example.com/...">
+        <div class="reviews-decision-error hidden" id="refLinkEditError"></div>
+        <div class="ref-link-edit-actions">
+            <button type="button" class="btn-outline" id="refLinkEditCancel">Cancel</button>
+            <button type="submit">Save</button>
+        </div>
+    </form>
+</c:if>

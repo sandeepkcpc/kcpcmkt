@@ -315,24 +315,31 @@
                 </div>
 
                 <h4 class="content-detail-section-heading">People</h4>
+                <%-- Each contributor's mark is the DECIDED role-level value (marks.predefinedXMark,
+                     from PredefinedRoleMarks - set at Idea Review approval, in the same transaction
+                     that creates this ContentPlan), shown identically to every contributor currently
+                     assigned to that role - available immediately on assignment, never waiting on
+                     that stage's own submission/review. Not PersonalMarkAttribution (that's the
+                     later, per-person post-approval award - a different concept). No PredefinedRoleMarks
+                     field exists for Publisher, so that row has no decided-mark source and stays "-". --%>
                 <div class="content-detail-field-row">
                     <span class="content-detail-field-label">Model(s)</span>
                     <span class="content-detail-field-value">
-                        <c:forEach var="t" items="${talentEntries}" varStatus="ts"><c:out value="${t.talentName}"/><c:if test="${!ts.last}">, </c:if></c:forEach>
+                        <c:forEach var="t" items="${talentEntries}" varStatus="ts"><c:out value="${t.talentName}"/><span class="content-detail-people-mark"><c:choose><c:when test="${not empty marks and not empty marks.predefinedModelMark}"><c:out value="${marks.predefinedModelMark}"/></c:when><c:otherwise>&mdash;</c:otherwise></c:choose></span><c:if test="${!ts.last}">, </c:if></c:forEach>
                         <c:if test="${empty talentEntries}"><span class="muted">&mdash;</span></c:if>
                     </span>
                 </div>
                 <div class="content-detail-field-row">
                     <span class="content-detail-field-label">Camera Person(s)</span>
                     <span class="content-detail-field-value">
-                        <c:forEach var="a" items="${shootingAssignments}" varStatus="s"><c:out value="${a.cameraperson.fullName}"/><c:if test="${a.lead}"> (Lead)</c:if><c:if test="${!s.last}">, </c:if></c:forEach>
+                        <c:forEach var="a" items="${shootingAssignments}" varStatus="s"><c:out value="${a.cameraperson.fullName}"/><c:if test="${a.lead}"> (Lead)</c:if><span class="content-detail-people-mark"><c:choose><c:when test="${not empty marks and not empty marks.predefinedCameramanMark}"><c:out value="${marks.predefinedCameramanMark}"/></c:when><c:otherwise>&mdash;</c:otherwise></c:choose></span><c:if test="${!s.last}">, </c:if></c:forEach>
                         <c:if test="${empty shootingAssignments}"><span class="muted">&mdash;</span></c:if>
                     </span>
                 </div>
                 <div class="content-detail-field-row">
                     <span class="content-detail-field-label">Editor(s)</span>
                     <span class="content-detail-field-value">
-                        <c:forEach var="a" items="${editingAssignments}" varStatus="s"><c:out value="${a.editor.fullName}"/><c:if test="${a.lead}"> (Lead)</c:if><c:if test="${!s.last}">, </c:if></c:forEach>
+                        <c:forEach var="a" items="${editingAssignments}" varStatus="s"><c:out value="${a.editor.fullName}"/><c:if test="${a.lead}"> (Lead)</c:if><span class="content-detail-people-mark"><c:choose><c:when test="${not empty marks and not empty marks.predefinedEditorMark}"><c:out value="${marks.predefinedEditorMark}"/></c:when><c:otherwise>&mdash;</c:otherwise></c:choose></span><c:if test="${!s.last}">, </c:if></c:forEach>
                         <c:if test="${empty editingAssignments}"><span class="muted">&mdash;</span></c:if>
                     </span>
                 </div>
@@ -883,9 +890,12 @@
                                                 <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
                                             </div>
                                             <div class="kcpc-model-checklist">
+                                                <%-- ENG-097: pre-check a Publisher already assigned from Planning time. --%>
                                                 <c:forEach var="pu" items="${publisherUsers}">
                                                     <label class="model-check-item">
-                                                        <input type="checkbox" name="publisherUserIds" value="${pu.id}" data-name="${pu.fullName}"> ${pu.fullName}
+                                                        <input type="checkbox" name="publisherUserIds" value="${pu.id}" data-name="${pu.fullName}"
+                                                               <c:if test="${alreadyAssignedPublisherUserIds.contains(pu.id)}">checked</c:if>> ${pu.fullName}
+                                                        <c:if test="${alreadyAssignedPublisherUserIds.contains(pu.id)}"><span class="muted"> (already assigned)</span></c:if>
                                                     </label>
                                                 </c:forEach>
                                             </div>
@@ -1936,13 +1946,25 @@
         <div class="panel">
             <h2>Timeline</h2>
             <ul class="timeline">
+                <%-- ENG-091: a stage excluded by the Idea Review "Stages" selection (Direct Edit /
+                     Direct Publishing) never has a real WorkflowTransitionHistory row - its status
+                     was never entered at all - so these are plain notes, not real transitions,
+                     shown first since the exclusion was decided at planning time. --%>
+                <c:if test="${not empty plan.shootStageSkipReason}">
+                    <li class="timeline-skipped">Shoot — Skipped — ${plan.shootStageSkipReason}</li>
+                </c:if>
+                <c:if test="${not empty plan.editStageSkipReason}">
+                    <li class="timeline-skipped">Edit — Skipped — ${plan.editStageSkipReason}</li>
+                </c:if>
                 <c:forEach var="t" items="${timeline}">
                     <li><span class="ts">${kcpc:ist(t.transitionTimestamp)}</span>
                         ${t.fromStatusCode.statusName} &rarr; ${t.toStatusCode.statusName} (${t.triggerCommand}) by ${t.triggeredBy.fullName}
                         <c:if test="${not empty t.transitionReason}"> — ${t.transitionReason}</c:if>
                     </li>
                 </c:forEach>
-                <c:if test="${empty timeline}"><li class="muted">No transitions yet.</li></c:if>
+                <c:if test="${empty timeline and empty plan.shootStageSkipReason and empty plan.editStageSkipReason}">
+                    <li class="muted">No transitions yet.</li>
+                </c:if>
             </ul>
         </div>
     </div>
@@ -1984,6 +2006,110 @@
             </c:if>
             <c:if test="${!cdHasOther}"><p class="muted">No administrative actions available at this stage.</p></c:if>
 
+            <%-- Skip Stage (ENG-090): deliberately NOT part of the availableActions/
+                 content-detail-action-form loop above - that mechanism reveals a plain inline
+                 form with no confirm step, and (per the comment further below) picker-heavy,
+                 review-like actions are already kept out of it. Skip needs a genuine confirmation
+                 modal ("Are you sure...", Current Stage/Next Stage, Cancel vs Confirm Skip), so it
+                 reuses the same .kcpc-modal-overlay shell as the Publisher Assignment modal above.
+                 Visible independently of canSkipShoot/canSkipEdit's underlying eligibility - both
+                 flags already combine PERM_20_SKIP_STAGE with the correct workflow-status window
+                 (SA/SIP/SRV for Shoot, EA/ED/ERV for Edit) server-side, so a visible button here
+                 always means the POST below is expected to succeed. --%>
+            <c:if test="${canSkipShoot}">
+                <div class="content-detail-action-row">
+                    <button type="button" class="content-detail-action-btn content-detail-action-secondary" id="skipShootBtn">Skip Stage</button>
+                </div>
+                <div class="kcpc-modal-overlay hidden" id="skipShootModalOverlay">
+                    <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="skipShootModalTitle">
+                        <div class="kcpc-modal-header">
+                            <h3 id="skipShootModalTitle">Skip Shoot</h3>
+                            <button type="button" class="kcpc-modal-close" id="skipShootModalClose" aria-label="Close">&times;</button>
+                        </div>
+                        <div class="kcpc-modal-body">
+                            <p>Are you sure you want to skip this stage?</p>
+                            <div class="reviews-field-row"><span class="reviews-field-label">Current Stage</span><span class="reviews-field-value">Shoot</span></div>
+                            <div class="reviews-field-row"><span class="reviews-field-label">Next Stage</span><span class="reviews-field-value">Edit Assigned</span></div>
+                            <form method="post" id="skipShootForm" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/shooting/skip">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                <div class="kcpc-model-picker">
+                                    <label>Editor(s) *</label>
+                                    <div class="kcpc-model-input">
+                                        <div class="kcpc-model-chips"></div>
+                                        <input type="text" class="kcpc-model-search" placeholder="Search editor...">
+                                    </div>
+                                    <div class="kcpc-model-checklist">
+                                        <c:forEach var="u" items="${videoEditorUsers}">
+                                            <label class="model-check-item">
+                                                <input type="checkbox" name="editorUserIds" value="${u.id}" data-name="${u.fullName}"> ${u.fullName}
+                                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
+                                            </label>
+                                        </c:forEach>
+                                    </div>
+                                    <label for="skipShootLead">Editor Lead *</label>
+                                    <select name="leadEditorUserId" id="skipShootLead" class="kcpc-lead-select" disabled>
+                                        <option value="">N/A</option>
+                                    </select>
+                                </div>
+                                <label>Reason *
+                                    <textarea name="reason" rows="3" required placeholder="Enter reason for skipping this stage..."></textarea>
+                                </label>
+                            </form>
+                        </div>
+                        <div class="kcpc-modal-footer">
+                            <button type="button" class="btn-outline" id="skipShootCancelBtn">Cancel</button>
+                            <button type="submit" form="skipShootForm" id="skipShootConfirmBtn">Confirm Skip</button>
+                        </div>
+                    </div>
+                </div>
+            </c:if>
+            <c:if test="${canSkipEdit}">
+                <div class="content-detail-action-row">
+                    <button type="button" class="content-detail-action-btn content-detail-action-secondary" id="skipEditBtn">Skip Stage</button>
+                </div>
+                <div class="kcpc-modal-overlay hidden" id="skipEditModalOverlay">
+                    <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="skipEditModalTitle">
+                        <div class="kcpc-modal-header">
+                            <h3 id="skipEditModalTitle">Skip Edit</h3>
+                            <button type="button" class="kcpc-modal-close" id="skipEditModalClose" aria-label="Close">&times;</button>
+                        </div>
+                        <div class="kcpc-modal-body">
+                            <p>Are you sure you want to skip this stage?</p>
+                            <div class="reviews-field-row"><span class="reviews-field-label">Current Stage</span><span class="reviews-field-value">Edit</span></div>
+                            <div class="reviews-field-row"><span class="reviews-field-label">Next Stage</span><span class="reviews-field-value">Ready for Publishing</span></div>
+                            <form method="post" id="skipEditForm" action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/editing/skip">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                <div class="kcpc-model-picker">
+                                    <label>Publisher(s) *</label>
+                                    <div class="kcpc-model-input">
+                                        <div class="kcpc-model-chips"></div>
+                                        <input type="text" class="kcpc-model-search" placeholder="Search publisher...">
+                                    </div>
+                                    <div class="kcpc-model-checklist">
+                                        <%-- ENG-097: pre-check a Publisher already assigned from Planning time. --%>
+                                        <c:forEach var="u" items="${publisherUsers}">
+                                            <label class="model-check-item">
+                                                <input type="checkbox" name="publisherUserIds" value="${u.id}" data-name="${u.fullName}"
+                                                       <c:if test="${alreadyAssignedPublisherUserIds.contains(u.id)}">checked</c:if>> ${u.fullName}
+                                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
+                                                <c:if test="${alreadyAssignedPublisherUserIds.contains(u.id)}"><span class="muted"> (already assigned)</span></c:if>
+                                            </label>
+                                        </c:forEach>
+                                    </div>
+                                </div>
+                                <label>Reason *
+                                    <textarea name="reason" rows="3" required placeholder="Enter reason for skipping this stage..."></textarea>
+                                </label>
+                            </form>
+                        </div>
+                        <div class="kcpc-modal-footer">
+                            <button type="button" class="btn-outline" id="skipEditCancelBtn">Cancel</button>
+                            <button type="submit" form="skipEditForm" id="skipEditConfirmBtn">Confirm Skip</button>
+                        </div>
+                    </div>
+                </div>
+            </c:if>
+
             <%-- Hidden action forms - one per possible actionKey, revealed by content-detail.js when
                  its matching button is clicked. Same endpoints/fields as before, just relocated here. --%>
 
@@ -2019,7 +2145,7 @@
                     </select>
                 </label>
                 <div class="kcpc-model-picker reassign-assignee-picker" data-stage="SHOOTING">
-                    <label>New Assignee(s)</label>
+                    <label>New Cameraperson(s)</label>
                     <div class="kcpc-model-input">
                         <div class="kcpc-model-chips"></div>
                         <input type="text" class="kcpc-model-search" placeholder="Search cameraperson...">
@@ -2033,6 +2159,35 @@
                             <label class="model-check-item">
                                 <input type="checkbox" name="newAssigneeUserIds" value="${u.id}"
                                        data-name="${u.fullName}" ${isCurrentAssignee ? 'checked' : ''}> ${u.fullName}
+                                <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
+                            </label>
+                        </c:forEach>
+                    </div>
+                </div>
+                <%-- ENG-102: Model(s)/Talent reassignment - SHOOTING only, same .kcpc-model-picker
+                     pattern as Idea Review's own Model(s)/Talent field (reviews-ideas.jspf), reusing
+                     the page's existing ${modelUsers} model attribute. Optional (no * in the label),
+                     matching Planning's own Model(s) picker - talentUserIds there is never mandatory
+                     either. A separate picker from the Cameraperson one above (own checkbox name
+                     newModelUserIds) so AdminActionService can tell "no Model(s) change requested"
+                     (field omitted) apart from "replace with this exact set" (field present) -
+                     reassign-form.js keeps it in sync with the Task Stage select the same way it
+                     already does for the Cameraperson/Editor pickers above. --%>
+                <div class="kcpc-model-picker reassign-model-picker" data-stage="SHOOTING">
+                    <label>Model(s) / Talent</label>
+                    <div class="kcpc-model-input">
+                        <div class="kcpc-model-chips"></div>
+                        <input type="text" class="kcpc-model-search" placeholder="Search model...">
+                    </div>
+                    <div class="kcpc-model-checklist">
+                        <c:forEach var="u" items="${modelUsers}">
+                            <c:set var="isCurrentTalent" value="false"/>
+                            <c:forEach var="t" items="${talentEntries}">
+                                <c:if test="${not empty t.talentUser and t.talentUser.id == u.id}"><c:set var="isCurrentTalent" value="true"/></c:if>
+                            </c:forEach>
+                            <label class="model-check-item">
+                                <input type="checkbox" name="newModelUserIds" value="${u.id}"
+                                       data-name="${u.fullName}" ${isCurrentTalent ? 'checked' : ''}> ${u.fullName}
                                 <span class="muted assignee-task-count">(<c:out value="${u.activeTaskLabel}"/>)</span>
                             </label>
                         </c:forEach>
@@ -2210,6 +2365,7 @@
 <script src="${pageContext.request.contextPath}/js/my-work-tabs.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/content-detail.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/publisher-assignment-modal.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/skip-stage-modal.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/performance-metric-correction.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
 </body>

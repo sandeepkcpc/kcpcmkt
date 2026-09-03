@@ -56,175 +56,123 @@
     <div class="my-work-mode-panel" data-tab-panel="execution">
     </c:if>
 
-    <%-- Stage tabs: All is always present; Shoot/Edit/Publishing each render only when this
-         employee holds the matching live execution permission (PERM_18/19/08) OR has real
-         current/history assignment data for that stage (${showShootTab}/${showEditTab}/
-         ${showPublishTab}, computed once in LandingMvcController#myWork - the same source the
-         backend execution checks use, so a tab is never shown for a stage the employee cannot
-         actually act in, and never hidden for one they can). Task-specific stage detail screens
-         (Shoot/Edit/Publishing Task Detail at /app/deliverables/{id}) are unchanged by this. --%>
+    <%-- Stage tabs: no "All" tab - each employee sees only the stage tabs they are actually
+         authorized for. Dashboard/Shoot/Edit/Publishing each render only when this employee holds
+         the matching live execution permission (PERM_18/19/08) OR has real current/history
+         assignment data for that stage (${showShootTab}/${showEditTab}/${showPublishTab},
+         computed once in LandingMvcController#myWork - the same source the backend execution
+         checks use, so a tab is never shown for a stage the employee cannot actually act in, and
+         never hidden for one they can). None of these buttons carries a hardcoded "active" class -
+         my-work-tabs.js falls back to the first tab present in the DOM when none is pre-marked
+         active, and since every button here is itself conditionally rendered, "first in the DOM"
+         is always this employee's own first authorized tab (Dashboard > Shoot > Edit > Publishing
+         priority, matching this fixed button order) - never a removed "All" tab. Task-specific
+         stage detail screens (Shoot/Edit/Publishing Task Detail at /app/deliverables/{id}) are
+         unchanged by this. --%>
     <div class="my-work-stage-tabs">
-        <button type="button" class="my-work-stage-tab active" data-tab="all">All</button>
+        <%-- ENG-098: Publisher-only upcoming-work dashboard - same gate as the Publishing tab
+             itself (${showPublishTab}) since it's built entirely from that same Publisher data. --%>
+        <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab" data-tab="dashboard">Dashboard</button></c:if>
         <c:if test="${showShootTab}"><button type="button" class="my-work-stage-tab" data-tab="shoot">Shoot</button></c:if>
         <c:if test="${showEditTab}"><button type="button" class="my-work-stage-tab" data-tab="edit">Edit</button></c:if>
         <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab" data-tab="publish">Publishing</button></c:if>
     </div>
 
-    <%-- ================================================================ ALL ================ --%>
-    <div class="my-work-stage-panel" data-tab-panel="all">
+    <%-- Zero-authorized-tabs edge case: an employee with no execution permission and no
+         current/history data in any stage would otherwise see an empty tab bar and nothing else -
+         a plain informational message instead, reusing the existing note-box convention (see the
+         same class used at the foot of each stage panel below). --%>
+    <c:if test="${!showShootTab && !showEditTab && !showPublishTab}">
+        <p class="note-box">You have no assigned work yet. Once you are assigned to a Shoot, Edit,
+            or Publishing task, it will appear here.</p>
+    </c:if>
+
+    <%-- ================================================================ DASHBOARD (Publisher upcoming-work) === --%>
+    <c:if test="${showPublishTab}">
+    <div class="my-work-stage-panel hidden" data-tab-panel="dashboard">
+        <div class="kpi-cards">
+            <div class="kpi-card kpi-underreview">
+                <div class="kpi-card-icon">&#128197;</div>
+                <div class="kpi-card-body">
+                    <div class="kpi-card-title-row"><span class="kpi-card-title">Upcoming</span><span class="kpi-card-count">${upcomingPublishingCount}</span></div>
+                    <div class="kpi-card-subtitle">Assigned, not yet in Publishing</div>
+                </div>
+            </div>
+            <div class="kpi-card kpi-active">
+                <div class="kpi-card-icon">&#128228;</div>
+                <div class="kpi-card-body">
+                    <div class="kpi-card-title-row"><span class="kpi-card-title">Active Publishing</span><span class="kpi-card-count">${activePublishingCount}</span></div>
+                    <div class="kpi-card-subtitle">Tasks assigned to you</div>
+                </div>
+            </div>
+            <div class="kpi-card kpi-delayed">
+                <div class="kpi-card-icon">&#9201;</div>
+                <div class="kpi-card-body">
+                    <div class="kpi-card-title-row"><span class="kpi-card-title">Delayed</span><span class="kpi-card-count">${delayedPublishingCount}</span></div>
+                    <div class="kpi-card-subtitle">Past planned live date</div>
+                </div>
+            </div>
+            <div class="kpi-card kpi-completed">
+                <div class="kpi-card-icon">&#9989;</div>
+                <div class="kpi-card-body">
+                    <div class="kpi-card-title-row"><span class="kpi-card-title">Completed</span><span class="kpi-card-count">${publishCompletedCount}</span></div>
+                    <div class="kpi-card-subtitle">Publishing completed</div>
+                </div>
+            </div>
+        </div>
         <div class="panel my-work-table-wrapper">
-            <h2>Active Work <span class="count-badge">${activeWork.size()}</span></h2>
+            <h2>Upcoming Tasks <span class="count-badge">${upcomingPublishingCount}</span></h2>
+            <p class="muted">Tasks assigned to you but not yet in Publishing stage.</p>
             <table class="data-table">
                 <thead>
                 <tr>
-                    <th>Stage</th>
-                    <th>Content ID</th>
-                    <th>Content / Task</th>
-                    <th>Priority</th>
-                    <th>Planned Date</th>
-                    <th>Lead</th>
-                    <th>Status</th>
-                    <th>Drive Link</th>
-                    <th>Action</th>
+                    <th>Stage</th><th>Content ID</th><th>Content / Task</th><th>Priority</th>
+                    <th>Planned Date</th><th>Platforms</th><th>Action</th>
                 </tr>
                 </thead>
                 <tbody>
-                <c:forEach var="item" items="${activeWork}">
+                <c:forEach var="item" items="${upcomingPublishWork}">
                     <tr>
                         <td>
                             <c:choose>
-                                <c:when test="${item.stage == 'PUBLISH' && item.repost}"><span class="stage-badge stage-repost">REPOST</span></c:when>
-                                <c:when test="${item.stage == 'SHOOT'}"><span class="stage-badge stage-shoot">SHOOT</span></c:when>
-                                <c:when test="${item.stage == 'EDIT'}"><span class="stage-badge stage-edit">EDIT</span></c:when>
-                                <c:otherwise><span class="stage-badge stage-publish">PUBLISHING</span></c:otherwise>
+                                <c:when test="${item.currentStage == 'Shoot'}"><span class="stage-badge stage-shoot">SHOOT</span></c:when>
+                                <c:when test="${item.currentStage == 'Edit'}"><span class="stage-badge stage-edit">EDIT</span></c:when>
+                                <c:otherwise><span class="stage-badge stage-publish"><c:out value="${item.currentStage}"/></span></c:otherwise>
                             </c:choose>
                         </td>
-                        <td>${item.contentId}</td>
+                        <td><a class="content-id-link" href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">${item.contentId}</a></td>
                         <td><c:out value="${item.title}"/></td>
                         <td>
                             <c:if test="${not empty item.priority}">
                                 <span class="priority-pill ${item.priorityCssClass}"><c:out value="${item.priority}"/></span>
                             </c:if>
                         </td>
-                        <td>${item.plannedDate}</td>
-                        <td>
-                            <c:choose>
-                                <c:when test="${not empty item.leadName}">
-                                    <c:out value="${item.leadName}"/><c:if test="${item.shootLead}"> <span class="lead-badge">Lead</span></c:if>
-                                </c:when>
-                                <c:otherwise>&mdash;</c:otherwise>
-                            </c:choose>
+                        <td class="${item.delayed ? 'planned-date-delayed' : ''}">${item.plannedDate}</td>
+                        <%-- Platforms: same icon+count chip UI as Content Pipeline/Content Detail
+                             (fragments/pipeline-platform-chip.jspf), same ${item.platformSummaries}
+                             data shape (PipelinePlatformSummary) built by the shared
+                             PipelineDashboardService#buildPlatformSummariesForPlan - never a second
+                             rendering/data implementation. --%>
+                        <td class="pipeline-col-wrap">
+                            <div class="pipeline-platform-chips">
+                                <c:forEach var="summary" items="${item.platformSummaries}" varStatus="ps">
+                                    <c:set var="popoverId" value="upcoming-platform-popover-${item.contentPlanId}-${ps.index}"/>
+                                    <%@ include file="fragments/pipeline-platform-chip.jspf" %>
+                                </c:forEach>
+                                <c:if test="${empty item.platformSummaries}"><span class="pipeline-team-empty">—</span></c:if>
+                            </div>
                         </td>
-                        <td><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span>
-                            <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
-                        </td>
-                        <td>
-                            <c:choose>
-                                <c:when test="${not empty item.driveLink}">
-                                    <a class="drive-link" href="${item.driveLink}" target="_blank" rel="noopener noreferrer">Open Drive &#8599;</a>
-                                </c:when>
-                                <c:otherwise>&mdash;</c:otherwise>
-                            </c:choose>
-                        </td>
-                        <td>
-                            <%-- Permission revoked after assignment: task stays visible, execution
-                                 suppressed, clear message instead - never silently hidden/deleted. --%>
-                            <c:choose>
-                                <c:when test="${item.executionBlocked}">
-                                    <span class="execution-blocked-note">Execution permission removed. This task requires reassignment or permission restoration.</span>
-                                </c:when>
-                                <c:otherwise>
-                                    <a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">View Details</a>
-                                </c:otherwise>
-                            </c:choose>
-                        </td>
+                        <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">View Details</a></td>
                     </tr>
                 </c:forEach>
-                <c:if test="${empty activeWork}">
-                    <tr><td colspan="9" class="muted">No active work.</td></tr>
+                <c:if test="${empty upcomingPublishWork}">
+                    <tr><td colspan="7" class="muted">No upcoming publishing tasks.</td></tr>
                 </c:if>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="panel my-work-table-wrapper">
-            <h2>Completed Work <span class="count-badge">${completedWork.size()}</span></h2>
-            <table class="data-table">
-                <thead>
-                <tr>
-                    <th>Stage</th>
-                    <th>Content ID</th>
-                    <th>Content / Task</th>
-                    <th>Completed On</th>
-                    <th>Result</th>
-                    <th>Remarks</th>
-                    <th>View</th>
-                </tr>
-                </thead>
-                <tbody>
-                <c:forEach var="w" items="${completedWork}">
-                    <tr>
-                        <td>
-                            <c:choose>
-                                <c:when test="${w.stageWorked == 'SHOOT'}"><span class="stage-badge stage-shoot">SHOOT</span></c:when>
-                                <c:when test="${w.stageWorked == 'EDIT'}"><span class="stage-badge stage-edit">EDIT</span></c:when>
-                                <c:otherwise><span class="stage-badge stage-publish">PUBLISHING</span></c:otherwise>
-                            </c:choose>
-                        </td>
-                        <td>${w.contentId}</td>
-                        <td><c:out value="${w.title}"/></td>
-                        <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
-                        <td>
-                            <c:choose>
-                                <c:when test="${not empty w.finalResult}">
-                                    <span class="status-pill ${w.finalResult == 'Approved' ? 'status-completed' : 'status-needschanges'}"><c:out value="${w.finalResult}"/></span>
-                                </c:when>
-                                <c:otherwise>&mdash;</c:otherwise>
-                            </c:choose>
-                        </td>
-                        <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                        <td>
-                            <c:choose>
-                                <c:when test="${w.stageWorked == 'SHOOT'}">
-                                    <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/shoot/${w.assignmentId}">View Details</a>
-                                </c:when>
-                                <c:when test="${w.stageWorked == 'EDIT'}">
-                                    <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/edit/${w.assignmentId}">View Details</a>
-                                </c:when>
-                                <c:otherwise>
-                                    <a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/publish/${w.assignmentId}">View Details</a>
-                                </c:otherwise>
-                            </c:choose>
-                        </td>
-                    </tr>
-                </c:forEach>
-                <c:if test="${empty completedWork}">
-                    <tr><td colspan="7" class="muted">No completed work yet.</td></tr>
-                </c:if>
-                </tbody>
-            </table>
-        </div>
-
-        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.</p>
-
-        <div class="panel">
-            <h2>My Marks</h2>
-            <table class="data-table">
-                <thead><tr><th>Content ID</th><th>Role</th><th>Mark</th><th>Attributed (IST)</th></tr></thead>
-                <tbody>
-                <c:forEach var="m" items="${myMarks}">
-                    <tr>
-                        <td>${m.contentPlan.contentId}</td>
-                        <td>${m.roleType}</td>
-                        <td>${m.attributedMarkValue}</td>
-                        <td>${kcpc:ist(m.attributedAt)}</td>
-                    </tr>
-                </c:forEach>
-                <c:if test="${empty myMarks}"><tr><td colspan="4" class="muted">No marks attributed yet.</td></tr></c:if>
                 </tbody>
             </table>
         </div>
     </div>
+    </c:if>
 
     <%-- ================================================================ SHOOT ============== --%>
     <c:if test="${showShootTab}">
@@ -263,13 +211,6 @@
             <p class="execution-blocked-note">You do not currently hold Shoot execution permission - any task below is historical or awaiting reassignment.</p>
         </c:if>
 
-        <div class="my-work-tabs">
-            <button type="button" class="my-work-tab active" data-tab="shoot-active">Active Work</button>
-            <button type="button" class="my-work-tab" data-tab="shoot-history">History</button>
-            <button type="button" class="my-work-tab" data-tab="shoot-marks">Marks</button>
-        </div>
-
-        <div class="my-work-tab-panel" data-tab-panel="shoot-active">
             <div class="panel my-work-table-wrapper">
                 <h2><span class="stage-badge stage-shoot">SHOOT</span>Active Shoot Tasks</h2>
                 <table class="data-table">
@@ -289,7 +230,7 @@
                                     <span class="priority-pill ${item.priorityCssClass}"><c:out value="${item.priority}"/></span>
                                 </c:if>
                             </td>
-                            <td>${item.plannedDate}</td>
+                            <td class="${item.delayed ? 'planned-date-delayed' : ''}">${item.plannedDate}</td>
                             <td><c:out value="${empty item.models ? '—' : item.models}"/></td>
                             <td>
                                 <c:choose>
@@ -329,65 +270,9 @@
                     </tbody>
                 </table>
             </div>
-        </div>
 
-        <div class="my-work-tab-panel hidden" data-tab-panel="shoot-history">
-            <div class="panel my-work-table-wrapper">
-                <h2>Completed Shoot Work</h2>
-                <table class="data-table">
-                    <thead>
-                    <tr><th>Content ID</th><th>Idea / Content</th><th>Shoot Date</th><th>Model(s)</th>
-                        <th>Completed On</th><th>Result</th><th>Remarks</th><th>View</th></tr>
-                    </thead>
-                    <tbody>
-                    <c:forEach var="w" items="${shootCompletedWork}">
-                        <tr>
-                            <td>${w.contentId}</td>
-                            <td><c:out value="${w.title}"/></td>
-                            <td>${w.stageDate}</td>
-                            <td><c:out value="${empty w.models ? '—' : w.models}"/></td>
-                            <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
-                            <td>
-                                <c:choose>
-                                    <c:when test="${not empty w.finalResult}">
-                                        <span class="status-pill ${w.finalResult == 'Approved' ? 'status-completed' : 'status-needschanges'}"><c:out value="${w.finalResult}"/></span>
-                                    </c:when>
-                                    <c:otherwise>&mdash;</c:otherwise>
-                                </c:choose>
-                            </td>
-                            <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                            <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/shoot/${w.assignmentId}">View Details</a></td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty shootCompletedWork}">
-                        <tr><td colspan="8" class="muted">No completed shoot work yet.</td></tr>
-                    </c:if>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="my-work-tab-panel hidden" data-tab-panel="shoot-marks">
-            <div class="panel my-work-table-wrapper">
-                <h2>My Shoot Marks</h2>
-                <table class="data-table">
-                    <thead><tr><th>Content ID</th><th>Role</th><th>Mark</th><th>Attributed (IST)</th></tr></thead>
-                    <tbody>
-                    <c:forEach var="m" items="${shootMarks}">
-                        <tr>
-                            <td>${m.contentPlan.contentId}</td>
-                            <td>${m.roleType}</td>
-                            <td>${m.attributedMarkValue}</td>
-                            <td>${kcpc:ist(m.attributedAt)}</td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty shootMarks}"><tr><td colspan="4" class="muted">No Shoot marks attributed yet.</td></tr></c:if>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.</p>
+        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.
+            Looking for your completed work? See <a href="${pageContext.request.contextPath}/app/my-performance">My Performance</a>.</p>
     </div>
     </c:if>
 
@@ -428,13 +313,6 @@
             <p class="execution-blocked-note">You do not currently hold Edit execution permission - any task below is historical or awaiting reassignment.</p>
         </c:if>
 
-        <div class="my-work-tabs">
-            <button type="button" class="my-work-tab active" data-tab="edit-active">Active Work</button>
-            <button type="button" class="my-work-tab" data-tab="edit-history">History</button>
-            <button type="button" class="my-work-tab" data-tab="edit-marks">Marks</button>
-        </div>
-
-        <div class="my-work-tab-panel" data-tab-panel="edit-active">
             <div class="panel my-work-table-wrapper">
                 <h2><span class="stage-badge stage-edit">EDIT</span>Active Edit Tasks</h2>
                 <table class="data-table">
@@ -454,7 +332,7 @@
                                     <span class="priority-pill ${item.priorityCssClass}"><c:out value="${item.priority}"/></span>
                                 </c:if>
                             </td>
-                            <td>${item.plannedDate}</td>
+                            <td class="${item.delayed ? 'planned-date-delayed' : ''}">${item.plannedDate}</td>
                             <td><c:out value="${empty item.models ? '—' : item.models}"/></td>
                             <td>
                                 <c:choose>
@@ -494,71 +372,19 @@
                     </tbody>
                 </table>
             </div>
-        </div>
 
-        <div class="my-work-tab-panel hidden" data-tab-panel="edit-history">
-            <div class="panel my-work-table-wrapper">
-                <h2>Completed Edit Work</h2>
-                <table class="data-table">
-                    <thead>
-                    <tr><th>Content ID</th><th>Content</th><th>Edit Date</th><th>Completed On</th>
-                        <th>Result</th><th>Remarks</th><th>View</th></tr>
-                    </thead>
-                    <tbody>
-                    <c:forEach var="w" items="${editCompletedWork}">
-                        <tr>
-                            <td>${w.contentId}</td>
-                            <td><c:out value="${w.title}"/></td>
-                            <td>${w.stageDate}</td>
-                            <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
-                            <td>
-                                <c:choose>
-                                    <c:when test="${not empty w.finalResult}">
-                                        <span class="status-pill ${w.finalResult == 'Approved' ? 'status-completed' : 'status-needschanges'}"><c:out value="${w.finalResult}"/></span>
-                                    </c:when>
-                                    <c:otherwise>&mdash;</c:otherwise>
-                                </c:choose>
-                            </td>
-                            <td><c:out value="${empty w.remarks ? '—' : w.remarks}"/></td>
-                            <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/edit/${w.assignmentId}">View Details</a></td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty editCompletedWork}">
-                        <tr><td colspan="7" class="muted">No completed edit work yet.</td></tr>
-                    </c:if>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="my-work-tab-panel hidden" data-tab-panel="edit-marks">
-            <div class="panel my-work-table-wrapper">
-                <h2>My Edit Marks</h2>
-                <table class="data-table">
-                    <thead><tr><th>Content ID</th><th>Role</th><th>Mark</th><th>Attributed (IST)</th></tr></thead>
-                    <tbody>
-                    <c:forEach var="m" items="${editMarks}">
-                        <tr>
-                            <td>${m.contentPlan.contentId}</td>
-                            <td>${m.roleType}</td>
-                            <td>${m.attributedMarkValue}</td>
-                            <td>${kcpc:ist(m.attributedAt)}</td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty editMarks}"><tr><td colspan="4" class="muted">No Edit marks attributed yet.</td></tr></c:if>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.</p>
+        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.
+            Looking for your completed work? See <a href="${pageContext.request.contextPath}/app/my-performance">My Performance</a>.</p>
     </div>
     </c:if>
 
     <%-- ================================================================ PUBLISHING ========= --%>
     <c:if test="${showPublishTab}">
     <div class="my-work-stage-panel hidden" data-tab-panel="publish">
-        <div class="kpi-cards kpi-cards-3">
+        <%-- ENG-098: Upcoming Publishing moved to its own top-level "Dashboard" tab (single source
+             of truth for Upcoming, never duplicated here too) - this panel goes back to its
+             original Active Work/History shape, unchanged from before ENG-097. --%>
+        <div class="kpi-cards">
             <div class="kpi-card kpi-active">
                 <div class="kpi-card-icon">&#128228;</div>
                 <div class="kpi-card-body">
@@ -573,6 +399,13 @@
                     <div class="kpi-card-subtitle">Targets still to publish</div>
                 </div>
             </div>
+            <div class="kpi-card kpi-delayed">
+                <div class="kpi-card-icon">&#9201;</div>
+                <div class="kpi-card-body">
+                    <div class="kpi-card-title-row"><span class="kpi-card-title">Delayed</span><span class="kpi-card-count">${delayedPublishingCount}</span></div>
+                    <div class="kpi-card-subtitle">Past planned live date</div>
+                </div>
+            </div>
             <div class="kpi-card kpi-completed">
                 <div class="kpi-card-icon">&#9989;</div>
                 <div class="kpi-card-body">
@@ -585,12 +418,6 @@
             <p class="execution-blocked-note">You do not currently hold Publishing execution permission - any task below is historical or awaiting reassignment.</p>
         </c:if>
 
-        <div class="my-work-tabs">
-            <button type="button" class="my-work-tab active" data-tab="publish-active">Active Work</button>
-            <button type="button" class="my-work-tab" data-tab="publish-history">History</button>
-        </div>
-
-        <div class="my-work-tab-panel" data-tab-panel="publish-active">
             <div class="panel my-work-table-wrapper">
                 <h2><span class="stage-badge stage-publish">PUBLISHING</span>Active Publishing Tasks</h2>
                 <table class="data-table">
@@ -610,14 +437,17 @@
                                     <span class="priority-pill ${item.priorityCssClass}"><c:out value="${item.priority}"/></span>
                                 </c:if>
                             </td>
-                            <td>${item.plannedDate}</td>
+                            <td class="${item.delayed ? 'planned-date-delayed' : ''}">${item.plannedDate}</td>
                             <td><c:out value="${empty item.models ? '—' : item.models}"/></td>
                             <td><c:out value="${empty item.targetsSummary ? '—' : item.targetsSummary}"/></td>
                             <td>
                                 <c:choose>
                                     <c:when test="${item.repost}"><span class="stage-badge stage-repost">REPOST</span></c:when>
                                 </c:choose>
-                                <span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span>
+                                <c:choose>
+                                    <c:when test="${item.delayed}"><span class="status-pill status-delayed">Delayed &middot; ${item.delayDays} day<c:if test="${item.delayDays != 1}">s</c:if></span></c:when>
+                                    <c:otherwise><span class="status-pill ${item.statusCssClass}"><c:out value="${item.statusLabel}"/></span></c:otherwise>
+                                </c:choose>
                                 <c:if test="${item.onHold}"><span class="status-pill status-onhold">On Hold</span></c:if>
                             </td>
                             <td>
@@ -643,34 +473,9 @@
                     </tbody>
                 </table>
             </div>
-        </div>
 
-        <div class="my-work-tab-panel hidden" data-tab-panel="publish-history">
-            <div class="panel my-work-table-wrapper">
-                <h2>Completed Publishing Work</h2>
-                <table class="data-table">
-                    <thead>
-                    <tr><th>Content ID</th><th>Content</th><th>Planned Live Date</th><th>Completed On</th><th>View</th></tr>
-                    </thead>
-                    <tbody>
-                    <c:forEach var="w" items="${publishCompletedWork}">
-                        <tr>
-                            <td>${w.contentId}</td>
-                            <td><c:out value="${w.title}"/></td>
-                            <td>${w.stageDate}</td>
-                            <td><c:if test="${not empty w.completedOn}">${kcpc:ist(w.completedOn)}</c:if></td>
-                            <td><a class="btn-outline" href="${pageContext.request.contextPath}/app/my-work/history/publish/${w.assignmentId}">View Details</a></td>
-                        </tr>
-                    </c:forEach>
-                    <c:if test="${empty publishCompletedWork}">
-                        <tr><td colspan="5" class="muted">No completed publishing work yet.</td></tr>
-                    </c:if>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.</p>
+        <p class="note-box">Need help or have questions? Use the Comments section in task details to discuss with your lead.
+            Looking for your completed work? See <a href="${pageContext.request.contextPath}/app/my-performance">My Performance</a>.</p>
     </div>
     </c:if>
 
@@ -744,5 +549,7 @@
     </c:if>
 </main>
 <script src="${pageContext.request.contextPath}/js/my-work-tabs.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/platform-chip-popover.js" defer></script>
+<script src="${pageContext.request.contextPath}/js/my-work-dashboard.js" defer></script>
 </body>
 </html>

@@ -167,6 +167,11 @@
                 <th>Reason <span class="info-icon" title="Optional note for this grant. Defaults to N/A.">&#9432;</span></th>
                 <th>Status</th><th>Action</th></tr></thead>
             <tbody>
+                    <%-- This table previously shipped with a <c:when> whose immediate parent
+                         wasn't a <c:choose> (a JspTagException at render time, not caught by
+                         compilation - it only surfaces when this JSP is actually requested).
+                         Every <c:when>/<c:otherwise> pair below is a direct child of its own
+                         <c:choose> - keep it that way when editing this loop. --%>
                     <c:forEach var="row" items="${managementRows}">
                         <c:set var="formId" value="perm-update-form-${row.permission}"/>
                         <tr class="perm-row" data-granted="${row.granted}" data-permission="${row.permission}"

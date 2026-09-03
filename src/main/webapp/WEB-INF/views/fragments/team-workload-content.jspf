@@ -48,21 +48,27 @@
             <option value="Shoot" ${selectedStage == 'Shoot' ? 'selected' : ''}>Shoot</option>
             <option value="Edit" ${selectedStage == 'Edit' ? 'selected' : ''}>Edit</option>
             <option value="Publishing" ${selectedStage == 'Publishing' ? 'selected' : ''}>Publishing</option>
+            <option value="Model" ${selectedStage == 'Model' ? 'selected' : ''}>Model</option>
             <option value="Performance" ${selectedStage == 'Performance' ? 'selected' : ''}>Performance</option>
         </select>
     </div>
     <div class="filter-field">
-        <label for="twDateFrom">Date Range</label>
+        <label for="twDateFrom">Date Range (Based on Stage Planned Date)
+            <span class="info-icon" tabindex="0" title="Workload is filtered using the applicable stage planned date: Shoot &rarr; Planned Shoot Date, Edit &rarr; Planned Edit Date, Publishing &rarr; Planned Live Date.">&#9432;</span>
+        </label>
         <div class="filter-date-range">
             <input type="date" name="dateFrom" id="twDateFrom" value="${selectedDateFrom}">
             <span class="filter-date-sep">&ndash;</span>
             <input type="date" name="dateTo" id="twDateTo" value="${selectedDateTo}">
         </div>
+        <span class="reviews-schedule-error hidden" id="twDateRangeError"></span>
     </div>
     <label class="filter-checkbox-field">
         <input type="checkbox" name="delayedOnly" value="true" ${selectedDelayedOnly ? 'checked' : ''}>
         Delayed Only
+        <span class="info-icon" title="A currently delayed task stays visible even if its planned date is before the selected From date.">&#9432;</span>
     </label>
+    <button type="submit" class="btn-primary team-workload-filter-btn" id="twFilterBtn">Filter</button>
     <a class="btn-outline team-workload-clear" href="${pageContext.request.contextPath}/app/reports/workload">Clear</a>
 </form>
 
@@ -91,37 +97,43 @@
 
     <div class="panel team-workload-card team-workload-card-assignee">
         <div class="team-workload-card-header">
-            <h2>Assignee Load</h2>
-            <span class="info-icon" title="Each employee's own actual active/delayed/on-hold assignments - never the same count as Active Tasks by Stage.">&#9432;</span>
+            <h2>Assignee Load (Employee-wise Summary)</h2>
+            <span class="info-icon" title="Delayed/On Hold are summed across every stage the employee currently has workload in. Active Tasks counts each currently-active Content ID once, even if the employee holds more than one role on it (e.g. Model + Cameraperson) - never the same count as Active Tasks by Stage.">&#9432;</span>
         </div>
         <div class="team-workload-table-scroll" id="teamWorkloadAssigneeScroll">
             <table class="data-table team-workload-assignee-table">
                 <thead>
                 <tr>
-                    <th>Assignee</th>
+                    <th>Employee</th>
                     <th>Business Role</th>
                     <th class="num">Active Tasks</th>
                     <th class="num">Delayed Tasks</th>
                     <th class="num">On Hold Tasks</th>
+                    <th>Actions</th>
                 </tr>
                 </thead>
                 <tbody>
-                <c:forEach var="row" items="${result.assigneeRows}">
+                <c:forEach var="emp" items="${result.employeeRows}">
                     <tr>
                         <td>
                             <span class="team-workload-assignee-cell">
-                                <span class="content-detail-avatar"><c:out value="${fn:toUpperCase(fn:substring(row.assigneeName, 0, 1))}"/></span>
-                                <c:out value="${row.assigneeName}"/>
+                                <span class="content-detail-avatar"><c:out value="${fn:toUpperCase(fn:substring(emp.assigneeName, 0, 1))}"/></span>
+                                <c:out value="${emp.assigneeName}"/>
                             </span>
                         </td>
-                        <td class="muted"><c:out value="${row.businessRoleName}"/></td>
-                        <td class="num">${row.activeTasks}</td>
-                        <td class="num">${row.delayedTasks}</td>
-                        <td class="num">${row.onHoldTasks}</td>
+                        <td class="muted"><c:out value="${emp.businessRoleName}"/></td>
+                        <td class="num">${emp.activeTasks}</td>
+                        <td class="num">${emp.delayedTasks}</td>
+                        <td class="num">${emp.onHoldTasks}</td>
+                        <td>
+                            <button type="button" class="link-button team-workload-open-btn"
+                                    data-employee-id="${emp.userId}" aria-expanded="false"
+                                    aria-controls="workloadBreakdown-${emp.userId}">&#8964; Open</button>
+                        </td>
                     </tr>
                 </c:forEach>
-                <c:if test="${empty result.assigneeRows}">
-                    <tr><td colspan="5" class="muted">No matching employees.</td></tr>
+                <c:if test="${empty result.employeeRows}">
+                    <tr><td colspan="6" class="muted">No matching employees.</td></tr>
                 </c:if>
                 <tr class="team-workload-total-row">
                     <td><strong>Total</strong></td>
@@ -129,10 +141,81 @@
                     <td class="num"><strong>${result.totalActiveAssignee}</strong></td>
                     <td class="num"><strong>${result.totalDelayedAssignee}</strong></td>
                     <td class="num"><strong>${result.totalOnHoldAssignee}</strong></td>
+                    <td></td>
                 </tr>
                 </tbody>
             </table>
         </div>
+
+        <%-- Stage-wise breakdown per employee (spec §10/§11) - all rendered up front (this screen
+             already loads its full data set in one request, no pagination) and hidden by default;
+             "Open" just toggles visibility of the ONE matching panel, closing any other that was
+             open, so there's no second request and no risk of the breakdown ever disagreeing with
+             the main row (both come from the exact same EmployeeWorkloadRow, see
+             TeamWorkloadService's aggregation). Nested inside this same card (not a separate
+             top-level panel) so the Stage-filter-only AJAX partial swap (team-workload-dashboard.js)
+             still correctly replaces it along with the rest of Assignee Load. --%>
+        <c:forEach var="emp" items="${result.employeeRows}">
+            <div class="panel team-workload-breakdown hidden" id="workloadBreakdown-${emp.userId}">
+                <h3><c:out value="${emp.assigneeName}"/> &ndash; Stage-wise Breakdown</h3>
+                <table class="data-table">
+                    <thead><tr><th>Stage</th><th class="num">Active Tasks</th><th class="num">Delayed Tasks</th><th class="num">On Hold Tasks</th></tr></thead>
+                    <tbody>
+                    <%-- Content ID drill-down (Employee -> Stage -> Content IDs -> Content Detail):
+                         ${s.items} is the SAME set of surviving workload records this stage row's
+                         own counts above were computed from (TeamWorkloadService#rowFromAssignments/
+                         #modelRow build both together, from one pass) - never a second query, never
+                         deduplicated, so this list always reconciles exactly with Active Tasks
+                         above (fn:length(s.items) == s.activeTasks always). Each Content ID links
+                         straight to the existing, already-permission-gated Content Detail page
+                         (DeliverableMvcController#view, /app/deliverables/{id}) - no second detail
+                         implementation. --%>
+                    <c:forEach var="s" items="${emp.stageBreakdown}">
+                        <tr>
+                            <td><span class="stage-dot stage-dot-${s.stage}"></span><c:out value="${s.stage}"/></td>
+                            <td class="num">${s.activeTasks}</td>
+                            <td class="num">${s.delayedTasks}</td>
+                            <td class="num">${s.onHoldTasks}</td>
+                        </tr>
+                        <tr class="team-workload-content-items-row">
+                            <td colspan="4">
+                                <details class="team-workload-content-details">
+                                    <summary><c:out value="${s.stage}"/> &ndash; Content IDs (<c:out value="${fn:length(s.items)}"/>)</summary>
+                                    <ul class="team-workload-content-list">
+                                        <c:forEach var="item" items="${s.items}">
+                                            <li>
+                                                <a class="idea-id-link" href="${pageContext.request.contextPath}/app/deliverables/${item.contentPlanId}">
+                                                    <c:out value="${item.contentId}"/>
+                                                </a>
+                                                <span class="team-workload-item-status ${item.delayed ? 'team-workload-item-delayed' : 'team-workload-item-active'}">
+                                                    <c:choose>
+                                                        <c:when test="${item.delayed}">Delayed &middot; ${item.delayDays} day<c:if test="${item.delayDays != 1}">s</c:if></c:when>
+                                                        <c:otherwise>Active</c:otherwise>
+                                                    </c:choose>
+                                                </span>
+                                            </li>
+                                        </c:forEach>
+                                        <c:if test="${empty s.items}">
+                                            <li class="muted">No content items.</li>
+                                        </c:if>
+                                    </ul>
+                                </details>
+                            </td>
+                        </tr>
+                    </c:forEach>
+                    <c:if test="${empty emp.stageBreakdown}">
+                        <tr><td colspan="4" class="muted">No stage-specific workload.</td></tr>
+                    </c:if>
+                    <tr class="team-workload-total-row">
+                        <td title="Active Tasks below counts unique active Content IDs for this employee - may be less than the sum of the stage rows above, since one Content ID can carry more than one of this employee's roles.">Employee Total</td>
+                        <td class="num">${emp.activeTasks}</td>
+                        <td class="num">${emp.delayedTasks}</td>
+                        <td class="num">${emp.onHoldTasks}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </c:forEach>
     </div>
 </div>
 

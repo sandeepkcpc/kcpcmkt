@@ -48,6 +48,7 @@ class ScriptDescriptionViewerTest {
         assertThat(longScript.length()).isGreaterThan(500);
 
         String camId = createCameraperson(ceo, unique);
+        String pubId = createPublisher(ceo, unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas",
                 "{\"title\":\"Script Viewer " + unique + "\",\"notesRemarks\":\"" + longScript + "\"}");
         String ideaId = idea.get("ideaId").asText();
@@ -57,7 +58,8 @@ class ScriptDescriptionViewerTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/script-viewer-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         String contentPlanId = findContentPlanId(ideaId);
 
@@ -78,13 +80,15 @@ class ScriptDescriptionViewerTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
         String camId = createCameraperson(ceo, unique);
+        String pubId = createPublisher(ceo, unique);
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"No Script Viewer " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/no-script-viewer-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],"
+                        + "\"publisherUserIds\":[\"" + pubId + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
 
         HttpResponse<String> page = ceo.get("/app/deliverables/" + contentPlanId);
@@ -108,6 +112,18 @@ class ScriptDescriptionViewerTest {
         String userId = response.get("userId").asText();
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"script viewer test fixture grant\"}");
+        return userId;
+    }
+
+    private String createPublisher(TestApiClient ceo, long unique) throws Exception {
+        JsonNode response = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Script Viewer Pub\",\"email\":\"script-viewer-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"01926e3e-0001-7000-8000-000000000008\","
+                        + "\"creationReason\":\"script viewer test fixture\"}");
+        String userId = response.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + userId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"script viewer test fixture grant\"}");
         return userId;
     }

@@ -19,24 +19,30 @@
 
 <%-- Spec §16.3: each tab only renders for a viewer authorized for that specific review permission
      (CEO/MM always see all three via native authority) - an EMPLOYEE holding only PERM_05, say,
-     never sees Ideas/Edit tabs here. --%>
-<div class="reviews-tabs">
-    <c:if test="${canViewIdeasTab}">
-        <a class="reviews-tab ${activeTab == 'ideas' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=ideas" data-tab="ideas">
-            Ideas <span class="count-badge">${ideasPendingCount}</span>
-        </a>
-    </c:if>
-    <c:if test="${canViewShootTab}">
-        <a class="reviews-tab ${activeTab == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=shoot" data-tab="shoot">
-            Shoot <span class="count-badge">${shootPendingCount}</span>
-        </a>
-    </c:if>
-    <c:if test="${canViewEditTab}">
-        <a class="reviews-tab ${activeTab == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=edit" data-tab="edit">
-            Edit <span class="count-badge">${editPendingCount}</span>
-        </a>
-    </c:if>
+     never sees Ideas/Edit tabs here. "+ Create Idea" sits on the right of this same header row,
+     always visible to whoever reaches this screen at all - see idea-submit-modal.jspf's header
+     comment for why no extra permission gate is needed here. --%>
+<div class="reviews-tabs-row">
+    <div class="reviews-tabs">
+        <c:if test="${canViewIdeasTab}">
+            <a class="reviews-tab ${activeTab == 'ideas' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=ideas" data-tab="ideas">
+                Ideas <span class="count-badge">${ideasPendingCount}</span>
+            </a>
+        </c:if>
+        <c:if test="${canViewShootTab}">
+            <a class="reviews-tab ${activeTab == 'shoot' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=shoot" data-tab="shoot">
+                Shoot <span class="count-badge">${shootPendingCount}</span>
+            </a>
+        </c:if>
+        <c:if test="${canViewEditTab}">
+            <a class="reviews-tab ${activeTab == 'edit' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/reviews?tab=edit" data-tab="edit">
+                Edit <span class="count-badge">${editPendingCount}</span>
+            </a>
+        </c:if>
+    </div>
+    <button type="button" class="btn-primary" id="ideaCreateModalOpen">+ New Idea</button>
 </div>
+<%@ include file="idea-submit-modal.jspf" %>
 
 <%-- ENG: single CSRF token source for every AJAX decision POST reviews-workspace.js issues (all
      same-origin, same session) - read by id, appended as a body param, exactly like

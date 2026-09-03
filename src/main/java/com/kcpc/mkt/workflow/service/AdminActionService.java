@@ -12,7 +12,9 @@ import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.RoleType;
 import com.kcpc.mkt.planning.domain.ContentPlan;
+import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
+import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.production.domain.EditingAssignment;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
@@ -54,6 +56,7 @@ public class AdminActionService {
     private final RescheduleRecordRepository rescheduleRecordRepository;
     private final ReassignmentRecordRepository reassignmentRecordRepository;
     private final ReassignmentAssigneeRepository reassignmentAssigneeRepository;
+    private final ContentPlanTalentEntryRepository talentEntryRepository;
     private final CancellationRecordRepository cancellationRecordRepository;
     private final ReopenRecordRepository reopenRecordRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
@@ -70,6 +73,7 @@ public class AdminActionService {
                                RescheduleRecordRepository rescheduleRecordRepository,
                                ReassignmentRecordRepository reassignmentRecordRepository,
                                ReassignmentAssigneeRepository reassignmentAssigneeRepository,
+                               ContentPlanTalentEntryRepository talentEntryRepository,
                                CancellationRecordRepository cancellationRecordRepository,
                                ReopenRecordRepository reopenRecordRepository,
                                PublishingAssignmentRepository publishingAssignmentRepository,
@@ -83,6 +87,7 @@ public class AdminActionService {
         this.rescheduleRecordRepository = rescheduleRecordRepository;
         this.reassignmentRecordRepository = reassignmentRecordRepository;
         this.reassignmentAssigneeRepository = reassignmentAssigneeRepository;
+        this.talentEntryRepository = talentEntryRepository;
         this.cancellationRecordRepository = cancellationRecordRepository;
         this.reopenRecordRepository = reopenRecordRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
@@ -137,7 +142,7 @@ public class AdminActionService {
 
     @Transactional
     public ReassignmentRecord reassign(User actor, UUID contentPlanId, TaskStage taskStage,
-                                        List<UUID> newAssigneeUserIds, String reason) {
+                                        List<UUID> newAssigneeUserIds, List<UUID> newModelUserIds, String reason) {
         if (reason == null || reason.isBlank()) {
             throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A reassignment reason is mandatory");
         }
@@ -179,6 +184,40 @@ public class AdminActionService {
                 shootingAssignmentRepository.save(new ShootingAssignment(plan, newUser, actor));
                 reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.CAMERAPERSON,
                         AssigneeSide.NEW));
+            }
+            // Model(s)/Talent reassignment - SHOOTING only, and only when the caller actually
+            // supplied this field. null means "not touched" (an older API caller that doesn't know
+            // about this field, or the EDITING branch below where it never applies) - existing
+            // Model(s)/Talent stay completely untouched. A non-null list (including empty) always
+            // fully replaces, same semantics Planning's own Model(s) picker already uses
+            // (PlanningService#updateParameters: deleteByContentPlan then recreate from the
+            // submission) - content_plan_talent_entries has no active/inactive concept to "end"
+            // the way ShootingAssignment/EditingAssignment do, so a full replace is the correct,
+            // already-established pattern to reuse here rather than inventing a new one.
+            // PersonalMarkAttribution/marks are deliberately never touched - Model Mark attribution
+            // happens once, immediately, at Idea Review approval (IdeaService#approve) and is never
+            // re-attributed later, exactly like Cameraperson reassignment above never touches
+            // PersonalMarkAttribution either (that's driven by shooting_execution_participants at
+            // Shoot Review approval instead, a separate snapshot untouched by this method).
+            if (newModelUserIds != null) {
+                List<ContentPlanTalentEntry> previousTalent = talentEntryRepository.findByContentPlan(plan);
+                for (ContentPlanTalentEntry old : previousTalent) {
+                    // Only entries linked to a real User can be audited here (ReassignmentAssignee.user
+                    // is mandatory) - the frozen REST plain-name-string path can leave this null; that
+                    // entry is still replaced below, just not individually logged as a PREVIOUS row.
+                    if (old.getTalentUser() != null) {
+                        reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, old.getTalentUser(),
+                                RoleType.MODEL, AssigneeSide.PREVIOUS));
+                    }
+                }
+                talentEntryRepository.deleteByContentPlan(plan);
+                for (UUID newModelUserId : newModelUserIds) {
+                    User newModelUser = userRepository.findById(newModelUserId)
+                            .orElseThrow(() -> DomainException.notFound("User not found: " + newModelUserId));
+                    talentEntryRepository.save(new ContentPlanTalentEntry(plan, newModelUser.getFullName(), newModelUser));
+                    reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newModelUser, RoleType.MODEL,
+                            AssigneeSide.NEW));
+                }
             }
         } else {
             List<EditingAssignment> previous = editingAssignmentRepository.findByContentPlanAndActiveTrue(plan);

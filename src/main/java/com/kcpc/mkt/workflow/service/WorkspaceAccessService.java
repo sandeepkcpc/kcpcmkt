@@ -3,6 +3,7 @@ package com.kcpc.mkt.workflow.service;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
@@ -26,15 +27,18 @@ public class WorkspaceAccessService {
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
+    private final ContentPlanTalentEntryRepository talentEntryRepository;
 
     public WorkspaceAccessService(AuthorizationService authorizationService,
                                    ShootingAssignmentRepository shootingAssignmentRepository,
                                    EditingAssignmentRepository editingAssignmentRepository,
-                                   PublishingAssignmentRepository publishingAssignmentRepository) {
+                                   PublishingAssignmentRepository publishingAssignmentRepository,
+                                   ContentPlanTalentEntryRepository talentEntryRepository) {
         this.authorizationService = authorizationService;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
+        this.talentEntryRepository = talentEntryRepository;
     }
 
     /**
@@ -85,6 +89,19 @@ public class WorkspaceAccessService {
     /** Administration -> Publishing Catalogue reachability: PERM_17 only. */
     public boolean canReachCatalogue(User user) {
         return authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_17_PLATFORM_CATALOGUE_MANAGE);
+    }
+
+    /**
+     * My Performance reachability: the same grant/assignment test as {@link #canReachMyWork}, PLUS
+     * any Model/Talent participation ({@code ContentPlanTalentEntry}) - a Model earns marks and
+     * completed-task history purely through talent linkage, never a Shoot/Edit/Publishing
+     * assignment record of their own, so {@code canReachMyWork} alone would under-cover them.
+     */
+    public boolean canReachMyPerformance(User user) {
+        if (canReachMyWork(user)) {
+            return true;
+        }
+        return !talentEntryRepository.findByTalentUser(user).isEmpty();
     }
 
     /** Any module at all - used only to decide whether the interceptor should evaluate module routing. */

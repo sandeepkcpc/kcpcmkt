@@ -101,6 +101,44 @@ public class MvcNavigationAdvice {
         return workspaceAccessService.canReachMyWork(user);
     }
 
+    /**
+     * "My Work" is permission/assignment-driven end to end (see LandingMvcController#myWork's own
+     * showShootTab/showEditTab/showPublishTab - each keyed to a live PERM_18/19/08 grant or a real
+     * Shoot/Edit/Publishing assignment, never Business Role) - this flag is the raw version of that
+     * same rule ({@link WorkspaceAccessService#canReachMyWork}, NOT short-circuited by "participates
+     * in workflow by default" the way {@link #employeeCanSeeMyWork} is above), used specifically to
+     * decide whether a Model/Talent - who always sees "My Shoots" regardless - should ALSO see a
+     * "My Work" link. A Model who is separately granted e.g. EDIT_EXECUTION (or has a real Shoot/
+     * Edit/Publishing assignment) gets exactly the same "My Work" reachability any other qualifying
+     * Employee does; a Model with no such grant/assignment does not see the link, even though the
+     * route itself already tolerates a direct visit (it would just render every stage tab hidden -
+     * unchanged, pre-existing behavior, not a new gap this introduces).
+     */
+    @ModelAttribute("employeeHasMyWorkExecutionAccess")
+    public boolean employeeHasMyWorkExecutionAccess(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal != null && workspaceAccessService.canReachMyWork(principal.user());
+    }
+
+    /**
+     * "My Performance" nav link (placed right after "Submit Idea" in nav.jsp): shown to every
+     * production-participating EMPLOYEE (Cameraperson/Editor/Publisher/Model alike - unchanged
+     * default, same as {@link #employeeCanSeeMyWork}), and to a non-participating-by-default
+     * EMPLOYEE only once they have real performance-bearing reachability ({@link
+     * WorkspaceAccessService#canReachMyPerformance}) - mirrors the same route-reachability rule
+     * {@code WorkflowParticipationInterceptor} enforces server-side.
+     */
+    @ModelAttribute("employeeCanSeeMyPerformance")
+    public boolean employeeCanSeeMyPerformance(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        if (principal == null) {
+            return false;
+        }
+        User user = principal.user();
+        if (!authorizationService.isNonProductionEmployee(user)) {
+            return true;
+        }
+        return workspaceAccessService.canReachMyPerformance(user);
+    }
+
     /** Reviews nav link for an EMPLOYEE holding any review permission (spec §16.3). */
     @ModelAttribute("employeeCanSeeReviews")
     public boolean employeeCanSeeReviews(@AuthenticationPrincipal KcpcUserPrincipal principal) {

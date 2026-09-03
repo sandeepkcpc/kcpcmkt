@@ -35,6 +35,7 @@ class MyIdeasVisibilityTest {
     ContentPlanRepository contentPlanRepository;
 
     private static final String HR_MANAGER_ROLE_ID = "01926e3e-0001-7000-8000-000000000003"; // EMPLOYEE access class
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void myIdeasShowsOnlyOwnIdeasWithMatchingKpiCountsAndBlocksDirectUrlAccessToAnotherEmployeesIdea() throws Exception {
@@ -138,13 +139,18 @@ class MyIdeasVisibilityTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
+        String pubId = createUser(ceo, "MyIdeas Lifecycle Pub " + unique,
+                "e2e-myideas-lifecycle-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"e2e test fixture execution grant\"}");
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         var approved = ceo.postJson("/api/v1/ideas/" + ideaA.getId() + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/myideas-lifecycle-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
 
         String myIdeasAfterApprove = employee.get("/app/ideas").body();

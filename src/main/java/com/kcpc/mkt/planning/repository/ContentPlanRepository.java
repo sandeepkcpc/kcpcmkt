@@ -20,4 +20,8 @@ public interface ContentPlanRepository extends JpaRepository<ContentPlan, UUID> 
      * LazyInitializationException in the (non-transactional) MVC view layer. */
     @Query("select cp from ContentPlan cp left join fetch cp.preparedBy order by cp.createdAt desc")
     List<ContentPlan> findAllWithPreparedByOrderByCreatedAtDesc();
+
+    /** ENG-094: CategoryService's delete-vs-deactivate check - whether any Content Plan currently
+     * references this category name (case-insensitive, matching how categoryText is validated). */
+    boolean existsByCategoryTextIgnoreCase(String categoryText);
 }

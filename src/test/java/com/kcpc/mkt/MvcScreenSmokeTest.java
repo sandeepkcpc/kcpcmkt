@@ -113,7 +113,8 @@ class MvcScreenSmokeTest {
                 "folderLink", List.of("https://drive.example.com/mvc-" + unique),
                 "outputsJson", List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
                         + PUBLICATION_TARGET_ID + "\"]}]"),
-                "camerapersonUserIds", List.of(camId)));
+                "camerapersonUserIds", List.of(camId),
+                "publisherUserIds", List.of(pubId)));
         assertThat(approve.statusCode()).isEqualTo(302);
 
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();

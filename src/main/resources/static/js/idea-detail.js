@@ -97,6 +97,145 @@
         updatePlanningModeFields();
     }
 
+    // --- Stages (ENG-091): picks where the pipeline starts - reacts live to stages-picker.js's
+    // 'kcpc:stages-changed' event, no page reload. Editor(s)/Publisher(s) Assignment only appear
+    // when Edit/Publishing is the starting stage (no earlier Shoot Review/Edit Review Approve
+    // exists to fold that assignment into in those two cases) - the Standard case (Shoot selected)
+    // is unchanged from before ENG-091. -------------------------------------------------------
+    var stagesPicker = document.getElementById('idea-review-stages-picker');
+    var shootAssignmentSection = document.getElementById('idea-review-shoot-assignment-section');
+    var editorAssignmentSection = document.getElementById('idea-review-editor-assignment-section');
+    var publisherAssignmentSection = document.getElementById('idea-review-publisher-assignment-section');
+    var publisherLabel = document.getElementById('idea-review-publisher-label');
+    var publisherHint = document.getElementById('idea-review-publisher-hint');
+    var teamMarksRow = document.getElementById('idea-review-team-marks-row');
+    var cameramanMarkField = document.getElementById('idea-review-cameraman-mark-field');
+    var modelMarkField = document.getElementById('idea-review-model-mark-field');
+
+    function ideaCheckedStages() {
+        var checked = [];
+        if (stagesPicker) {
+            stagesPicker.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) {
+                checked.push(cb.value);
+            });
+        }
+        return checked;
+    }
+
+    function updateStagesFields() {
+        var stages = ideaCheckedStages();
+        var shootStarts = stages.indexOf('SHOOT') !== -1;
+        var editStarts = !shootStarts && stages.indexOf('EDIT') !== -1;
+        var publishingStarts = !shootStarts && !editStarts;
+        if (shootDateLabel) {
+            shootDateLabel.classList.toggle('hidden', !shootStarts);
+        }
+        if (editDateLabel) {
+            editDateLabel.classList.toggle('hidden', publishingStarts);
+        }
+        if (shootAssignmentSection) {
+            shootAssignmentSection.classList.toggle('hidden', !shootStarts);
+        }
+        if (editorAssignmentSection) {
+            editorAssignmentSection.classList.toggle('hidden', !editStarts);
+        }
+        // Publisher(s) is now mandatory for every stage combination (not just Direct Publishing) -
+        // the required marker is always shown, matching IdeaService#approve's own unconditional
+        // check. The old "optional here" hint no longer applies to any combination, so it stays
+        // hidden always rather than showing stale wording.
+        if (publisherLabel) {
+            publisherLabel.textContent = 'Publisher(s) *';
+        }
+        if (publisherHint) {
+            publisherHint.classList.add('hidden');
+        }
+        // ENG-096: Cameraperson/Model Marks only apply when Shoot is part of the pipeline; Editor
+        // Mark whenever Edit is included (i.e. whenever the row itself isn't hidden - the row is
+        // only hidden for Publishing-only, where editIncluded is always false too). Backend
+        // (IdeaService#approve) is the actual authority here - it ignores any mark submitted for a
+        // stage not in the pipeline regardless of what this hides, exactly like it already does for
+        // camerapersonUserIds/editorUserIds/publisherUserIds above.
+        if (teamMarksRow) {
+            teamMarksRow.classList.toggle('hidden', publishingStarts);
+        }
+        if (cameramanMarkField) {
+            cameramanMarkField.classList.toggle('hidden', !shootStarts);
+        }
+        if (modelMarkField) {
+            modelMarkField.classList.toggle('hidden', !shootStarts);
+        }
+    }
+
+    if (stagesPicker) {
+        stagesPicker.addEventListener('kcpc:stages-changed', updateStagesFields);
+        updateStagesFields();
+    }
+
+    // Checkbox groups have no native "at least one required" HTML5 validation - blocked here on
+    // submit, same authoritative-server-still-validates intent as reviews-workspace.js's Idea
+    // Approve blocking checks. Never intercepts/prevents the actual POST otherwise - this stays a
+    // real native form submission.
+    form.addEventListener('submit', function (event) {
+        if (!decisionField || decisionField.value !== 'APPROVE') {
+            return;
+        }
+        var stages = ideaCheckedStages();
+        var shootStarts = stages.indexOf('SHOOT') !== -1;
+        var editStarts = !shootStarts && stages.indexOf('EDIT') !== -1;
+        var publishingStarts = !shootStarts && !editStarts;
+        var editIncluded = !publishingStarts;
+        var message = null;
+        // ENG-093: Urgent Planning Mode only requires an explicit date for a stage that's actually
+        // part of the pipeline - Stages decides that, Planning Mode never forces a date for a
+        // stage Stages already excluded. Standard mode needs no check here - the server only ever
+        // defaults, never requires, Shoot/Edit Date in Standard mode.
+        if (planningModeSelect && planningModeSelect.value === 'URGENT') {
+            var urgencyReasonInputForSubmit = urgencyReasonLabel ? urgencyReasonLabel.querySelector('input') : null;
+            if (!urgencyReasonInputForSubmit || !urgencyReasonInputForSubmit.value.trim()) {
+                message = 'Urgency Reason is required for Urgent Planning Mode.';
+            } else if (shootStarts && !form.querySelector('input[name="shootDate"]').value) {
+                message = 'Shoot Date is required for Urgent Planning Mode.';
+            } else if (editIncluded && !form.querySelector('input[name="editDate"]').value) {
+                message = 'Edit Date is required for Urgent Planning Mode.';
+            }
+        }
+        if (!message && shootStarts) {
+            if (!form.querySelector('input[name="camerapersonUserIds"]:checked')) {
+                message = 'Select at least one Cameraperson.';
+            } else {
+                var leadField = document.getElementById('ideaLeadCameraperson');
+                if (!leadField || !leadField.value) {
+                    message = 'Shoot Lead is required.';
+                }
+            }
+        } else if (!message && editStarts) {
+            if (!form.querySelector('input[name="editorUserIds"]:checked')) {
+                message = 'Select at least one Editor.';
+            } else {
+                var editorLeadField = document.getElementById('ideaLeadEditor');
+                if (!editorLeadField || !editorLeadField.value) {
+                    message = 'Editor Lead is required.';
+                }
+            }
+        }
+        // Publisher(s) is mandatory for every stage combination now (not just Direct Publishing) -
+        // a standalone check, not an else-if branch, so it runs alongside whichever of the
+        // Cameraperson/Editor checks above also applies.
+        if (!message && !form.querySelector('input[name="publisherUserIds"]:checked')) {
+            message = 'Select at least one Publisher.';
+        }
+        var stagesError = document.getElementById('idea-review-stages-error');
+        if (message) {
+            event.preventDefault();
+            if (stagesError) {
+                stagesError.textContent = message;
+                stagesError.classList.remove('hidden');
+            }
+        } else if (stagesError) {
+            stagesError.classList.add('hidden');
+        }
+    });
+
     function updateReasonCounter() {
         var counter = form.querySelector('.char-counter[data-counter-for="idea-review-reason"]');
         if (!counter || !reasonField) {

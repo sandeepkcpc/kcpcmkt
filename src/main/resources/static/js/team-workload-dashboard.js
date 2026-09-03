@@ -139,6 +139,39 @@
     });
     syncTeamWorkloadCardHeights();
 
+    // Date Range fix (spec §15): From > To must be validated with a clear message and must never
+    // silently submit/produce an empty result. Kept in this already-Workload-dedicated file
+    // (never the shared reports-workspace.js, which this screen doesn't even use) so the fix can
+    // never affect any other report screen - same reasoning reports-admin-actions.js was kept
+    // separate from reports-workspace.js for the same class of fix. From = To is explicitly valid
+    // (a single calendar day); either side may be blank (open-ended range, backend-supported).
+    function isDateRangeValid() {
+        var fromField = document.getElementById('twDateFrom');
+        var toField = document.getElementById('twDateTo');
+        var errorBox = document.getElementById('twDateRangeError');
+        if (!fromField || !toField) {
+            return true;
+        }
+        if (fromField.value && toField.value && fromField.value > toField.value) {
+            if (errorBox) {
+                errorBox.textContent = 'From date cannot be after To date.';
+                errorBox.classList.remove('hidden');
+            }
+            return false;
+        }
+        if (errorBox) {
+            errorBox.textContent = '';
+            errorBox.classList.add('hidden');
+        }
+        return true;
+    }
+
+    region.addEventListener('input', function (event) {
+        if (event.target.id === 'twDateFrom' || event.target.id === 'twDateTo') {
+            isDateRangeValid(); // re-validates and clears/refreshes the message as the user types
+        }
+    });
+
     // Filter form: Business Role/Employee/Stage/Date Range/Delayed Only all submit together.
     region.addEventListener('submit', function (event) {
         var form = event.target.closest('#teamWorkloadFilterForm');
@@ -146,6 +179,9 @@
             return;
         }
         event.preventDefault();
+        if (!isDateRangeValid()) {
+            return;
+        }
         var params = new URLSearchParams(new FormData(form)).toString();
         loadWorkload(form.action + (params ? '?' + params : ''), true);
     });
@@ -157,6 +193,9 @@
         var target = event.target;
         if (target.id === 'twBusinessRole' || target.id === 'twEmployee' || target.id === 'twStage'
                 || target.name === 'delayedOnly' || target.id === 'twDateFrom' || target.id === 'twDateTo') {
+            if (!isDateRangeValid()) {
+                return; // never auto-submit an inverted range - same gate the explicit Filter/submit path uses
+            }
             var form = document.getElementById('teamWorkloadFilterForm');
             if (form) {
                 // Changing Business Role starts a fresh Employee search - stale selection would
@@ -174,7 +213,10 @@
     });
 
     // Clear link and Refresh button - both just re-fetch (Clear's href already has no query
-    // string; Refresh re-fetches the current URL).
+    // string; Refresh re-fetches the current URL). Employee-wise UI update: "Open" toggles that
+    // one employee's stage-wise breakdown panel (already server-rendered, hidden by default - see
+    // team-workload-content.jspf) and closes any other panel that was open, so at most one
+    // breakdown is visible at a time, matching the reference design.
     region.addEventListener('click', function (event) {
         var clearLink = event.target.closest('.team-workload-clear');
         if (clearLink) {
@@ -186,6 +228,24 @@
         if (refreshBtn) {
             event.preventDefault();
             loadWorkload(window.location.href, false);
+            return;
+        }
+        var openBtn = event.target.closest('.team-workload-open-btn');
+        if (openBtn) {
+            var targetId = openBtn.getAttribute('data-employee-id');
+            var targetPanel = document.getElementById('workloadBreakdown-' + targetId);
+            var alreadyOpen = targetPanel && !targetPanel.classList.contains('hidden');
+            region.querySelectorAll('.team-workload-breakdown').forEach(function (panel) {
+                panel.classList.add('hidden');
+            });
+            region.querySelectorAll('.team-workload-open-btn').forEach(function (btn) {
+                btn.setAttribute('aria-expanded', 'false');
+            });
+            if (targetPanel && !alreadyOpen) {
+                targetPanel.classList.remove('hidden');
+                openBtn.setAttribute('aria-expanded', 'true');
+                targetPanel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            }
         }
     });
 

@@ -24,6 +24,7 @@ class SelfReviewConflictTest {
     int port;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
+    private static final String PUBLISHER_ROLE_ID = "01926e3e-0001-7000-8000-000000000008";
 
     @Test
     void delegatedEmployeeCannotApproveOwnIdea_butAnotherDelegatedReviewerCan() throws Exception {
@@ -55,6 +56,14 @@ class SelfReviewConflictTest {
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"self-review test fixture grant\"}");
+        JsonNode pubUser = ceo.postJson("/api/v1/admin/users",
+                "{\"fullName\":\"Self Review Pub\",\"email\":\"self-review-pub-" + unique + "@kcpcbandhani.local\","
+                        + "\"password\":\"Passw0rd!\",\"businessRoleId\":\"" + PUBLISHER_ROLE_ID
+                        + "\",\"creationReason\":\"self-review test fixture\"}");
+        String pubId = pubUser.get("userId").asText();
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"self-review test fixture grant\"}");
         TestApiClient otherReviewer = new TestApiClient(port);
         otherReviewer.login(otherReviewerEmail, "Passw0rd!");
         // Workflow redesign: approval carries every former Planning field and transitions straight
@@ -63,7 +72,7 @@ class SelfReviewConflictTest {
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":0.5,\"editorMark\":0.5,\"modelMark\":0.5,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + java.time.LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/self-review-" + unique + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(decision.get("status").asText()).isEqualTo("SA");
     }
 

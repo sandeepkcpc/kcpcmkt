@@ -75,6 +75,8 @@ class HighPriorityEdgeCaseTest {
         // ENG-043: Start/Submit execution acts now require an actively assigned Cameraperson.
         TestApiClient cam1Client = new TestApiClient(port);
         cam1Client.login(cam1Email, "Passw0rd!");
+        String multicamPub = createUser(ceo, "Multi Camera Publisher", "e2e-multicam-pub-" + unique + "@kcpcbandhani.local",
+                PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
 
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field (including the initial output+publication scope+shoot team) and transitions
@@ -83,12 +85,13 @@ class HighPriorityEdgeCaseTest {
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Multi Camera " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":2.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/multicam-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam1 + "\",\"" + cam2 + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam1 + "\",\"" + cam2 + "\"],"
+                        + "\"publisherUserIds\":[\"" + multicamPub + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         String contentPlanId = findContentPlanId(ideaId);
 
@@ -108,7 +111,7 @@ class HighPriorityEdgeCaseTest {
         assertThat(attributions).hasSize(2);
         for (var a : attributions) {
             // BFD/BRS: full predefined Mark to EVERY qualifying contributor - never split/averaged.
-            assertThat(a.getAttributedMarkValue()).isEqualByComparingTo(new BigDecimal("2.0"));
+            assertThat(a.getAttributedMarkValue()).isEqualByComparingTo(new BigDecimal("1.0"));
         }
     }
 
@@ -128,6 +131,8 @@ class HighPriorityEdgeCaseTest {
         String cam = createUser(ceo, "Rework Dup Cam", camEmail, CAMERA_PERSON_ROLE_ID, "PERM_18_SHOOT_EXECUTION");
         TestApiClient camClient = new TestApiClient(port);
         camClient.login(camEmail, "Passw0rd!");
+        String reworkPub = createUser(ceo, "Rework Dup Publisher", "e2e-reworkdup-pub-" + unique + "@kcpcbandhani.local",
+                PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
 
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
@@ -139,7 +144,7 @@ class HighPriorityEdgeCaseTest {
                         + "\"folderLink\":\"https://drive.example.com/reworkdup-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"],\"publisherUserIds\":[\"" + reworkPub + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
 
         camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
@@ -216,18 +221,20 @@ class HighPriorityEdgeCaseTest {
         camClient.login(camEmail, "Passw0rd!");
         TestApiClient ed1Client = new TestApiClient(port);
         ed1Client.login(ed1Email, "Passw0rd!");
+        String multiedPub = createUser(ceo, "Multi Editor IR Publisher", "e2e-multied-irpub-" + unique + "@kcpcbandhani.local",
+                PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
 
         // Workflow redesign: Planning is folded into Idea Review - approval carries every former
         // Planning field and transitions straight to Shoot Assigned (SA), never PL/PLRV/PLAP.
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"Multi Editor " + unique + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
-                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":3.0,\"modelMark\":3.0,\"planning\":{"
+                "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/multied-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"],\"publisherUserIds\":[\"" + multiedPub + "\"]}}");
         String contentPlanId = findContentPlanId(ideaId);
 
         camClient.post("/api/v1/content-plans/" + contentPlanId + "/shooting/start", "");
@@ -255,7 +262,7 @@ class HighPriorityEdgeCaseTest {
                 .toList();
         assertThat(attributions).hasSize(2);
         for (var a : attributions) {
-            assertThat(a.getAttributedMarkValue()).isEqualByComparingTo(new BigDecimal("3.0"));
+            assertThat(a.getAttributedMarkValue()).isEqualByComparingTo(new BigDecimal("1.0"));
         }
     }
 
@@ -393,13 +400,16 @@ class HighPriorityEdgeCaseTest {
      * initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA), never
      * PL/PLRV/PLAP - the given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
+        long unique = Instant.now().toEpochMilli() + java.util.concurrent.ThreadLocalRandom.current().nextInt(100000);
+        String publisherId = createUser(ceo, "Default Publisher " + unique,
+                "e2e-default-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/hpe-" + Instant.now().toEpochMilli() + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + publisherId + "\"]}}");
         return findContentPlanId(ideaId);
     }
 

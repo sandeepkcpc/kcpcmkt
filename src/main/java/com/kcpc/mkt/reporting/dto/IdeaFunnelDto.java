@@ -3,10 +3,12 @@ package com.kcpc.mkt.reporting.dto;
 import java.math.BigDecimal;
 
 /**
- * Idea -&gt; Publish funnel (spec §10): Submitted -&gt; Approved (with Retained/Rejected shown
- * separately, never silently merged) -&gt; Planned -&gt; Published. {@code approvalRate} is
- * {@code approved / (approved + rejected)} - Retained stays excluded from that denominator, but is
- * still visible in the funnel itself.
+ * Idea -&gt; Publish funnel (spec §10, formula locked by ENG-097): Submitted -&gt; Approved (with
+ * Retained/Rejected shown separately, never silently merged) -&gt; Planned -&gt; Published.
+ * {@code approvalRate} is {@code approved / submitted} - NOT {@code approved / (approved +
+ * rejected)}. Submitted is the sole denominator; Retained/Rejected remain visible funnel outcomes
+ * only, never separate denominators. {@code null} (never a fabricated {@code 0%}) when submitted
+ * is zero.
  */
 public class IdeaFunnelDto {
 

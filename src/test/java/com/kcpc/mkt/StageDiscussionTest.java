@@ -272,7 +272,7 @@ class StageDiscussionTest {
                         + "\"folderLink\":\"https://drive.example.com/pubdesc-" + unique + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\","
                         + "\"publicationTargetIds\":[\"" + TARGET_1 + "\"]}],"
-                        + "\"camerapersonUserIds\":[\"" + cam + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + cam + "\"],\"publisherUserIds\":[\"" + pub + "\"]}}");
         String planId = findContentPlanId(ideaId);
         String outputId = plannedOutputIdFor(planId);
         TestApiClient camClient = new TestApiClient(port);
@@ -331,13 +331,16 @@ class StageDiscussionTest {
      * the initial Shoot Team) in one call and transitions straight to Shoot Assigned (SA) - the
      * given cameraperson must already hold an active PERM_18_SHOOT_EXECUTION grant. */
     private String approveIdeaAndGetContentPlanId(TestApiClient ceo, String title, String camId) throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        String pubId = createUser(ceo, "Discussion Pub", "e2e-discussion-pub-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
+        grantExecutionPermission(ceo, pubId, "PERM_08_PUBLISHING_EXECUTION");
         JsonNode idea = ceo.postJson("/api/v1/ideas", "{\"title\":\"" + title + "\"}");
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
                         + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/stagediscussion-" + title.hashCode() + "\","
-                        + "\"camerapersonUserIds\":[\"" + camId + "\"]}}");
+                        + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         assertThat(approved.get("status").asText()).isEqualTo("SA");
         return findContentPlanId(ideaId);
     }

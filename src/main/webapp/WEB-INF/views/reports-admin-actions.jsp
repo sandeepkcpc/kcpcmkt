@@ -17,6 +17,10 @@
         <%@ include file="fragments/reports-admin-actions-content.jspf" %>
     </div>
 </main>
+<%-- Loaded BEFORE reports-workspace.js so this file's 'submit' listener (Date Range validation)
+     registers first on the same region/event - same script-order reasoning as
+     reports-kpi-date-preset.js before reports-workspace.js on the KPI Dashboard page. --%>
+<script src="${pageContext.request.contextPath}/js/reports-admin-actions.js" defer></script>
 <script src="${pageContext.request.contextPath}/js/reports-workspace.js" defer></script>
 </body>
 </html>

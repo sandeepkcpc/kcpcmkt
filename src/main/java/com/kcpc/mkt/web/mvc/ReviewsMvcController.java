@@ -33,6 +33,7 @@ import com.kcpc.mkt.production.service.ShootingService;
 import com.kcpc.mkt.reporting.dto.PipelineRow;
 import com.kcpc.mkt.reporting.service.PipelineDashboardService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
+import com.kcpc.mkt.web.mvc.dto.IdeaHistoryEvent;
 import com.kcpc.mkt.web.mvc.dto.IdeaQueueRow;
 import com.kcpc.mkt.web.mvc.dto.ReviewPlanItem;
 import com.kcpc.mkt.web.mvc.dto.ShootFeedbackEntry;
@@ -98,13 +99,17 @@ public class ReviewsMvcController {
     private final ShootingExecutionParticipantRepository shootingParticipantRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final EditingExecutionParticipantRepository editingParticipantRepository;
+    private final com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository publishingAssignmentRepository;
     private final ContentPlanTalentEntryRepository talentEntryRepository;
     private final com.kcpc.mkt.discussion.service.StageCommentService stageCommentService;
     private final com.kcpc.mkt.identity.repository.UserRepository userRepository;
     private final AssigneeWorkloadCountService assigneeWorkloadCountService;
     private final PublicationTargetRepository publicationTargetRepository;
     private final OperationalEligibilityService operationalEligibilityService;
+    private final com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService;
+    private final com.kcpc.mkt.masterdata.service.CategoryService categoryService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository;
 
     public ReviewsMvcController(IdeaRepository ideaRepository, IdeaService ideaService,
                                  ContentPlanRepository contentPlanRepository, PipelineDashboardService pipelineDashboardService,
@@ -116,13 +121,17 @@ public class ReviewsMvcController {
                                  ShootingExecutionParticipantRepository shootingParticipantRepository,
                                  EditingAssignmentRepository editingAssignmentRepository,
                                  EditingExecutionParticipantRepository editingParticipantRepository,
+                                 com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository publishingAssignmentRepository,
                                  ContentPlanTalentEntryRepository talentEntryRepository,
                                  com.kcpc.mkt.discussion.service.StageCommentService stageCommentService,
                                  com.kcpc.mkt.identity.repository.UserRepository userRepository,
                                  AssigneeWorkloadCountService assigneeWorkloadCountService,
                                  PublicationTargetRepository publicationTargetRepository,
                                  OperationalEligibilityService operationalEligibilityService,
-                                 com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+                                 com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService,
+                                 com.kcpc.mkt.masterdata.service.CategoryService categoryService,
+                                 com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                 com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository) {
         this.ideaRepository = ideaRepository;
         this.ideaService = ideaService;
         this.contentPlanRepository = contentPlanRepository;
@@ -136,13 +145,17 @@ public class ReviewsMvcController {
         this.shootingParticipantRepository = shootingParticipantRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.editingParticipantRepository = editingParticipantRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.stageCommentService = stageCommentService;
         this.userRepository = userRepository;
         this.assigneeWorkloadCountService = assigneeWorkloadCountService;
         this.publicationTargetRepository = publicationTargetRepository;
         this.operationalEligibilityService = operationalEligibilityService;
+        this.markCatalogueService = markCatalogueService;
+        this.categoryService = categoryService;
         this.objectMapper = objectMapper;
+        this.systemAuditLogRepository = systemAuditLogRepository;
     }
 
     private static boolean isAjax(String requestedWith) {
@@ -292,9 +305,14 @@ public class ReviewsMvcController {
         // CEO/Marketing Manager only (native authority) - see IdeaService#updateDescription. Same
         // gate as IdeaMvcController#detail's identical attribute for idea-detail.jsp's own modal.
         model.addAttribute("canEditIdeaDescription", authorizationService.hasNativeAuthority(user));
+        // CEO/Marketing Manager only (native authority) - see IdeaService#updateReferenceLink.
+        // Gates the Reference Link edit control; the backend re-checks this independently.
+        model.addAttribute("canEditReferenceLink", authorizationService.hasNativeAuthority(user));
         model.addAttribute("ideaStatusLabel", label);
         model.addAttribute("ideaStatusCssClass", IdeaMvcController.statusCssClass(label));
-        model.addAttribute("ideaStatusHistory", IdeaMvcController.toHistoryEvents(lifecycle));
+        List<IdeaHistoryEvent> historyEvents = IdeaMvcController.toHistoryEvents(lifecycle);
+        model.addAttribute("ideaStatusHistory", historyEvents);
+        model.addAttribute("rvIdeaLastUpdated", IdeaMvcController.computeLastUpdated(idea, historyEvents, systemAuditLogRepository));
         model.addAttribute("canDecideSelected", retainedView ? canReopenIdea(user, idea) : canDecideIdea(user, idea));
 
         // Workflow redesign: Planning's former input set is collected right here, in the same
@@ -307,6 +325,25 @@ public class ReviewsMvcController {
                     userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
             model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
                     operationalEligibilityService.shootExecutionCandidates(idea.getWorkflowInstance())));
+            // ENG-091 (Stages): Direct Edit / Direct Publishing collect Editor(s)/Publisher(s)
+            // right here too, since there's no later Shoot Review/Edit Review Approve to fold that
+            // assignment into when Shoot/Edit is skipped from the very start - same candidate
+            // lists buildPlanTab already uses for the Shoot/Edit Review tabs' own fold-in sections.
+            model.addAttribute("editorCandidateUsers", assigneeWorkloadCountService.withEditCounts(
+                    operationalEligibilityService.editExecutionCandidates(idea.getWorkflowInstance())));
+            model.addAttribute("publisherCandidateUsers", assigneeWorkloadCountService.withPublishingCounts(
+                    operationalEligibilityService.publishingExecutionCandidates(idea.getWorkflowInstance())));
+            // ENG-092 (Mark Catalogue): Team Marks dropdowns are driven by the live admin-managed
+            // catalogue, not a hardcoded option list - see MarkCatalogueService/admin-marks.jsp.
+            model.addAttribute("cameramanMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.CAMERAPERSON));
+            model.addAttribute("editorMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.EDITOR));
+            model.addAttribute("modelMarkOptions",
+                    markCatalogueService.listActiveByRole(com.kcpc.mkt.marks.domain.RoleType.MODEL));
+            // ENG-094 (Category Catalogue): same as IdeaMvcController - Planning Category dropdown
+            // is driven by the live admin-managed catalogue, not free text.
+            model.addAttribute("categoryOptions", categoryService.listActive());
             List<PublicationTarget> activeTargets = publicationTargetRepository.findByActiveTrue();
             model.addAttribute("activePublicationTargets", activeTargets);
             model.addAttribute("activePlatformNames", activeTargets.stream()
@@ -360,6 +397,10 @@ public class ReviewsMvcController {
                                          @RequestParam(required = false) String outputsJson,
                                          @RequestParam(required = false) List<UUID> camerapersonUserIds,
                                          @RequestParam(required = false) UUID leadCamerapersonUserId,
+                                         @RequestParam(required = false) List<com.kcpc.mkt.idea.dto.PlanningStage> stages,
+                                         @RequestParam(required = false) List<UUID> editorUserIds,
+                                         @RequestParam(required = false) UUID leadEditorUserId,
+                                         @RequestParam(required = false) List<UUID> publisherUserIds,
                                          @AuthenticationPrincipal KcpcUserPrincipal principal, HttpServletRequest request) {
         // SKU Reference has no separate "N/A" checkbox in the UI - leaving it blank simply IS N/A,
         // mirrors IdeaMvcController#decide exactly.
@@ -379,7 +420,7 @@ public class ReviewsMvcController {
         PlanningApprovalRequest planning = decision != IdeaReviewDecision.APPROVE ? null : new PlanningApprovalRequest(
                 categoryText, contentPriority, skuReference, skuNotApplicable, planningMode, plannedLiveDate,
                 shootDate, editDate, urgencyReason, folderLink, modelUserIds, outputs,
-                camerapersonUserIds, leadCamerapersonUserId);
+                camerapersonUserIds, leadCamerapersonUserId, stages, editorUserIds, leadEditorUserId, publisherUserIds);
         try {
             ideaService.decide(principal.user(), id, decision, reason, cameramanMark, editorMark, modelMark, planning);
             return ResponseEntity.ok(Map.of("status", "ok"));
@@ -501,6 +542,13 @@ public class ReviewsMvcController {
             // execution-eligible candidates (mirrors the standalone Assign Publisher(s) action).
             model.addAttribute("publisherCandidateUsers", assigneeWorkloadCountService.withPublishingCounts(
                     operationalEligibilityService.publishingExecutionCandidates(plan.getWorkflowInstance())));
+            // ENG-097: a Publisher may already be assigned from Planning time - pre-check/label
+            // those in the picker below so the reviewer can see it, rather than it looking
+            // unselected. PublishingAssignment (not the fold-in call itself) is the source of truth
+            // here - reading it directly, never re-deriving from any other signal.
+            model.addAttribute("alreadyAssignedPublisherUserIds", publishingAssignmentRepository
+                    .findByContentPlanAndActiveTrue(plan).stream()
+                    .map(a -> a.getPublisher().getId()).collect(java.util.stream.Collectors.toSet()));
             // Same review-consistency fix as Shoot above, for Edit.
             boolean canCommentOnEdit = nativeAuthority || editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
                     .stream().anyMatch(a -> a.getEditor().getId().equals(user.getId()));
@@ -604,11 +652,17 @@ public class ReviewsMvcController {
     }
 
     private static String decisionLabel(String decision) {
-        return "REQUEST_REWORK".equals(decision) ? "Rework Requested" : "Approved";
+        if ("REQUEST_REWORK".equals(decision)) {
+            return "Rework Requested";
+        }
+        return "SKIPPED".equals(decision) ? "Stage Skipped" : "Approved";
     }
 
     private static String decisionCssClass(String decision) {
-        return "REQUEST_REWORK".equals(decision) ? "status-rejected" : "status-completed";
+        if ("REQUEST_REWORK".equals(decision)) {
+            return "status-rejected";
+        }
+        return "SKIPPED".equals(decision) ? "status-skipped" : "status-completed";
     }
 
     private static long countByStatus(List<ContentPlan> plans, WorkflowStatus status) {

@@ -4,8 +4,13 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /** KPI Dashboard -&gt; Overview: the ~8 headline KPIs + Stage Bottleneck + Attention Needed +
- * Idea-&gt;Publish Funnel (spec §7-10). Every field is null/empty rather than a fabricated value
- * when the underlying data/denominator is unavailable. */
+ * Idea-&gt;Publish Funnel (spec §7-10), plus the three redesigned executive blocks (Current Work
+ * Ownership / Upcoming Channel Plan / Idea-&gt;Publish Funnel) the Overview JSP now actually
+ * renders. The original 8 KPI cards + Stage Bottleneck + Attention Needed fields are kept
+ * computed and intact (still consumed by other code paths / available for future use) even though
+ * reports-kpi-overview.jspf no longer displays them - only the JSP presentation changed, not this
+ * DTO's data or the service calculations behind it. Every field is null/empty rather than a
+ * fabricated value when the underlying data/denominator is unavailable. */
 public class OverviewDashboardDto {
 
     private final long activeWip;
@@ -19,11 +24,15 @@ public class OverviewDashboardDto {
     private final List<StageHealthRow> stageHealth;
     private final List<AttentionItem> attentionItems;
     private final IdeaFunnelDto funnel;
+    private final List<CurrentWorkOwnershipRow> currentWorkOwnership;
+    private final List<UpcomingPlanDateGroup> upcomingChannelPlan;
 
     public OverviewDashboardDto(long activeWip, long delayedDeliverables, OnTimeDeliveryResult onTimeDelivery,
                                  long publishedContent, Double avgEndToEndCycleTimeDays, BigDecimal reworkRatePercent,
                                  long pendingReviews, long performanceOverdue, List<StageHealthRow> stageHealth,
-                                 List<AttentionItem> attentionItems, IdeaFunnelDto funnel) {
+                                 List<AttentionItem> attentionItems, IdeaFunnelDto funnel,
+                                 List<CurrentWorkOwnershipRow> currentWorkOwnership,
+                                 List<UpcomingPlanDateGroup> upcomingChannelPlan) {
         this.activeWip = activeWip;
         this.delayedDeliverables = delayedDeliverables;
         this.onTimeDelivery = onTimeDelivery;
@@ -35,6 +44,16 @@ public class OverviewDashboardDto {
         this.stageHealth = stageHealth;
         this.attentionItems = attentionItems;
         this.funnel = funnel;
+        this.currentWorkOwnership = currentWorkOwnership;
+        this.upcomingChannelPlan = upcomingChannelPlan;
+    }
+
+    public List<CurrentWorkOwnershipRow> getCurrentWorkOwnership() {
+        return currentWorkOwnership;
+    }
+
+    public List<UpcomingPlanDateGroup> getUpcomingChannelPlan() {
+        return upcomingChannelPlan;
     }
 
     public long getActiveWip() {

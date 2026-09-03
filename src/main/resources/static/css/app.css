@@ -45,7 +45,6 @@ form input {
 }
 
 button[type="submit"] {
-    margin-top: 1.5rem;
     padding: 0.6rem;
     background: var(--kcpc-accent);
     color: #fff;
@@ -194,6 +193,9 @@ button[type="submit"] {
 }
 .status-pill.status-pending { background: #fef3c7; color: #92400e; }
 .status-pill.status-completed { background: #dcfce7; color: #166534; }
+/* ENG-090: Skip Stage - a distinct, muted/neutral outcome (neither Approved-green nor
+   Rework-red), same gray already used by .status-pill.status-neutral below. */
+.status-pill.status-skipped { background: #e5e7eb; color: #374151; }
 #publishing-checklist-table .publishing-checklist-evidence { width: 100%; min-width: 160px; }
 #publishing-checklist-table td, #publishing-checklist-table th { vertical-align: middle; }
 
@@ -415,6 +417,9 @@ button[type="submit"] {
 .kpi-card.kpi-rejected .kpi-card-count { color: #991b1b; }
 .kpi-card.kpi-retained .kpi-card-count { color: #92400e; }
 .kpi-card-subtitle { font-size: 0.78rem; color: #6b7280; margin-top: 0.1rem; }
+/* My Performance: "6.5 / 8.0" style KPI cards - the "/ max" suffix is de-emphasized so the earned
+   value (already colored/sized by .kpi-card-count above) stays the visual focus. */
+.kpi-card-count-max { font-size: 0.9rem; font-weight: 600; color: #6b7280; }
 
 .my-work-tabs {
     display: flex;
@@ -437,6 +442,11 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 .my-work-tab-panel.hidden { display: none; }
 
 .status-pill.status-delayed { background: #fee2e2; color: #b91c1c; }
+
+/* My Work stage tabs (Shoot/Edit/Publishing only): Planned Date cell highlight for an
+   already-delayed task (item.delayed) - same light red/pink as .status-delayed, but scoped to
+   just the date cell, never the whole row. */
+.planned-date-delayed { background: #fee2e2; }
 
 /* ENG-059: My Ideas - search/filter bar (plain GET query params, full-page reload - no client-side
    table-filtering pattern exists anywhere else in this app to reuse) and pagination. */
@@ -660,7 +670,6 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
     font-size: 0.9rem;
 }
 .panel button, .action-form button {
-    margin-top: 1rem;
     padding: 0.5rem 1.1rem;
     background: var(--kcpc-accent);
     color: #fff;
@@ -731,6 +740,8 @@ button[type="submit"].success { background: #1a7f4b; }
     font-size: 0.85rem;
 }
 .timeline .ts { color: #6b7280; margin-right: 0.5rem; }
+/* ENG-091: a stage excluded at Idea Review planning time - a plain note, not a real transition. */
+.timeline li.timeline-skipped { color: #6b7280; font-style: italic; }
 
 .filter-bar { margin-bottom: 1rem; font-size: 0.85rem; }
 .filter-bar select, .filter-bar input { margin-right: 0.75rem; padding: 0.3rem; }
@@ -1216,6 +1227,7 @@ button[type="submit"].success { background: #1a7f4b; }
 .kcpc-modal-footer {
     display: flex; justify-content: flex-end; gap: 0.6rem; padding: 1rem 1.4rem;
     border-top: 1px solid var(--kcpc-border);
+    align-items: baseline;
 }
 
 /* Script Description viewer (Content Detail -> Overview): note-icon trigger + read-only modal
@@ -1254,6 +1266,23 @@ button[type="submit"].success { background: #1a7f4b; }
 .script-description-edit-actions button[type="submit"]:hover:not(:disabled) { background: #1e40af; }
 .script-description-edit-actions button[type="submit"]:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* Reference Link inline edit widget (CEO/Marketing Manager only) - idea-detail.jsp's own field row
+   and the Reviews Workspace's "Reviewing Idea" panel both include fragments/
+   idea-reference-link-edit.jspf as-is, so this is the one place its look lives. */
+.ref-link-view { display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.ref-link-edit-form { margin-top: 0.4rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.ref-link-edit-input {
+    flex: 1 1 260px; min-width: 200px; padding: 0.4rem 0.6rem; border: 1px solid var(--kcpc-border);
+    border-radius: 6px; font-size: 0.88rem; font-family: inherit;
+}
+.ref-link-edit-actions { display: flex; gap: 0.4rem; flex: none; }
+.ref-link-edit-actions button[type="submit"] {
+    padding: 0.4rem 0.9rem; border-radius: 7px; font-weight: 700; font-size: 0.82rem;
+    border: 1px solid #1d4ed8; background: #1d4ed8; color: #fff; cursor: pointer;
+}
+.ref-link-edit-actions button[type="submit"]:hover:not(:disabled) { background: #1e40af; }
+.ref-link-edit-form .reviews-decision-error { flex-basis: 100%; margin: 0; }
+
 .scope-change-log {
     list-style: none; margin: 0 0 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px;
     background: #fffbeb; border: 1px solid #fde68a; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.25rem;
@@ -1287,6 +1316,25 @@ button[type="submit"].success { background: #1a7f4b; }
 }
 .kcpc-channel-checklist .channel-check-item.hidden { display: none; }
 .kcpc-channel-checklist .channel-check-item input { width: auto; }
+
+/* ENG-091: Stages picker (Idea Review Planning Basics) - a fixed 3-option <details>/<summary>
+   dropdown, same visual language as .reviews-platform-picker below (toggle chrome) and
+   .kcpc-channel-checklist above (checklist chrome) plus the shared .model-chip chip style, rather
+   than inventing a new one. */
+.kcpc-stages-picker { min-width: 220px; }
+.kcpc-stages-picker-toggle {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; min-height: 2.2rem;
+    list-style: none; cursor: pointer; background: var(--kcpc-surface);
+    border: 1px solid var(--kcpc-border); border-radius: 6px; padding: 0.3rem 0.55rem; font-size: 0.8rem;
+}
+.kcpc-stages-picker-toggle::-webkit-details-marker { display: none; }
+.kcpc-stages-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.kcpc-stages-checklist {
+    display: flex; flex-direction: column; gap: 0.3rem; margin: 0.4rem 0;
+    border: 1px solid var(--kcpc-border); border-radius: 6px; padding: 0.5rem;
+}
+.kcpc-stages-checklist .stage-check-item { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.kcpc-stages-checklist .stage-check-item input { width: auto; }
 
 /* Add Output / Edit: Reel Type field (label + checklist + hint), hidden while Output Type isn't
    REEL (publication-scope.js also disables and clears its checkboxes then; without JS it stays
@@ -2056,6 +2104,9 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .content-detail-field-row-divider { border-bottom: 1px solid var(--kcpc-border); margin-bottom: 0.4rem; padding-bottom: 0.5rem; }
 .content-detail-field-label { width: 148px; flex: none; color: #6b7280; }
 .content-detail-field-value { color: var(--kcpc-ink); font-weight: 600; }
+/* Overview -> People: each contributor's own decided mark for this content, shown as a raw value
+   only (never "/10" or a total) - visually offset from the name, same row. */
+.content-detail-people-mark { margin-left: 0.5rem; color: #6b7280; font-weight: 600; }
 .content-detail-platform-chips { margin: 0.4rem 0 1rem; }
 /* Summary strip's Platform/Channel cell reuses the same chip fragment inline, just without the
    block-level top/bottom margin the Publishing tab's own copy has. */
@@ -2289,8 +2340,40 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .stage-dot-Edit { background: #2563eb; }
 .stage-dot-Publishing { background: #ea580c; }
 .stage-dot-Performance { background: #a855f7; }
+/* Model is talent participation, not a real workflow-assignable stage (see TeamWorkloadService's
+   own modelRow() comment) - a neutral gray keeps it visually distinct from the 4 real stages
+   above without implying it is one of them. */
+.stage-dot-Model { background: #6b7280; }
 
 .team-workload-assignee-cell { display: flex; align-items: center; gap: 0.6rem; font-weight: 600; }
+
+/* Date Range fix: the info icon now sits inline inside the filter label itself (every other
+   Workload info-icon is a sibling in a .team-workload-card-header row instead) - a small negative
+   margin keeps its larger click/focus target from visually pushing the label text apart. */
+.team-workload-filters .filter-field label .info-icon { margin-left: 0.2rem; }
+.team-workload-filters .filter-checkbox-field .info-icon { margin-left: 0.3rem; }
+.team-workload-filter-btn { height: 2.3rem; }
+
+/* Employee-wise UI update: one stage-wise breakdown panel per employee, all server-rendered
+   up front and hidden by default - "Open" toggles exactly one visible at a time (see
+   team-workload-dashboard.js). Reuses the same .panel/.data-table look as the two cards above,
+   just nested inside the Assignee Load card rather than a top-level sibling (see the JSPF's own
+   comment for why - the Stage-filter-only AJAX partial swap must keep replacing it as one unit). */
+.team-workload-breakdown { margin-top: 1rem; border-top: 1px solid var(--kcpc-border); padding-top: 1rem; }
+.team-workload-breakdown h3 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+
+/* Employee -> Stage -> Content ID drill-down: one collapsed <details> per stage row, nested inside
+   that same row via a colspan cell so it stays visually attached to its own Active/Delayed/On Hold
+   counts (never a separate table) - the Content ID list inside always reconciles exactly with
+   Active Tasks above by construction (see AssigneeLoadRow's own javadoc). */
+.team-workload-content-items-row td { padding-top: 0; padding-bottom: 0.6rem; border-top: none; }
+.team-workload-content-details { font-size: 0.85rem; }
+.team-workload-content-details summary { cursor: pointer; color: var(--kcpc-muted, #6b7280); user-select: none; }
+.team-workload-content-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.team-workload-content-list li { display: flex; align-items: center; gap: 0.6rem; }
+.team-workload-item-status { font-size: 0.8rem; }
+.team-workload-item-delayed { color: #dc2626; font-weight: 600; }
+.team-workload-item-active { color: #16a34a; }
 
 .team-workload-footnote { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 1.25rem; }
 
@@ -2485,7 +2568,14 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
    for 60-65/35-40, distinct from .content-detail-body's 73/27) since the queue
    table needs more room here than Content Detail's summary sidebar did.
    ============================================================================ */
-.reviews-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1rem; }
+/* .reviews-tabs-row wraps .reviews-tabs + the "+ Create Idea" button on the same line - the
+   border/spacing that used to live on .reviews-tabs itself moved up here so it spans the full row
+   width, not just under the tab links. */
+.reviews-tabs-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    border-bottom: 1px solid var(--kcpc-border); margin-bottom: 1rem;
+}
+.reviews-tabs { display: flex; gap: 0.25rem; }
 .reviews-tab {
     display: inline-flex; align-items: center; padding: 0.65rem 0.9rem;
     color: #6b7280; font-weight: 600; font-size: 0.9rem; text-decoration: none;
@@ -2573,11 +2663,14 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .reviews-feedback-box { border-radius: 8px; padding: 0.7rem 0.85rem; font-size: 0.84rem; }
 .reviews-feedback-box.status-completed { background: #f0fdf4; border: 1px solid #bbf7d0; }
 .reviews-feedback-box.status-rejected { background: #fff7ed; border: 1px solid #fed7aa; }
+/* ENG-090: Skip Stage - muted/neutral, distinct from Approved (green) and Rework (orange). */
+.reviews-feedback-box.status-skipped { background: #f3f4f6; border: 1px solid #e5e7eb; }
 .reviews-feedback-box p { margin: 0 0 0.4rem; color: var(--kcpc-ink); }
 .reviews-feedback-meta { font-size: 0.76rem; color: #6b7280; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
 .idea-action-badge.status-completed { background: #dcfce7; color: #166534; }
 .idea-action-badge.status-rejected { background: #fff7ed; color: #9a3412; }
+.idea-action-badge.status-skipped { background: #e5e7eb; color: #374151; }
 
 .reviews-decision-section { display: flex; flex-direction: column; gap: 0.5rem; }
 .reviews-decision-buttons, .reviews-plan-decision-buttons { display: flex; gap: 0.6rem; flex-wrap: wrap; }
@@ -2707,6 +2800,10 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .reviews-drive-input input { flex: 1 1 auto; margin-top: 0; }
 
 .reviews-schedule-hint { display: block; margin-top: 0.25rem; font-size: 0.72rem; font-weight: 400; color: #6b7280; }
+/* Standard Planning Mode: real-time inline error when the calculated Shoot/Edit Date lands
+   before today - never an alert/popup, clears itself the moment a later Planned Live Date
+   recalculates both dates back into range. */
+.reviews-schedule-error { display: block; margin-top: 0.25rem; font-size: 0.72rem; font-weight: 600; color: #b91c1c; }
 .reviews-field-hint { margin: 0.4rem 0 0; font-size: 0.78rem; color: #6b7280; }
 
 /* Bottom confirm bar - the actual submit action once a decision is selected above; label text is
@@ -2842,6 +2939,93 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .kpi-funnel-branch-item strong { color: var(--kcpc-ink); margin-left: 0.25rem; }
 .kpi-funnel-note { margin-top: 0.6rem; font-size: 0.78rem; }
 
+/* Overview (ENG-097 redesign): Current Work Ownership / Upcoming Channel Plan block styling. */
+.kpi-block-subtitle { margin: -0.4rem 0 0.9rem; font-size: 0.82rem; }
+
+.kpi-upcoming-plan { display: flex; flex-direction: column; gap: 0.7rem; max-height: 420px; overflow-y: auto; }
+.kpi-upcoming-date-group { border-bottom: 1px solid var(--kcpc-border); padding-bottom: 0.6rem; }
+.kpi-upcoming-date-group:last-child { border-bottom: none; padding-bottom: 0; }
+.kpi-upcoming-date { font-weight: 700; font-size: 0.88rem; color: var(--kcpc-ink); margin-bottom: 0.35rem; }
+.kpi-upcoming-channel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.kpi-upcoming-channel-list li { display: flex; justify-content: space-between; font-size: 0.85rem; color: #374151; }
+.kpi-upcoming-channel-name::before { content: "\2022"; margin-right: 0.4rem; color: #9ca3af; }
+.kpi-upcoming-channel-count { font-weight: 700; color: var(--kcpc-ink); }
+
+/* Current Work Ownership -> "Open" drill-down (reports-kpi-ownership-drilldown.js). */
+.kpi-drilldown-header h3 { margin: 0 0 0.15rem; }
+.kpi-drilldown-counts { font-weight: 700; margin: 0.3rem 0 1rem; }
+.kpi-drilldown-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--kcpc-border); }
+.kpi-drilldown-tab {
+    background: none; border: none; border-bottom: 2px solid transparent; padding: 0.5rem 0.2rem;
+    margin-right: 1rem; font-size: 0.88rem; font-weight: 600; color: #6b7280; cursor: pointer;
+}
+.kpi-drilldown-tab.active { color: var(--kcpc-accent); border-bottom-color: var(--kcpc-accent); }
+.kpi-drilldown-panel.hidden { display: none; }
+
+/* Upcoming Channel Plan card header row (title + calendar-icon trigger, top-right) - a dedicated
+   flex wrapper rather than reusing .card-head-row, since that class's own `h2 { margin: 0; }`
+   override would change this card's existing title-to-subtitle spacing as an unintended side
+   effect. The trigger button itself reuses .idea-details-trigger as-is (already the app's small
+   secondary icon-button convention) - no new button styling needed. */
+.kpi-upcoming-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+
+/* Upcoming Channel Plan -> calendar popover (reports-kpi-calendar.js). Reuses the shared
+   .kcpc-modal-* shell (same as the Current Work Ownership drill-down above) for visual
+   consistency within this same card row. */
+.kpi-calendar-modal { width: min(360px, 92vw); }
+.kpi-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
+.kpi-calendar-nav .btn-outline { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.kpi-calendar-month-label { font-weight: 700; font-size: 0.92rem; }
+.kpi-calendar-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;
+    font-size: 0.72rem; color: #6b7280; margin-bottom: 0.3rem;
+}
+.kpi-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.2rem; }
+/* Every day cell shares this base "normal" look - only .kpi-calendar-cell-planned/-selected below
+   add anything further, so an unplanned date always stays visually normal, per spec. */
+.kpi-calendar-cell {
+    display: flex; align-items: center; justify-content: center; height: 2.1rem; border-radius: 6px;
+    font-size: 0.82rem; color: var(--kcpc-ink); background: none; border: 1px solid transparent;
+    font-family: inherit;
+}
+.kpi-calendar-cell-empty { visibility: hidden; }
+/* Only a planned date is ever rendered as a real <button> (see reports-kpi-calendar.js) - an
+   unplanned date is a plain, non-interactive <span> with no special styling at all. */
+button.kpi-calendar-cell-planned {
+    cursor: pointer; font-weight: 700; background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8;
+}
+button.kpi-calendar-cell-planned:hover { background: #dbeafe; }
+button.kpi-calendar-cell-selected { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+/* Explicit, same pattern as .pipeline-platform-chip:focus-visible above - a keyboard user tabbing
+   through planned dates/nav/close must always see exactly where focus is. */
+.kpi-calendar-cell-planned:focus-visible, .kpi-calendar-prev:focus-visible,
+.kpi-calendar-next:focus-visible { outline: 2px solid var(--kcpc-accent); outline-offset: 1px; }
+.kpi-calendar-legend {
+    display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.72rem; color: #6b7280; flex-wrap: wrap;
+}
+.kpi-calendar-legend-dot {
+    display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.3rem;
+    vertical-align: middle;
+}
+.kpi-calendar-legend-dot-planned { background: #1d4ed8; opacity: 0.35; }
+.kpi-calendar-legend-dot-selected { background: #1d4ed8; }
+.kpi-calendar-detail { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--kcpc-border); }
+.kpi-calendar-detail-date { margin: 0 0 0.5rem; font-size: 0.88rem; font-weight: 700; }
+.kpi-calendar-detail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.kpi-calendar-detail-list li { display: flex; justify-content: space-between; font-size: 0.85rem; gap: 0.75rem; }
+.kpi-calendar-detail-count { font-weight: 700; }
+/* Content Details: an optional, collapsed-by-default <details> section (only rendered when the
+   data actually carries contentIds - see reports-kpi-calendar.js) - a plain list, not a table,
+   since it's just an id + a static "Planned" status pill per row. */
+.kpi-calendar-content-details { margin-top: 0.7rem; font-size: 0.82rem; }
+.kpi-calendar-content-details summary { cursor: pointer; font-weight: 700; color: var(--kcpc-ink); }
+.kpi-calendar-content-list {
+    list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem;
+    max-height: 180px; overflow-y: auto;
+}
+.kpi-calendar-content-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.kpi-calendar-content-id { font-family: monospace; }
+
 .kpi-metric-row { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid var(--kcpc-border); font-size: 0.85rem; }
 .kpi-metric-row:last-of-type { border-bottom: none; }
 .kpi-footnote { margin-top: 0.6rem; font-size: 0.76rem; }
@@ -2927,6 +3111,10 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
 .reports-meta-subtext { font-size: 0.76rem; color: #6b7280; }
 .reports-reason-cell { max-width: 320px; }
 .reports-timestamp-cell { white-space: nowrap; }
+/* Logs (Audit History) Content ID column - a business Content ID ("C-0926-0001") is a fixed,
+   short, non-wrapping shape, so a modest min-width keeps the column stable across rows without
+   crowding Record/Module/Reason next to it. */
+.audit-content-id-col { min-width: 110px; white-space: nowrap; }
 .page-ellipsis { color: #9ca3af; padding: 0 0.2rem; }
 
 .delay-badge.delay-mild { background: #ffedd5; color: #c2410c; }
@@ -3266,6 +3454,30 @@ button.btn-outline-success:hover { background: #f0fdf4; }
 .perm-detail-text { font-size: 0.86rem; color: var(--kcpc-ink); line-height: 1.5; margin: 0; }
 .perm-detail-close { position: absolute; top: 0.9rem; right: 1rem; background: none; border: none; font-size: 1.1rem; color: #9ca3af; cursor: pointer; }
 
+/* Idea Details popup (My Work / Task Detail screens) - same native <dialog> pattern as
+   #permDetailDialog above, no JS modal library needed. .idea-details-trigger is a small inline
+   icon sitting right next to Content Name, not the full 2rem .icon-btn row-action size. */
+.idea-details-trigger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.5rem; height: 1.5rem; padding: 0; border-radius: 6px; margin-left: 0.35rem;
+    border: 1px solid var(--kcpc-border); background: var(--kcpc-surface); color: #6b7280;
+    cursor: pointer; font-size: 0.82rem; line-height: 1; vertical-align: middle;
+}
+.idea-details-trigger:hover { background: #f4f5f7; color: var(--kcpc-ink); }
+.idea-details-dialog {
+    position: relative; border: none; border-radius: 12px; padding: 0; width: min(560px, 92vw);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
+.idea-details-dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+.idea-details-body { padding: 1.4rem 1.5rem; }
+.idea-details-heading { font-size: 1.05rem; font-weight: 700; margin: 0 0 1rem; }
+.idea-details-field { margin-bottom: 1rem; }
+.idea-details-field:last-child { margin-bottom: 0; }
+.idea-details-field-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #6b7280; margin-bottom: 0.3rem; }
+.idea-details-field-value { font-size: 0.86rem; color: var(--kcpc-ink); line-height: 1.5; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; }
+.idea-details-link-value { white-space: normal; }
+.idea-details-close { position: absolute; top: 0.9rem; right: 1rem; background: none; border: none; font-size: 1.1rem; color: #9ca3af; cursor: pointer; }
+
 /* Footer under the unified table - just a live row count (search/granted-only filter updates it in
    JS). No pagination: the permission catalogue (19 rows today) always renders in full on one page;
    pagination only earns its keep once the catalogue grows past what search/filter can't handle. */
@@ -3319,6 +3531,19 @@ button.btn-outline-success:hover { background: #f0fdf4; }
 }
 .password-field .password-toggle.password-visible { color: var(--kcpc-accent); opacity: 1; }
 
+/* Login screen only: the same .password-field/.password-toggle toggle above, plus an actual
+   eye/eye-slash shape change (a diagonal line drawn across the eye glyph while masked, removed
+   once revealed) - scoped to .auth-card so Create User's own toggle (color/opacity only) is
+   untouched. The button is already `position: absolute` (base rule above), which is itself a
+   valid containing block for this ::after - no extra `position` declaration needed (adding one
+   here would tie in specificity with the base rule and, by source order, silently override its
+   `position: absolute` with `relative`, breaking the button's placement). */
+.auth-card .password-toggle::after {
+    content: ''; position: absolute; left: 10%; right: 10%; top: 50%; height: 1px;
+    background: currentColor; transform: translateY(-50%) rotate(-45deg);
+}
+.auth-card .password-toggle.password-visible::after { display: none; }
+
 /* Compact single-row Create User form (Full Name | Email | Initial Password | Business Role |
    Reason) on desktop, stacking on narrower viewports. */
 .admin-inline-form { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; align-items: start; }
@@ -3331,4 +3556,39 @@ button.btn-outline-success:hover { background: #f0fdf4; }
 }
 .admin-inline-form-actions { display: flex; align-items: flex-end; }
 .admin-inline-form-actions button { margin-top: 0; width: 100%; }
+
+/* Users page Edit User modal (.kcpc-modal-* shell reused as-is) - compact 2-column form, Reason
+   spans both columns at the bottom. Access Class is disabled/readonly: it only ever mirrors the
+   selected Business Role's own access class (BRS-REQ-001/002), never an independent field. */
+.admin-edit-user-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; align-items: start; }
+.admin-edit-user-grid label { margin-top: 0; }
+.admin-edit-user-grid input[disabled] { background: var(--kcpc-surface-muted, #f1f5f9); color: #6b7280; }
+.admin-edit-user-reason { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+    .admin-edit-user-grid { grid-template-columns: 1fr; }
+    .admin-edit-user-reason { grid-column: auto; }
+}
+/* Edit User modal footer: Cancel and Save Changes previously rendered at visibly different
+   heights - Cancel inherits .btn-outline's own smaller padding/font-size/1px-border, Save Changes
+   inherits the generic button[type="submit"] rule's larger padding/font-size/no-border, and those
+   two rules were never reconciled anywhere else in the app. Same fix .pipeline-filter-bar already
+   uses for the identical class of bug: an explicit height (picked to match Save Changes' own prior
+   natural height, so neither button visibly grows or shrinks) plus inline-flex centering, scoped to
+   these two button ids only - .btn-outline and button[type="submit"] everywhere else in the app,
+   including every other .kcpc-modal-footer, are untouched. box-sizing:border-box is already global
+   (see the top-of-file `* {}` rule); redeclared here only as the same defensive pin that precedent
+   uses, so Cancel's 1px border can never again push it taller than this fixed height. */
+#editUserCancelBtn, #editUserSaveBtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 2.5rem; min-height: 2.5rem; box-sizing: border-box;
+}
+.admin-actions-cell { text-align: right; white-space: nowrap; }
+
+/* Fixed-position transient toast, shared positioning for any bottom-right confirmation (paired
+   with .alert-success/.alert-error for coloring - same combinable-class approach
+   #permChecklistToast.ajax-error already uses for its own error-only toast). */
+.admin-toast {
+    position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 1000;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); max-width: 340px;
+}
 .admin-tab:hover:not(.active) { color: var(--kcpc-ink); }

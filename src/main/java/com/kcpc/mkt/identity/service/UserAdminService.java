@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * BRS-REQ-003..005: exclusive CEO user account and Business Role assignment administration.
@@ -25,6 +26,10 @@ import java.util.UUID;
 public class UserAdminService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    // Same hand-rolled check UserCsvImportService already uses for the identical "manual
+    // @RequestParam-driven admin action" scenario - kept as a same-shaped, independently-declared
+    // constant here (not shared) since that field is private to its own class.
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final UserRepository userRepository;
     private final BusinessRoleRepository businessRoleRepository;
@@ -104,6 +109,64 @@ public class UserAdminService {
         user.reassignBusinessRole(newRole);
         userRepository.save(user);
         auditService.record(ceo, Optional.empty(), "USER_ADMIN", "BUSINESS_ROLE_CHANGED", "users", user.getId(), reason);
+        return user;
+    }
+
+    /**
+     * Edit User (Users admin page's Edit modal): Full Name, Email, Business Role, and Status
+     * together as one atomic save, mirroring the modal's single "Save Changes" action rather than
+     * composing the separate {@link #changeBusinessRole}/{@link #activate}/{@link #deactivate}
+     * calls (which would each re-check authorization and write their own audit entry for what the
+     * user experiences as one edit). Access Class is deliberately not a parameter - it is always
+     * {@code businessRole.accessClassCode}, resolved automatically by {@link #changeBusinessRole}'s
+     * same rule (BRS-REQ-001/002); this method never accepts or sets it independently. Password is
+     * never touched here - see {@link #resetPasswordByAdmin}.
+     */
+    @Transactional
+    public User updateUser(User ceo, UUID userId, String fullName, String email, UUID businessRoleId,
+                            boolean active, String reason) {
+        requireCeo(ceo);
+        requireReason(reason);
+        User user = requireUser(userId);
+
+        String trimmedName = fullName == null ? "" : fullName.trim();
+        if (trimmedName.isBlank()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Full Name is mandatory");
+        }
+        if (trimmedName.length() > 100) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Full Name must be 100 characters or fewer");
+        }
+
+        String trimmedEmail = email == null ? "" : email.trim();
+        if (trimmedEmail.isEmpty() || !EMAIL_PATTERN.matcher(trimmedEmail).matches()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "A valid Email is mandatory");
+        }
+        if (trimmedEmail.length() > 255) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED, "Email must be 255 characters or fewer");
+        }
+        userRepository.findByEmailIgnoreCase(trimmedEmail)
+                .filter(existing -> !existing.getId().equals(userId))
+                .ifPresent(existing -> {
+                    throw DomainException.conflict(ErrorCode.CONFLICT_DUPLICATE_SUBMISSION,
+                            "A user with this email already exists");
+                });
+
+        BusinessRole role = businessRoleRepository.findById(businessRoleId)
+                .orElseThrow(() -> DomainException.notFound("Business Role not found: " + businessRoleId));
+
+        user.rename(trimmedName);
+        user.changeEmail(trimmedEmail);
+        user.reassignBusinessRole(role);
+        if (active && !user.isActive()) {
+            user.activate();
+        } else if (!active && user.isActive()) {
+            user.deactivate();
+            // Same immediate session revocation the standalone deactivate() action already
+            // guarantees (KCPC-MKT-R3.5-DEVELOPMENT-HANDOFF.md "Security rules").
+            tokenRegistryService.revokeAllActiveSessionsForUser(user);
+        }
+        userRepository.save(user);
+        auditService.record(ceo, Optional.empty(), "USER_ADMIN", "USER_UPDATED", "users", user.getId(), reason);
         return user;
     }
 
