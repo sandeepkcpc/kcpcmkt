@@ -116,7 +116,7 @@ class MyWorkVisibilityTest {
         // Still shooting (SA) - active, not yet completed, not yet on My Performance.
         String duringShoot = cam.get("/app/my-work").body();
         assertThat(duringShoot).contains(plan.getContentId());
-        assertThat(cam.get("/app/my-performance").body()).doesNotContain(plan.getContentId());
+        assertThat(myPerformanceTableRegion(cam.get("/app/my-performance").body())).doesNotContain(plan.getContentId());
 
         cam.post("/api/v1/content-plans/" + planId + "/shooting/start", "");
         cam.post("/api/v1/content-plans/" + planId + "/shooting/review/submit", "");
@@ -140,6 +140,20 @@ class MyWorkVisibilityTest {
         // that the History sub-tab/panel has been removed entirely (see
         // MyWorkRoleBasedNavigationTest) - a stable, stage-agnostic end marker.
         int end = body.indexOf("Need help or have questions?");
+        assertThat(start).isPositive();
+        assertThat(end).isGreaterThan(start);
+        return body.substring(start, end);
+    }
+
+    /**
+     * Scoped to My Performance's own Task Performance table (not the whole page body): the
+     * header's global "latest notifications" widget renders on every page, including this one,
+     * and can legitimately mention this same Content ID via an unrelated notification (e.g. its
+     * original assignment) regardless of whether the row is actually in this table.
+     */
+    private String myPerformanceTableRegion(String body) {
+        int start = body.indexOf("Task Performance");
+        int end = body.indexOf("</table>", start);
         assertThat(start).isPositive();
         assertThat(end).isGreaterThan(start);
         return body.substring(start, end);

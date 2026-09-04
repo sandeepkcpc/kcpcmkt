@@ -29,6 +29,8 @@ import com.kcpc.mkt.marks.repository.PredefinedRoleMarksRepository;
 import com.kcpc.mkt.marks.service.MarkCatalogueService;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
 import com.kcpc.mkt.planning.domain.OutputType;
@@ -112,6 +114,7 @@ public class IdeaService {
     private final OperationalEligibilityService operationalEligibilityService;
     private final MarkCatalogueService markCatalogueService;
     private final com.kcpc.mkt.masterdata.service.CategoryService categoryService;
+    private final NotificationService notificationService;
 
     public IdeaService(IdeaRepository ideaRepository, IdeaDescriptionCorrectionRepository descriptionCorrectionRepository,
                         ContentPlanRepository contentPlanRepository,
@@ -132,7 +135,8 @@ public class IdeaService {
                         PublishingAssignmentRepository publishingAssignmentRepository,
                         UserRepository userRepository, OperationalEligibilityService operationalEligibilityService,
                         MarkCatalogueService markCatalogueService,
-                        com.kcpc.mkt.masterdata.service.CategoryService categoryService) {
+                        com.kcpc.mkt.masterdata.service.CategoryService categoryService,
+                        NotificationService notificationService) {
         this.ideaRepository = ideaRepository;
         this.descriptionCorrectionRepository = descriptionCorrectionRepository;
         this.contentPlanRepository = contentPlanRepository;
@@ -157,6 +161,7 @@ public class IdeaService {
         this.operationalEligibilityService = operationalEligibilityService;
         this.markCatalogueService = markCatalogueService;
         this.categoryService = categoryService;
+        this.notificationService = notificationService;
     }
 
     /** BRS-REQ-014: any of the 3 access classes may submit; no permission gate on submission itself. */
@@ -504,9 +509,13 @@ public class IdeaService {
             for (UUID talentUserId : planning.talentUserIds()) {
                 User talentUser = userRepository.findById(talentUserId)
                         .orElseThrow(() -> DomainException.notFound("User not found: " + talentUserId));
-                talentEntryRepository.save(new ContentPlanTalentEntry(contentPlan, talentUser.getFullName(), talentUser));
+                ContentPlanTalentEntry talentEntry = talentEntryRepository.save(
+                        new ContentPlanTalentEntry(contentPlan, talentUser.getFullName(), talentUser));
                 attributionRepository.save(new PersonalMarkAttribution(talentUser, RoleType.MODEL, contentPlan,
                         cycle, marks, marks.getPredefinedModelMark()));
+                notificationService.notify(talentUser, NotificationType.TASK_ASSIGNED, "New Task Assigned",
+                        "You have been assigned " + contentPlan.getContentId(), contentPlan,
+                        "TASK_ASSIGNED:ContentPlanTalentEntry:" + talentEntry.getId());
             }
         }
 
@@ -522,6 +531,9 @@ public class IdeaService {
                 assignment.setLead(true);
                 shootingAssignmentRepository.save(assignment);
             }
+            notificationService.notify(cameraperson, NotificationType.TASK_ASSIGNED, "New Task Assigned",
+                    "You have been assigned " + contentPlan.getContentId(), contentPlan,
+                    "TASK_ASSIGNED:ShootingAssignment:" + assignment.getId());
         }
         // Direct Edit only (ENG-091/ENG-095): Editor Lead IS required here too, validated above -
         // this is the only checkpoint for the Edit team when Shoot itself was never selected, no
@@ -534,11 +546,18 @@ public class IdeaService {
                 assignment.setLead(true);
                 editingAssignmentRepository.save(assignment);
             }
+            notificationService.notify(editor, NotificationType.TASK_ASSIGNED, "New Task Assigned",
+                    "You have been assigned " + contentPlan.getContentId(), contentPlan,
+                    "TASK_ASSIGNED:EditingAssignment:" + assignment.getId());
         }
         // Direct Publishing only (ENG-091): no earlier Edit Review Approve exists to fold this
         // into - Publisher(s) never have a Lead concept anyway (ENG-036/ENG-044).
         for (User publisher : publishers) {
-            publishingAssignmentRepository.save(new PublishingAssignment(contentPlan, publisher, reviewer));
+            PublishingAssignment assignment = publishingAssignmentRepository.save(
+                    new PublishingAssignment(contentPlan, publisher, reviewer));
+            notificationService.notify(publisher, NotificationType.TASK_ASSIGNED, "New Task Assigned",
+                    "You have been assigned " + contentPlan.getContentId(), contentPlan,
+                    "TASK_ASSIGNED:PublishingAssignment:" + assignment.getId());
         }
 
         // Cheap tracking-row insert only (no network call) - the real Google Drive folder

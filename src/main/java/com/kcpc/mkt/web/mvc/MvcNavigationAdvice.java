@@ -6,11 +6,15 @@ import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.notification.domain.Notification;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.workflow.service.WorkspaceAccessService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
+
+import java.util.List;
 
 /**
  * Makes {@code accessClass}/{@code businessRoleName}/{@code canSeeAdministration} available to
@@ -24,10 +28,27 @@ public class MvcNavigationAdvice {
 
     private final AuthorizationService authorizationService;
     private final WorkspaceAccessService workspaceAccessService;
+    private final NotificationService notificationService;
 
-    public MvcNavigationAdvice(AuthorizationService authorizationService, WorkspaceAccessService workspaceAccessService) {
+    public MvcNavigationAdvice(AuthorizationService authorizationService, WorkspaceAccessService workspaceAccessService,
+                               NotificationService notificationService) {
         this.authorizationService = authorizationService;
         this.workspaceAccessService = workspaceAccessService;
+        this.notificationService = notificationService;
+    }
+
+    /** Header bell badge - cheap indexed count query, same per-request-attribute pattern as every
+     * other flag here (never N+1: one query per page load, not one per notification). */
+    @ModelAttribute("unreadNotificationCount")
+    public long unreadNotificationCount(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal == null ? 0 : notificationService.unreadCount(principal.user());
+    }
+
+    /** Header dropdown's own "latest 5" list - rendered server-side on every page load, same as
+     * the count above, so opening the dropdown needs no extra request. */
+    @ModelAttribute("latestNotifications")
+    public List<Notification> latestNotifications(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal == null ? List.of() : notificationService.listRecent(principal.user(), 5);
     }
 
     @ModelAttribute("accessClass")
@@ -41,6 +62,18 @@ public class MvcNavigationAdvice {
             return null;
         }
         return principal.user().getBusinessRole().getRoleName();
+    }
+
+    /** Header profile menu (fragments/nav.jsp): the logged-in user's own name/email, never
+     * hardcoded - same principal every other flag here already reads. */
+    @ModelAttribute("currentUserFullName")
+    public String currentUserFullName(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal == null ? null : principal.user().getFullName();
+    }
+
+    @ModelAttribute("currentUserEmail")
+    public String currentUserEmail(@AuthenticationPrincipal KcpcUserPrincipal principal) {
+        return principal == null ? null : principal.user().getEmail();
     }
 
     /**

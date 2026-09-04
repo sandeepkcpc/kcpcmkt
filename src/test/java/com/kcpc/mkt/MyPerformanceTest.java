@@ -257,14 +257,14 @@ class MyPerformanceTest {
         cam2.login(emailFor("cam2", unique), "Passw0rd!");
         HttpResponse<String> cam2Page = cam2.get("/app/my-performance");
         assertThat(cam2Page.statusCode()).isEqualTo(200);
-        assertThat(cam2Page.body()).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(cam2Page.body())).doesNotContain(plan.getContentId());
 
         // The route accepts no employee-identifying parameter at all - an attempt to smuggle one
         // in (userId/employeeId, as if this could redirect the view to cam1's data) is simply
         // ignored server-side; cam2 still sees only their own (empty) dataset, never cam1's.
         HttpResponse<String> tampered = cam2.get("/app/my-performance?userId=" + cam1Id + "&employeeId=" + cam1Id);
         assertThat(tampered.statusCode()).isEqualTo(200);
-        assertThat(tampered.body()).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(tampered.body())).doesNotContain(plan.getContentId());
 
         // Sanity: cam1 themself still sees their own plan (proves the isolation above is real
         // privacy, not a page that shows nobody's data).
@@ -287,7 +287,7 @@ class MyPerformanceTest {
         String farPastFrom = LocalDate.now().minusDays(60).toString();
         String farPastTo = LocalDate.now().minusDays(30).toString();
         String excluded = cam.get("/app/my-performance?fromDate=" + farPastFrom + "&toDate=" + farPastTo).body();
-        assertThat(excluded).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(excluded)).doesNotContain(plan.getContentId());
         assertThat(excluded).contains("No performance records match these filters.");
 
         // A range spanning today includes it.
@@ -321,7 +321,7 @@ class MyPerformanceTest {
         // planned date falls squarely inside this range.
         String plannedDateOnly = LocalDate.now().minusDays(6).toString();
         String excludedByPlannedDate = cam.get("/app/my-performance?fromDate=" + plannedDateOnly + "&toDate=" + plannedDateOnly).body();
-        assertThat(excludedByPlannedDate).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(excludedByPlannedDate)).doesNotContain(plan.getContentId());
         assertThat(excludedByPlannedDate).contains("<span class=\"kpi-card-title\">Tasks Completed</span><span class=\"kpi-card-count\">0</span>");
         assertThat(totalMarksCard(excludedByPlannedDate)).contains("kpi-card-count\">0</span>").doesNotContain("kpi-card-count-max");
 
@@ -347,14 +347,14 @@ class MyPerformanceTest {
 
         // Matching stage/role keeps the row; a non-matching stage/role hides it.
         assertThat(cam.get("/app/my-performance?stage=SHOOT").body()).contains(plan.getContentId());
-        assertThat(cam.get("/app/my-performance?stage=EDIT").body()).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(cam.get("/app/my-performance?stage=EDIT").body())).doesNotContain(plan.getContentId());
         assertThat(cam.get("/app/my-performance?role=Cameraperson").body()).contains(plan.getContentId());
-        assertThat(cam.get("/app/my-performance?role=Editor").body()).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(cam.get("/app/my-performance?role=Editor").body())).doesNotContain(plan.getContentId());
 
         // The Shoot planned date was pinned in the past (buildCompletedPipeline) and completion
         // happened "now" - this Cameraperson row is a real, deterministic DELAYED case.
         assertThat(cam.get("/app/my-performance?delay=DELAYED").body()).contains(plan.getContentId());
-        assertThat(cam.get("/app/my-performance?delay=ON_TIME").body()).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(cam.get("/app/my-performance?delay=ON_TIME").body())).doesNotContain(plan.getContentId());
         assertThat(cam.get("/app/my-performance?status=DELAYED").body()).contains(plan.getContentId());
 
         // Clear Filters (no params at all) returns the complete own-dataset again.
@@ -476,7 +476,7 @@ class MyPerformanceTest {
         pub2Client.login(emailFor("pub2", unique), "Passw0rd!");
         assertThat(pub2Client.get("/app/my-performance").body()).contains(plan.getContentId());
         String pub2Filtered = pub2Client.get("/app/my-performance?fromDate=" + todayOnly + "&toDate=" + todayOnly).body();
-        assertThat(pub2Filtered).doesNotContain(plan.getContentId());
+        assertThat(performanceTableRegion(pub2Filtered)).doesNotContain(plan.getContentId());
     }
 
     /**
@@ -520,5 +520,20 @@ class MyPerformanceTest {
         assertThat(titleIdx).as("Total Marks KPI card must be present").isPositive();
         assertThat(end).isGreaterThan(titleIdx);
         return body.substring(titleIdx, end);
+    }
+
+    /**
+     * Isolates the Task Performance table itself, so a "this Content ID is not on My Performance"
+     * check can't accidentally match the header's global "latest notifications" widget instead -
+     * that widget renders on every page (including this one) and can legitimately mention this
+     * same Content ID via an unrelated notification (e.g. its original assignment) regardless of
+     * whether the row is actually in this filtered table.
+     */
+    private String performanceTableRegion(String body) {
+        int start = body.indexOf("Task Performance");
+        int end = body.indexOf("</table>", start);
+        assertThat(start).as("Task Performance table must be present").isPositive();
+        assertThat(end).as("table close tag must be present after start").isGreaterThan(start);
+        return body.substring(start, end);
     }
 }

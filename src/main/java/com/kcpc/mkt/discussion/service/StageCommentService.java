@@ -8,14 +8,18 @@ import com.kcpc.mkt.discussion.repository.StageCommentRepository;
 import com.kcpc.mkt.identity.domain.LifecycleStage;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
+import com.kcpc.mkt.planning.repository.ContentPlanTalentEntryRepository;
 import com.kcpc.mkt.production.repository.EditingAssignmentRepository;
 import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,21 +36,27 @@ public class StageCommentService {
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
+    private final ContentPlanTalentEntryRepository talentEntryRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     public StageCommentService(StageCommentRepository stageCommentRepository, ContentPlanRepository contentPlanRepository,
                                 ShootingAssignmentRepository shootingAssignmentRepository,
                                 EditingAssignmentRepository editingAssignmentRepository,
                                 PublishingAssignmentRepository publishingAssignmentRepository,
-                                AuthorizationService authorizationService, AuditService auditService) {
+                                ContentPlanTalentEntryRepository talentEntryRepository,
+                                AuthorizationService authorizationService, AuditService auditService,
+                                NotificationService notificationService) {
         this.stageCommentRepository = stageCommentRepository;
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
+        this.talentEntryRepository = talentEntryRepository;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
+        this.notificationService = notificationService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -91,7 +101,84 @@ public class StageCommentService {
         StageComment comment = stageCommentRepository.save(new StageComment(plan, stage, actor, commentText));
         auditService.record(actor, Optional.empty(), stage.name(), "STAGE_COMMENT_ADDED", "stage_comments",
                 comment.getId(), null);
+        notifyCommentRecipients(actor, plan, stage, comment);
         return comment;
+    }
+
+    /**
+     * Notification recipients are the mirror image of who is currently "on" this thread
+     * ({@link #requireCommentAuthority}'s own native-authority-or-active-stage-assignee split),
+     * never a blanket broadcast: an Employee's comment notifies every active native-authority user
+     * (MM/CEO - {@link AuthorizationService#findActiveNativeAuthorityUsers()}); an MM/CEO's own
+     * comment instead notifies every currently active assignee of THAT SAME stage
+     * ({@link #currentStageAssignees}) - never another stage's assignees, and never a second
+     * blanket MM/CEO broadcast on top (matches the existing REVIEW_REQUIRED precedent of never
+     * notifying native authority for every event). The commenter is always excluded, and every
+     * recipient list here is already deduplicated by user id at its source, so a person reachable
+     * two ways (e.g. Model + Cameraperson) is still notified exactly once.
+     */
+    private void notifyCommentRecipients(User actor, ContentPlan plan, LifecycleStage stage, StageComment comment) {
+        List<User> recipients = authorizationService.hasNativeAuthority(actor)
+                ? currentStageAssignees(plan, stage)
+                : authorizationService.findActiveNativeAuthorityUsers();
+        // Entity-id-based, same TYPE:EntityName:id convention every other notification type
+        // uses - a re-processing of this exact comment (same id) is a no-op in NotificationService.
+        String eventReference = "COMMENT_ADDED:StageComment:" + comment.getId();
+        String targetTab = targetTabFor(stage);
+        String message = actor.getFullName() + " commented on " + plan.getContentId()
+                + ": \"" + truncatePreview(comment.getCommentText()) + "\"";
+        for (User recipient : recipients) {
+            if (recipient.getId().equals(actor.getId())) {
+                continue;
+            }
+            notificationService.notify(recipient, NotificationType.COMMENT_ADDED, "New Comment", message,
+                    plan, eventReference, targetTab);
+        }
+    }
+
+    /** Every currently active assignee of exactly this stage - Shoot additionally includes
+     * Model/Talent ("where applicable"), Edit/Publishing do not. Deduplicated by user id, same
+     * LinkedHashMap-keyed-by-id pattern {@code AdminActionService#currentlyAffectedUsers} already
+     * uses for the same reason (one real person can hold more than one of these at once). */
+    private List<User> currentStageAssignees(ContentPlan plan, LifecycleStage stage) {
+        LinkedHashMap<UUID, User> byId = new LinkedHashMap<>();
+        switch (stage) {
+            case SHOOTING -> {
+                shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                        .forEach(a -> byId.put(a.getCameraperson().getId(), a.getCameraperson()));
+                talentEntryRepository.findByContentPlan(plan).stream()
+                        .filter(t -> t.getTalentUser() != null)
+                        .forEach(t -> byId.put(t.getTalentUser().getId(), t.getTalentUser()));
+            }
+            case EDITING -> editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                    .forEach(a -> byId.put(a.getEditor().getId(), a.getEditor()));
+            case PUBLISHING -> publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                    .forEach(a -> byId.put(a.getPublisher().getId(), a.getPublisher()));
+            default -> {
+            }
+        }
+        return List.copyOf(byId.values());
+    }
+
+    /** Reuses the SAME ?tab= value DeliverableMvcController#view already accepts (CONTENT_DETAIL_TABS). */
+    private static String targetTabFor(LifecycleStage stage) {
+        return switch (stage) {
+            case SHOOTING -> "shoot";
+            case EDITING -> "edit";
+            case PUBLISHING -> "publishing";
+            default -> null;
+        };
+    }
+
+    /** Long comments are truncated in the notification preview; the full text remains visible in
+     * the thread itself after click-through (StageComment.commentText is never altered here). */
+    private static String truncatePreview(String commentText) {
+        String trimmed = commentText.strip();
+        int maxLen = 100;
+        if (trimmed.length() <= maxLen) {
+            return trimmed;
+        }
+        return trimmed.substring(0, maxLen).stripTrailing() + "…";
     }
 
     public List<StageComment> listComments(UUID contentPlanId, LifecycleStage stage) {

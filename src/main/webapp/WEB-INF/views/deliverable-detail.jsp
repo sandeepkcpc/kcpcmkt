@@ -8,6 +8,7 @@
     <meta charset="UTF-8">
     <title>KCPC Bandhani — ${plan.contentId}</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
+    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -1992,7 +1993,20 @@
             </c:if>
             <c:set var="cdHasOther" value="false"/>
             <c:forEach var="a" items="${availableActions}"><c:if test="${a.group == 'other'}"><c:set var="cdHasOther" value="true"/></c:if></c:forEach>
-            <c:if test="${cdHasOther}">
+            <%-- Skip Stage (ENG-090) buttons render as additional cells of this SAME grid (not the
+                 availableActions/content-detail-action-form loop - that mechanism reveals a plain
+                 inline form with no confirm step, and picker-heavy, review-like actions are already
+                 kept out of it; Skip needs a genuine confirmation modal, reusing the same
+                 .kcpc-modal-overlay shell as the Publisher Assignment modal above). Layout fix:
+                 .content-detail-action-skip-row-start forces grid-column:1, so Skip Stage always
+                 starts its own new row at the same left edge as whichever "other" action lands in
+                 column 1 (Cancel, most commonly) - reusing the grid's own row-gap for consistent
+                 vertical spacing rather than a second, separately-spaced container. Visible
+                 independently of canSkipShoot/canSkipEdit's underlying eligibility - both flags
+                 already combine PERM_20_SKIP_STAGE with the correct workflow-status window
+                 (SA/SIP/SRV for Shoot, EA/ED/ERV for Edit) server-side, so a visible button here
+                 always means the POST below is expected to succeed. --%>
+            <c:if test="${cdHasOther || canSkipShoot || canSkipEdit}">
                 <h4>Available Actions</h4>
                 <p class="content-detail-action-helper">Actions available for the current workflow stage and your permissions.</p>
                 <div class="content-detail-action-row content-detail-action-row-grid">
@@ -2002,24 +2016,19 @@
                                     data-action-key="${a.actionKey}" data-requires-reason="${a.requiresReason}">${a.label}</button>
                         </c:if>
                     </c:forEach>
+                    <c:if test="${canSkipShoot}">
+                        <button type="button" class="content-detail-action-btn content-detail-action-secondary content-detail-action-skip-row-start"
+                                id="skipShootBtn">Skip Stage</button>
+                    </c:if>
+                    <c:if test="${canSkipEdit}">
+                        <button type="button" class="content-detail-action-btn content-detail-action-secondary content-detail-action-skip-row-start"
+                                id="skipEditBtn">Skip Stage</button>
+                    </c:if>
                 </div>
             </c:if>
-            <c:if test="${!cdHasOther}"><p class="muted">No administrative actions available at this stage.</p></c:if>
+            <c:if test="${!cdHasOther && !canSkipShoot && !canSkipEdit}"><p class="muted">No administrative actions available at this stage.</p></c:if>
 
-            <%-- Skip Stage (ENG-090): deliberately NOT part of the availableActions/
-                 content-detail-action-form loop above - that mechanism reveals a plain inline
-                 form with no confirm step, and (per the comment further below) picker-heavy,
-                 review-like actions are already kept out of it. Skip needs a genuine confirmation
-                 modal ("Are you sure...", Current Stage/Next Stage, Cancel vs Confirm Skip), so it
-                 reuses the same .kcpc-modal-overlay shell as the Publisher Assignment modal above.
-                 Visible independently of canSkipShoot/canSkipEdit's underlying eligibility - both
-                 flags already combine PERM_20_SKIP_STAGE with the correct workflow-status window
-                 (SA/SIP/SRV for Shoot, EA/ED/ERV for Edit) server-side, so a visible button here
-                 always means the POST below is expected to succeed. --%>
             <c:if test="${canSkipShoot}">
-                <div class="content-detail-action-row">
-                    <button type="button" class="content-detail-action-btn content-detail-action-secondary" id="skipShootBtn">Skip Stage</button>
-                </div>
                 <div class="kcpc-modal-overlay hidden" id="skipShootModalOverlay">
                     <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="skipShootModalTitle">
                         <div class="kcpc-modal-header">
@@ -2064,9 +2073,6 @@
                 </div>
             </c:if>
             <c:if test="${canSkipEdit}">
-                <div class="content-detail-action-row">
-                    <button type="button" class="content-detail-action-btn content-detail-action-secondary" id="skipEditBtn">Skip Stage</button>
-                </div>
                 <div class="kcpc-modal-overlay hidden" id="skipEditModalOverlay">
                     <div class="kcpc-modal" role="dialog" aria-modal="true" aria-labelledby="skipEditModalTitle">
                         <div class="kcpc-modal-header">

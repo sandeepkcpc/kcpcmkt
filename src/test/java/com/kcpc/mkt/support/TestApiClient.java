@@ -97,6 +97,13 @@ public class TestApiClient {
         return objectMapper.readTree(get(path).body());
     }
 
+    /** Same as {@link #get(String)} but for binary responses (e.g. images) - {@link #get(String)}
+     * decodes the body as a String, which corrupts binary bytes. */
+    public HttpResponse<byte[]> getBytes(String path) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path)).GET().build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+    }
+
     public HttpResponse<String> post(String path, String jsonBody) throws IOException, InterruptedException {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Content-Type", "application/json")

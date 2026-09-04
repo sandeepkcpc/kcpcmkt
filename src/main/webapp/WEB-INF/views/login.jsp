@@ -6,10 +6,11 @@
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Sign In</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
+    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
 </head>
 <body class="auth-page">
 <main class="auth-card">
-    <h1>KCPC Bandhani</h1>
+    <img src="${pageContext.request.contextPath}/images/kcpc-logo.png" alt="KCPC Bandhani" class="auth-logo">
     <p class="subtitle">Content Production Lifecycle</p>
     <c:if test="${not empty errorMessage}">
         <div class="alert alert-error">${errorMessage}</div>

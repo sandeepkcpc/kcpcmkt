@@ -28,6 +28,7 @@ public class PipelineRow {
     private final String cameraPersons;
     private final String models;
     private final String videoEditors;
+    private final String publishers;
     private final String driveLink;
     private final LocalDate plannedShootDate;
     private final LocalDate plannedEditDate;
@@ -47,7 +48,7 @@ public class PipelineRow {
 
     public PipelineRow(UUID contentPlanId, String contentId, String sku, String ideaTitle, String referenceLink,
                         boolean referenceLinkIsUrl, String category, String channels, String actor,
-                        String cameraPersons, String models, String videoEditors, String driveLink,
+                        String cameraPersons, String models, String videoEditors, String publishers, String driveLink,
                         LocalDate plannedShootDate, LocalDate plannedEditDate, LocalDate plannedLiveDate,
                         String actualShootDate, String actualEditDate, String actualLiveDate, String platforms,
                         String performanceState, boolean performanceLinkEligible, String status, String priority,
@@ -65,6 +66,7 @@ public class PipelineRow {
         this.cameraPersons = cameraPersons;
         this.models = models;
         this.videoEditors = videoEditors;
+        this.publishers = publishers;
         this.driveLink = driveLink;
         this.plannedShootDate = plannedShootDate;
         this.plannedEditDate = plannedEditDate;
@@ -129,6 +131,10 @@ public class PipelineRow {
 
     public String getVideoEditors() {
         return videoEditors;
+    }
+
+    public String getPublishers() {
+        return publishers;
     }
 
     public String getDriveLink() {

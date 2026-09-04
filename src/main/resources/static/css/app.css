@@ -32,7 +32,12 @@ body {
 }
 
 .auth-card h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-.subtitle { margin: 0 0 1.5rem; color: #6b7280; font-size: 0.9rem; }
+/* Logo/subtitle are centered above the form (their own thing, read top-down) while every form
+   control below keeps the existing full-width/edge-to-edge behavior (form input {width:100%},
+   .auth-card button[type="submit"] {width:100%}, .auth-forgot-row {justify-content:flex-end}) -
+   all of them already share the form's own left/right edges via ordinary block flow, so centering
+   the logo/subtitle needs no change to that layout, just to these two rules. */
+.subtitle { margin: 0 0 1.5rem; color: #6b7280; font-size: 0.9rem; text-align: center; }
 
 form label { display: block; margin-top: 1rem; font-size: 0.85rem; font-weight: 600; }
 form input {
@@ -45,6 +50,7 @@ form input {
 }
 
 button[type="submit"] {
+    margin-top: 1.5rem;
     padding: 0.6rem;
     background: var(--kcpc-accent);
     color: #fff;
@@ -89,16 +95,153 @@ button[type="submit"] {
 .auth-back-link { display: block; margin-top: 1.25rem; font-size: 0.85rem; text-align: center; color: var(--kcpc-accent); text-decoration: none; }
 .auth-back-link:hover { text-decoration: underline; }
 
+/* Header refinement: logo + primary nav + notification/profile actions all now live in ONE row
+   (nav.jsp nests <nav class="app-nav"> directly inside <header class="app-header">, in between
+   the brand and the actions, instead of a separate nav strip below) so the whole header reads as
+   one cohesive unit rather than two stacked bars. No space-between here on purpose: .app-nav is
+   flex:1 (see below) and consumes exactly the remaining width between the logo and the actions,
+   which is what naturally left-aligns the nav right after the logo and pins the actions to the
+   far right - everything positioned by flex layout alone, no absolute positioning/offsets. */
 .app-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.5rem;
+    gap: 1.75rem;
+    padding: 0.7rem 1.5rem;
     background: var(--kcpc-ink);
     color: #fff;
 }
 
-.app-header .brand { font-weight: 700; }
+.app-header .brand { font-weight: 700; display: flex; align-items: center; flex-shrink: 0; }
+/* KCPC logo: a genuinely transparent-background asset (the original supplied artwork had an
+   opaque white background, so an earlier revision wrapped it in a white "badge" chip to avoid a
+   stray white rectangle on the dark header - now replaced by a transparent-background version of
+   the same logo, supplied directly by the user, so it sits straight on the dark navy header with
+   no chip needed; original KCPC brand colors/typography/"bandhani" script/"Since 1978" caption are
+   unchanged). Fixed width + height:auto preserves the source's native aspect ratio at every
+   viewport. Sized up from the old 28px-tall icon-in-the-corner treatment to give the logo real
+   visual presence as the anchor of the single-row header. */
+.brand-logo { display: block; width: 128px; height: auto; }
+@media (max-width: 700px) {
+    .brand-logo { width: 84px; }
+}
+/* Login screen: the login card's own background is already white, so the logo sits directly on
+   it with no badge needed - just sized/spaced in the same slot the "KCPC Bandhani" heading used
+   to occupy. Height stays comfortably under the source image's native 87px (no upscaling/blur). */
+.auth-logo { display: block; height: 64px; width: auto; margin: 0 auto 0.85rem; }
+
+/* Header profile menu (replaces the old always-visible Sign out pill): notification bell +
+   divider + avatar/name/chevron trigger, pinned to the far right because .app-nav (its flex:1
+   sibling) consumes all the remaining space between the logo and this block - see .app-header's
+   own comment above. */
+.app-header-actions { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+.app-header-notification { position: relative; }
+.app-header-notification-btn {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    width: 2rem; height: 2rem; border-radius: 999px; font-size: 1rem; color: #fff; opacity: 0.85;
+    background: none; border: none; cursor: pointer;
+}
+.app-header-notification-btn:hover, .app-header-notification-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.1); opacity: 1; }
+/* Only rendered when unreadNotificationCount > 0 (see nav.jsp) - no empty/zero badge ever shows. */
+.app-header-notification-badge {
+    position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; border-radius: 999px;
+    background: var(--kcpc-accent); color: #fff; font-size: 0.6rem; font-weight: 700; line-height: 14px;
+    text-align: center; padding: 0 3px;
+}
+/* Dropdown: same shape/z-index as .app-header-profile-menu (both live in .app-header-actions,
+   so they share the exact same "not inside a scrolling ancestor" reasoning - see that rule's own
+   comment). Fixed width (not just max-width) since, unlike the profile menu, this one has real
+   internal content (title/message/time) that needs consistent wrapping. */
+.app-header-notification-menu {
+    /* right:0 (not left:0) - the bell sits well to the LEFT of the header's own right edge (the
+       profile trigger/divider are further right still), so a left-anchored dropdown would extend
+       rightward off the edge of the viewport, exactly like the profile menu's own dropdown avoids
+       by anchoring the same way. */
+    position: absolute; top: 100%; right: 0; margin-top: 0.5rem; background: #fff; color: var(--kcpc-ink);
+    border: 1px solid var(--kcpc-border); border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    width: min(340px, calc(100vw - 2rem)); z-index: 1100; overflow: hidden;
+}
+.app-header-notification-menu-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid var(--kcpc-border); font-weight: 700; font-size: 0.85rem;
+}
+.app-header-notification-mark-all {
+    background: none; border: none; color: var(--kcpc-accent); font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; padding: 0; height: auto; width: auto;
+}
+.app-header-notification-list { max-height: 360px; overflow-y: auto; }
+.app-header-notification-empty { padding: 1rem 0.85rem; margin: 0; }
+.app-header-notification-item {
+    display: flex; gap: 0.6rem; padding: 0.65rem 0.85rem; text-decoration: none; color: inherit;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+.app-header-notification-item:last-child { border-bottom: none; }
+.app-header-notification-item:hover { background: #f9fafb; }
+.app-header-notification-item-unread { background: #fef6f7; }
+.app-header-notification-item-unread:hover { background: #fdecea; }
+.app-header-notification-dot {
+    flex-shrink: 0; width: 8px; height: 8px; border-radius: 999px; margin-top: 0.35rem;
+    background: var(--kcpc-accent); visibility: hidden;
+}
+.app-header-notification-item-unread .app-header-notification-dot { visibility: visible; }
+.app-header-notification-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.app-header-notification-title { font-weight: 700; font-size: 0.82rem; }
+.app-header-notification-message { font-size: 0.8rem; color: var(--kcpc-ink); }
+.app-header-notification-time { font-size: 0.72rem; color: #9ca3af; }
+.app-header-notification-view-all {
+    display: block; text-align: center; padding: 0.6rem; font-size: 0.82rem; font-weight: 600;
+    color: var(--kcpc-accent); text-decoration: none; border-top: 1px solid var(--kcpc-border);
+}
+.app-header-notification-view-all:hover { background: #f9fafb; }
+@media (max-width: 700px) {
+    .app-header-notification-menu { width: calc(100vw - 2rem); }
+}
+.app-header-divider { width: 1px; height: 1.4rem; background: rgba(255, 255, 255, 0.2); }
+.app-header-profile { position: relative; }
+.app-header-profile-trigger {
+    display: inline-flex; align-items: center; gap: 0.55rem; background: none; border: none;
+    color: #fff; cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 999px; font-size: 0.85rem;
+    font-weight: 600; width: auto; height: auto;
+}
+.app-header-profile-trigger:hover, .app-header-profile-trigger[aria-expanded="true"] { background: rgba(255, 255, 255, 0.1); }
+.app-header-avatar {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 1.9rem; height: 1.9rem; border-radius: 999px; background: var(--kcpc-accent); color: #fff;
+    font-weight: 700; font-size: 0.7rem;
+}
+/* Name + Business Role stacked (e.g. "KCPC CEO" / "CEO") - businessRoleName is an existing
+   MvcNavigationAdvice attribute already used elsewhere for nav visibility, reused here purely for
+   display; not a new backend field. */
+.app-header-profile-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+.app-header-profile-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-header-profile-role { font-size: 0.68rem; font-weight: 500; opacity: 0.75; }
+.app-header-profile-chevron { font-size: 0.65rem; opacity: 0.85; }
+/* Dropdown: same visual language as .stage-comment-menu-dropdown elsewhere (white surface, subtle
+   border+shadow, high z-index) - simpler here since .app-header is never inside a scrolling/
+   overflow-clipped ancestor, so no "portal" reparenting trick is needed the way that one requires.
+   max-width caps against the viewport (not just a fixed width) so it can never overflow on a
+   narrow screen even though it's right-anchored to a trigger that stays near the edge. */
+.app-header-profile-menu {
+    position: absolute; top: 100%; right: 0; margin-top: 0.5rem; background: #fff; color: var(--kcpc-ink);
+    border: 1px solid var(--kcpc-border); border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    min-width: 220px; max-width: min(280px, calc(100vw - 2rem)); z-index: 1100; padding: 0.5rem;
+}
+.app-header-profile-menu-identity { display: flex; align-items: center; gap: 0.65rem; padding: 0.4rem; }
+.app-header-profile-menu-details { display: flex; flex-direction: column; min-width: 0; }
+.app-header-profile-menu-name { font-weight: 700; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-header-profile-menu-email { font-size: 0.78rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-header-profile-menu-divider { height: 1px; background: var(--kcpc-border); margin: 0.4rem 0; }
+.app-header-profile-menu-signout {
+    display: flex; align-items: center; gap: 0.4rem; width: 100%; background: none; border: none;
+    text-align: left; padding: 0.5rem 0.4rem; font-size: 0.85rem; font-weight: 600; color: var(--kcpc-accent);
+    cursor: pointer; border-radius: 6px; height: auto;
+}
+.app-header-profile-menu-signout:hover { background: #fdecea; }
+/* Smaller screens: drop the name text (avatar+chevron alone stay clickable/identifiable) so the
+   trigger can never force .app-header-actions wider than the viewport - the dropdown itself
+   already caps its own width above regardless of breakpoint. */
+@media (max-width: 700px) {
+    .app-header-profile-text { display: none; }
+}
 
 /* ENG-057: Sign out - red is otherwise reserved for primary/destructive workflow actions in this
    app, and ending your session is thematically a fit; a compact pill instead of the old underlined
@@ -315,6 +458,30 @@ button[type="submit"] {
 }
 .page-header-row h1 { margin-bottom: 0.2rem; }
 .page-header-row-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+/* "View all notifications" page - same unread dot/highlight language as the header dropdown
+   (.app-header-notification-item*), just full-width rows inside a plain .panel instead of a
+   fixed-width dropdown list. */
+.notification-row {
+    display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.85rem 0;
+    border-bottom: 1px solid var(--kcpc-border);
+}
+.notification-row:last-child { border-bottom: none; }
+.notification-row-unread { background: #fef6f7; margin: 0 -1rem; padding: 0.85rem 1rem; }
+.notification-row-dot {
+    flex-shrink: 0; width: 9px; height: 9px; border-radius: 999px; margin-top: 0.4rem;
+    background: var(--kcpc-accent); visibility: hidden;
+}
+.notification-row-unread .notification-row-dot { visibility: visible; }
+.notification-row-body { flex: 1; min-width: 0; }
+.notification-row-title { font-weight: 700; font-size: 0.92rem; color: var(--kcpc-ink); text-decoration: none; }
+.notification-row-title:hover { text-decoration: underline; }
+.notification-row-message { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--kcpc-ink); }
+.notification-row-time { margin: 0.25rem 0 0; font-size: 0.75rem; }
+.notification-row-mark-read {
+    background: none; border: none; color: var(--kcpc-accent); font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; padding: 0; height: auto; width: auto; white-space: nowrap;
+}
 
 .employee-summary-card {
     display: flex;
@@ -558,26 +725,41 @@ button.my-work-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
    onto a visually broken second row once the window narrowed even slightly. Kept as one compact,
    horizontally-scrollable row instead: every role-authorized link stays reachable (none hidden),
    tighter gap/padding buys back some room before scrolling is ever needed, and the scrollbar itself
-   is unobtrusive (thin, only appears on the dark nav strip) rather than removed outright. */
+   is unobtrusive (thin, only appears on the nav's own strip) rather than removed outright.
+   Header refinement: nav now lives inside .app-header itself (see nav.jsp) rather than a separate
+   bar below it, so it no longer carries its own background/vertical padding - flex:1 + min-width:0
+   makes it consume exactly the space left over between the logo and the notification/profile
+   actions, shrinking (and internally scrolling) before it can ever force the header to overflow
+   horizontally. */
 .app-nav {
     display: flex;
-    gap: 0.15rem;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 1 1 auto;
+    min-width: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: thin;
-    padding: 0.55rem 1.5rem;
-    background: #232342;
 }
 .app-nav a {
+    display: inline-flex;
+    align-items: center;
     color: #cbd5e1;
     text-decoration: none;
     font-size: 0.85rem;
-    padding: 0.35rem 0.6rem;
+    font-weight: 500;
+    padding: 0.45rem 0.7rem;
     border-radius: 6px;
     white-space: nowrap;
     flex: none;
+    border-bottom: 2px solid transparent;
 }
-.app-nav a:hover, .app-nav a.active { background: rgba(255,255,255,0.12); color: #fff; }
+.app-nav a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+/* Active-state VISUAL treatment only (a red underline instead of the old solid pill) - the
+   underlying "which link is active" logic in nav.jsp (currentPath-driven, per link) is completely
+   unchanged, still the same .active class on the same conditions. */
+.app-nav a.active { background: none; color: #fff; border-bottom-color: var(--kcpc-accent); }
 
 .flag-chip {
     display: inline-block;
@@ -2199,6 +2381,11 @@ button.stage-comment-menu-btn:hover, button.stage-comment-menu-btn.open { backgr
     display: inline-flex; align-items: center; justify-content: center;
 }
 .content-detail-action-row-grid .content-detail-action-btn { width: 100%; }
+/* Skip Stage (ENG-090): forces column 1 - since column 1 of the current row is already occupied
+   (Reschedule/first "other" action), grid auto-placement pushes this to a fresh row, landing at
+   the same left edge as whichever action occupies column 1 of the row above (Cancel, most
+   commonly), with the exact same row-gap as every other row in this grid - no hardcoded offsets. */
+.content-detail-action-skip-row-start { grid-column: 1; }
 .content-detail-action-primary { background: #fff; border-color: #bbf7d0; color: #166534; }
 .content-detail-action-primary:hover { background: #f0fdf4; }
 .content-detail-action-danger { background: #fff; border-color: #fecaca; color: #b91c1c; }

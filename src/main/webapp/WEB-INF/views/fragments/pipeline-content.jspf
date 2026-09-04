@@ -99,6 +99,7 @@
                 <th data-col="cameraPersons">Camera Person</th>
                 <th data-col="models">Models</th>
                 <th data-col="videoEditors">Video Editor</th>
+                <th data-col="publishers">Publisher</th>
                 <th data-col="driveLink">Drive Link</th>
                 <c:set var="sortField" value="plannedShootDate"/><c:set var="sortLabel" value="Planned Shoot Date"/>
                 <th data-col="plannedShootDate"><%@ include file="pipeline-sort-header.jspf" %></th>
@@ -140,6 +141,7 @@
                     <td class="pipeline-col-wrap" data-col="cameraPersons" title="${row.cameraPersons}">${row.cameraPersons}</td>
                     <td class="pipeline-col-wrap" data-col="models" title="${row.models}">${row.models}</td>
                     <td class="pipeline-col-wrap" data-col="videoEditors" title="${row.videoEditors}">${row.videoEditors}</td>
+                    <td class="pipeline-col-wrap" data-col="publishers" title="${row.publishers}">${row.publishers}</td>
                     <td data-col="driveLink">
                         <c:choose>
                             <c:when test="${not empty row.driveLink}">
@@ -217,7 +219,7 @@
                     </td>
                 </tr>
             </c:forEach>
-            <c:if test="${empty pipelineRows}"><tr><td colspan="20" class="muted">No deliverables yet.</td></tr></c:if>
+            <c:if test="${empty pipelineRows}"><tr><td colspan="21" class="muted">No deliverables yet.</td></tr></c:if>
             </tbody>
         </table>
     </div>

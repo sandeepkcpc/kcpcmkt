@@ -15,6 +15,8 @@ import com.kcpc.mkt.marks.domain.PredefinedRoleMarks;
 import com.kcpc.mkt.marks.domain.RoleType;
 import com.kcpc.mkt.marks.repository.PersonalMarkAttributionRepository;
 import com.kcpc.mkt.marks.repository.PredefinedRoleMarksRepository;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
@@ -56,6 +58,7 @@ public class ShootingService {
     private final AuditService auditService;
     private final EditingService editingService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public ShootingService(ContentPlanRepository contentPlanRepository,
                             ShootingAssignmentRepository shootingAssignmentRepository,
@@ -65,7 +68,8 @@ public class ShootingService {
                             ReviewCycleRepository reviewCycleRepository, WorkflowTransitionService workflowService,
                             AuthorizationService authorizationService,
                             OperationalEligibilityService operationalEligibilityService, HoldService holdService,
-                            AuditService auditService, EditingService editingService, UserRepository userRepository) {
+                            AuditService auditService, EditingService editingService, UserRepository userRepository,
+                            NotificationService notificationService) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.participantRepository = participantRepository;
@@ -79,6 +83,7 @@ public class ShootingService {
         this.auditService = auditService;
         this.editingService = editingService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -149,6 +154,19 @@ public class ShootingService {
                 "SUBMIT_SHOOT_REVIEW", null);
         auditService.record(submitter, Optional.empty(), "SHOOTING", "SHOOT_REVIEW_SUBMITTED", "content_plans",
                 plan.getId(), null);
+        // Only users holding an explicit PERM_05_SHOOT_REVIEW grant are notified - native CEO/MM
+        // authority is broad, always-on platform authority, not a specific review assignment, so
+        // proactively notifying every CEO/MM user for every single review submission would violate
+        // the "only relevant notifications" principle (they already see this in Reviews/Content
+        // Pipeline). No explicit grant holder for this stage/scope is the common case and simply
+        // produces zero notifications for this event, same as findActiveGranteesWithExplicitGrant
+        // already returns an empty list for any other candidate-picker use of it.
+        for (User reviewerCandidate : authorizationService.findActiveGranteesWithExplicitGrant(
+                OperationalPermission.PERM_05_SHOOT_REVIEW, LifecycleStage.SHOOTING, workflowInstance)) {
+            notificationService.notify(reviewerCandidate, NotificationType.REVIEW_REQUIRED, "Review Required",
+                    plan.getContentId() + " is waiting for your review", plan,
+                    "REVIEW_REQUIRED:ReviewCycle:" + cycle.getId());
+        }
         return cycle;
     }
 
@@ -236,6 +254,13 @@ public class ShootingService {
             workflowService.transition(workflowInstance, WorkflowStatus.SAP, reviewer, actingGrant,
                     "APPROVE_SHOOT", null);
             auditService.record(reviewer, actingGrant, "SHOOTING", "SHOOT_APPROVED", "content_plans", plan.getId(), null);
+            for (UUID recipientId : distinctRecipients) {
+                User recipient = participants.stream().filter(p -> p.getCameraperson().getId().equals(recipientId))
+                        .findFirst().orElseThrow().getCameraperson();
+                notificationService.notify(recipient, NotificationType.REVIEW_APPROVED, "Review Approved",
+                        plan.getContentId() + " Shoot has been approved", plan,
+                        "REVIEW_DECISION:ReviewCycle:" + cycle.getId());
+            }
 
             editingService.assignEditTeam(reviewer, contentPlanId, editors, leadEditorUserId);
         } else {
@@ -248,6 +273,12 @@ public class ShootingService {
                     "REQUEST_REWORK_SHOOT", reason);
             auditService.record(reviewer, actingGrant, "SHOOTING", "SHOOT_REWORK_REQUESTED", "content_plans",
                     plan.getId(), reason);
+            for (User activeCameraperson : shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                    .map(ShootingAssignment::getCameraperson).distinct().toList()) {
+                notificationService.notify(activeCameraperson, NotificationType.CHANGES_REQUIRED, "Changes Required",
+                        "Changes are required for " + plan.getContentId(), plan,
+                        "REVIEW_DECISION:ReviewCycle:" + cycle.getId());
+            }
         }
         return plan;
     }

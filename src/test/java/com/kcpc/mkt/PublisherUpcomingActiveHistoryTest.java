@@ -121,9 +121,15 @@ class PublisherUpcomingActiveHistoryTest {
      * {@code PublishingAssignment}/completion data, just relocated - see
      * {@link com.kcpc.mkt.web.mvc.LandingMvcController#myPerformance}). This fetches that page
      * directly rather than scraping My Work's body, since the content no longer lives there.
+     *
+     * <p>Scoped to the Task Performance table itself (not the whole page body): the header's
+     * global "latest notifications" widget legitimately renders on every page, including this
+     * one, and can mention this same Content ID via an unrelated notification (e.g. its original
+     * assignment) regardless of whether the row is actually in this table.
      */
     private String myPerformanceBody(TestApiClient client) throws Exception {
-        return client.get("/app/my-performance").body();
+        String body = client.get("/app/my-performance").body();
+        return tableRegion(body, "Task Performance", "</table>");
     }
 
     /**

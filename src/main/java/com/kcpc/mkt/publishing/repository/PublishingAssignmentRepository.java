@@ -17,6 +17,11 @@ import java.util.UUID;
 public interface PublishingAssignmentRepository extends JpaRepository<PublishingAssignment, UUID> {
     List<PublishingAssignment> findByContentPlanAndActiveTrue(ContentPlan contentPlan);
 
+    /** Content Pipeline dashboard's Publisher column: every currently active Publishing assignment
+     * across ALL given plans, batch-loaded once - same bulk pattern as
+     * ShootingAssignmentRepository/EditingAssignmentRepository's own findByContentPlan_IdInAndActiveTrue. */
+    List<PublishingAssignment> findByContentPlan_IdInAndActiveTrue(Collection<UUID> contentPlanIds);
+
     Optional<PublishingAssignment> findByContentPlanAndPublisherAndActiveTrue(ContentPlan contentPlan, User publisher);
 
     List<PublishingAssignment> findByPublisherAndActiveTrue(User publisher);

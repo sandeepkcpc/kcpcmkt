@@ -51,6 +51,15 @@ public class AuthorizationService {
         return ac == AccessClass.CEO_OWNER || ac == AccessClass.MARKETING_MANAGER;
     }
 
+    /** Every active CEO_OWNER/MARKETING_MANAGER user - e.g. comment notifications' own "an
+     * Employee's comment notifies MM/CEO" rule (StageCommentService#addComment), which needs the
+     * actual set of native-authority holders as recipients, not just a single-user yes/no check. */
+    public List<User> findActiveNativeAuthorityUsers() {
+        return userRepository.findByActiveTrueOrderByFullNameAsc().stream()
+                .filter(this::hasNativeAuthority)
+                .toList();
+    }
+
     /**
      * Centralized workflow-participation gate: single source of truth for whether an EMPLOYEE is
      * restricted to My Ideas + Submit Idea only (nav visibility - {@code MvcNavigationAdvice} - and

@@ -6,6 +6,7 @@ import com.kcpc.mkt.masterdata.domain.CompanyChannel;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.CompanyChannelRepository;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
+import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.PlannedOutput;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
@@ -49,6 +50,8 @@ class CeoPipelineDashboardTest {
     CompanyChannelRepository companyChannelRepository;
     @Autowired
     PublicationTargetRepository publicationTargetRepository;
+    @Autowired
+    PerformanceObligationRepository performanceObligationRepository;
 
     private static final String CAMERA_PERSON_ROLE_ID = "01926e3e-0001-7000-8000-000000000004";
     private static final String VIDEO_EDITOR_ROLE_ID = "01926e3e-0001-7000-8000-000000000005";
@@ -74,6 +77,7 @@ class CeoPipelineDashboardTest {
         String ed2 = createUser(ceo, "Pipeline Ed Two", "pl-ed2-" + unique + "@kcpcbandhani.local", VIDEO_EDITOR_ROLE_ID);
         String pubEmail = "pl-pub-" + unique + "@kcpcbandhani.local";
         String pubId = createUser(ceo, "Pipeline Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        String pubId2 = createUser(ceo, "Pipeline Publisher Two", "pl-pub2-" + unique + "@kcpcbandhani.local", PUBLISHER_ROLE_ID);
         // ENG-043: Start/Submit-style execution acts now require the actor to be the actively
         // assigned Cameraperson/Editor/Publisher - CEO/MM native authority no longer bypasses this.
         TestApiClient cam1Client = new TestApiClient(port);
@@ -96,6 +100,9 @@ class CeoPipelineDashboardTest {
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
         ceo.post("/api/v1/admin/permission-grants",
                 "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test publisher grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId2 + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
                         + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test publisher grant\"}");
         String model1 = createUser(ceo, "Aisha " + unique, "pl-model1-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);
         String model2 = createUser(ceo, "Neha " + unique, "pl-model2-" + unique + "@kcpcbandhani.local", MODEL_ROLE_ID);
@@ -142,7 +149,7 @@ class CeoPipelineDashboardTest {
                 Map.entry("outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
                         + TARGET_INSTAGRAM_KCPC + "\",\"" + TARGET_YOUTUBE_KCPC + "\",\"" + newTarget.getId() + "\"]}]")),
                 Map.entry("camerapersonUserIds", java.util.List.of(cam1, cam2)),
-                Map.entry("publisherUserIds", java.util.List.of(pubId)))));
+                Map.entry("publisherUserIds", java.util.List.of(pubId, pubId2)))));
 
         ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
         UUID planId = plan.getId();
@@ -188,7 +195,7 @@ class CeoPipelineDashboardTest {
         // are visible columns again, and Priority/Action are no longer separate columns: Priority
         // moved to the filter bar only, and Content ID's own link IS the "action").
         assertThat(body).containsSubsequence("Content ID", "SKU", "Idea", "Reference Link / Note", "Category",
-                "Channels", "Head", "Camera Person", "Models", "Video Editor", "Drive Link",
+                "Channels", "Head", "Camera Person", "Models", "Video Editor", "Publisher", "Drive Link",
                 "Planned Shoot Date", "Planned Edit Date", "Planned Live Date",
                 "Actual Shoot Date", "Actual Edit Date", "Actual Live Date", "Platforms", "Performance", "Status");
         assertThat(countOccurrences(body, plan.getContentId())).isEqualTo(1);
@@ -203,6 +210,7 @@ class CeoPipelineDashboardTest {
         assertThat(body).contains("Pipeline Cam One").contains("Pipeline Cam Two");
         assertThat(body).contains("Aisha").contains("Neha").contains("Riya");
         assertThat(body).contains("Pipeline Ed One").contains("Pipeline Ed Two");
+        assertThat(body).contains("Pipeline Publisher").contains("Pipeline Publisher Two");
         assertThat(body).contains("aria-label=\"Open Drive Link\"").contains("pipeline-link-icon");
         assertThat(body).contains(plannedLiveDate); // Planned Live Date
         assertThat(body).contains("Instagram").contains("YouTube");
@@ -291,6 +299,116 @@ class CeoPipelineDashboardTest {
                 "Whitelabel Error Page", "500 Internal Server Error");
         assertThat(pipeline.body()).contains(plan.getContentId());
         assertThat(pipeline.body()).contains(">N/A<");
+        // Content with exactly one Publisher assigned.
+        assertThat(pipeline.body()).contains("Pipeline Minimal Pub");
+    }
+
+    /**
+     * Content without a Publisher assigned: Publisher is mandatory at Idea Review approval (an
+     * earlier, already-established business rule - see IdeaService#approve), so the only real,
+     * reachable "currently zero active Publishers" state on a live Content ID is the existing
+     * Reopen-for-Publishing flow (POST /reopen-publishing on a COMPLETED plan - see
+     * WorkflowVariantsE2ETest), which deliberately ends every active PublishingAssignment so a
+     * repost cycle never silently inherits the prior Publisher - landing on RFP gated on a fresh
+     * Assign Publisher, exactly like first-time Publishing. Camera Person/Video Editor are
+     * untouched by that action, so this also proves the Publisher column's own lookup is
+     * independent of the other assignment columns, not just "blank when everything is blank".
+     */
+    @Test
+    void pipelineShowsDashWhenNoPublisherIsCurrentlyActive() throws Exception {
+        long unique = Instant.now().toEpochMilli();
+        TestApiClient ceo = new TestApiClient(port);
+        ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
+
+        String camEmail = "pl-nopub-cam-" + unique + "@kcpcbandhani.local";
+        String edEmail = "pl-nopub-ed-" + unique + "@kcpcbandhani.local";
+        String pubEmail = "pl-nopub-pub-" + unique + "@kcpcbandhani.local";
+        String camId = createUser(ceo, "NoPub Camera", camEmail, CAMERA_PERSON_ROLE_ID);
+        String edId = createUser(ceo, "NoPub Editor", edEmail, VIDEO_EDITOR_ROLE_ID);
+        String pubId = createUser(ceo, "NoPub Publisher", pubEmail, PUBLISHER_ROLE_ID);
+        TestApiClient cam = new TestApiClient(port);
+        cam.login(camEmail, "Passw0rd!");
+        TestApiClient ed = new TestApiClient(port);
+        ed.login(edEmail, "Passw0rd!");
+        TestApiClient pub = new TestApiClient(port);
+        pub.login(pubEmail, "Passw0rd!");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + camId + "\",\"permission\":\"PERM_18_SHOOT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + edId + "\",\"permission\":\"PERM_19_EDIT_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+        ceo.post("/api/v1/admin/permission-grants",
+                "{\"granteeUserId\":\"" + pubId + "\",\"permission\":\"PERM_08_PUBLISHING_EXECUTION\","
+                        + "\"scopeType\":\"GLOBAL\",\"reason\":\"pipeline dashboard test fixture grant\"}");
+
+        String ideaTitle = "NoPub Idea " + unique;
+        assertThat(ceo.postForm("/app/ideas", Map.of("title", ideaTitle)).statusCode()).isEqualTo(302);
+        Idea idea = ideaRepository.findAllByOrderBySubmittedAtDesc().stream()
+                .filter(i -> i.getTitle().equals(ideaTitle)).findFirst().orElseThrow();
+        assertRedirect(ceo.postFormMulti("/app/ideas/" + idea.getId() + "/review", Map.of(
+                "decision", java.util.List.of("APPROVE"),
+                "cameramanMark", java.util.List.of("1.0"),
+                "editorMark", java.util.List.of("1.0"),
+                "modelMark", java.util.List.of("1.0"),
+                "contentPriority", java.util.List.of("LOW"),
+                "plannedLiveDate", java.util.List.of(LocalDate.now().plusDays(10).toString()),
+                "folderLink", java.util.List.of("https://drive.example.com/nopub-" + unique),
+                "outputsJson", java.util.List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""
+                        + TARGET_INSTAGRAM_KCPC + "\"]}]"),
+                "camerapersonUserIds", java.util.List.of(camId),
+                "publisherUserIds", java.util.List.of(pubId))));
+        ContentPlan plan = contentPlanRepository.findByIdea(idea).orElseThrow();
+        UUID planId = plan.getId();
+        String base = "/app/deliverables/" + planId;
+        PlannedOutput output = plannedOutputRepository.findByContentPlan(plan).stream().findFirst().orElseThrow();
+
+        // Drive to Completed.
+        assertRedirect(cam.postForm(base + "/shooting/start", Map.of()));
+        assertRedirect(cam.postForm(base + "/shooting/review/submit", Map.of()));
+        assertRedirect(ceo.postForm(base + "/shooting/review/decision",
+                Map.of("approve", "true", "qualifyingRecipientUserIds", camId,
+                        "editorUserIds", edId, "leadEditorUserId", edId)));
+        assertRedirect(ed.postForm(base + "/editing/start", Map.of()));
+        assertRedirect(ed.postForm(base + "/editing/review/submit", Map.of()));
+        assertRedirect(ceo.postForm(base + "/editing/review/decision",
+                Map.of("approve", "true", "qualifyingRecipientUserIds", edId, "publisherUserIds", pubId)));
+        assertRedirect(pub.postForm(base + "/publishing/start", Map.of()));
+        String pastDate = LocalDate.now().minusDays(3).toString();
+        assertRedirect(pub.postForm(base + "/publishing/events",
+                Map.of("plannedOutputId", output.getId().toString(), "publicationTargetId", TARGET_INSTAGRAM_KCPC,
+                        "eventType", "ORIGINAL", "actualPublicationTimestamp", pastDate,
+                        "evidenceUrl", "https://instagram.com/p/nopub-" + unique)));
+        var obligationId = performanceObligationRepository.findByEvent_ContentPlan_Id(planId).stream()
+                .max(java.util.Comparator.comparing(o -> o.getEvent().getActualPublicationTimestamp()))
+                .map(o -> o.getId().toString()).orElseThrow();
+        ceo.postJson("/api/v1/performance-obligations/" + obligationId + "/scorecard/draft",
+                "{\"views3sec\":800,\"plays\":1000,\"averageWatchTimeSeconds\":12.5,\"videoLengthSeconds\":20.0,"
+                        + "\"linkClicks\":0,\"clicksIsNa\":true,\"impressions\":5000}");
+        assertThat(ceo.post("/api/v1/performance-obligations/" + obligationId + "/scorecard/submit", "").statusCode())
+                .isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + planId).get("status").asText()).isEqualTo("COMP");
+
+        // Reopen for Publishing: every active PublishingAssignment ends - zero active Publishers
+        // until a fresh one is assigned, matching first-time Publishing's own Assign Publisher gate.
+        HttpResponse<String> reopen = ceo.post("/api/v1/content-plans/" + planId + "/reopen-publishing",
+                "{\"reason\":\"NoPub regression test reopen\"}");
+        assertThat(reopen.statusCode()).isEqualTo(200);
+        assertThat(ceo.getJson("/api/v1/content-plans/" + planId).get("status").asText()).isEqualTo("RFP");
+
+        HttpResponse<String> pipeline = ceo.get("/app/pipeline");
+        assertThat(pipeline.statusCode()).isEqualTo(200);
+        String body = pipeline.body();
+        // Scoped to the table body, not the whole page: this plan just completed, so CEO's own
+        // header notification dropdown (rendered on every page, including this one - see
+        // MyPerformanceTest's own identical fix earlier) legitimately mentions this same Content ID
+        // too ("... has been completed"), which would otherwise be found first by a page-wide search.
+        int tableBodyStart = body.indexOf("<tbody>");
+        int rowStart = body.indexOf(plan.getContentId(), tableBodyStart);
+        String row = body.substring(rowStart, body.indexOf("</tr>", rowStart));
+        // Camera Person/Video Editor are untouched by the reopen - only Publisher is now dashed.
+        assertThat(row).contains("NoPub Camera").contains("NoPub Editor");
+        assertThat(row).doesNotContain("NoPub Publisher");
     }
 
     private long countOccurrences(String haystack, String needle) {

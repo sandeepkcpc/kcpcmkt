@@ -18,9 +18,11 @@ import com.kcpc.mkt.publishing.domain.NaActionType;
 import com.kcpc.mkt.publishing.domain.PublicationEventType;
 import com.kcpc.mkt.publishing.domain.PublicationEvidenceCorrection;
 import com.kcpc.mkt.publishing.domain.PublicationTargetNaRecord;
+import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.ActualPublicationEventRepository;
 import com.kcpc.mkt.publishing.repository.PublicationEvidenceCorrectionRepository;
 import com.kcpc.mkt.publishing.repository.PublicationTargetNaRecordRepository;
+import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.reporting.dto.PipelineChannelStatus;
 import com.kcpc.mkt.reporting.dto.PipelineFilterCriteria;
 import com.kcpc.mkt.reporting.dto.PipelinePlatformSummary;
@@ -56,6 +58,7 @@ public class PipelineDashboardService {
 
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
+    private final PublishingAssignmentRepository publishingAssignmentRepository;
     private final ContentPlanTalentEntryRepository talentEntryRepository;
     private final PlannedOutputRepository plannedOutputRepository;
     private final PlannedOutputPublicationTargetMappingRepository mappingRepository;
@@ -67,6 +70,7 @@ public class PipelineDashboardService {
 
     public PipelineDashboardService(ShootingAssignmentRepository shootingAssignmentRepository,
                                      EditingAssignmentRepository editingAssignmentRepository,
+                                     PublishingAssignmentRepository publishingAssignmentRepository,
                                      ContentPlanTalentEntryRepository talentEntryRepository,
                                      PlannedOutputRepository plannedOutputRepository,
                                      PlannedOutputPublicationTargetMappingRepository mappingRepository,
@@ -77,6 +81,7 @@ public class PipelineDashboardService {
                                      com.kcpc.mkt.workflow.repository.WorkHoldRecordRepository workHoldRecordRepository) {
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
+        this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.talentEntryRepository = talentEntryRepository;
         this.plannedOutputRepository = plannedOutputRepository;
         this.mappingRepository = mappingRepository;
@@ -109,6 +114,11 @@ public class PipelineDashboardService {
                 .findByContentPlan_IdInAndActiveTrue(planIds).stream()
                 .collect(Collectors.groupingBy(a -> a.getContentPlan().getId(),
                         Collectors.mapping(EditingAssignment::getEditor, Collectors.toList())));
+
+        Map<UUID, List<User>> publishersByPlan = publishingAssignmentRepository
+                .findByContentPlan_IdInAndActiveTrue(planIds).stream()
+                .collect(Collectors.groupingBy(a -> a.getContentPlan().getId(),
+                        Collectors.mapping(PublishingAssignment::getPublisher, Collectors.toList())));
 
         Map<UUID, List<String>> talentByPlan = talentEntryRepository.findByContentPlan_IdIn(planIds).stream()
                 .collect(Collectors.groupingBy(t -> t.getContentPlan().getId(),
@@ -212,6 +222,7 @@ public class PipelineDashboardService {
             rows.add(buildRow(plan,
                     camerapersonsByPlan.getOrDefault(planId, List.of()),
                     editorsByPlan.getOrDefault(planId, List.of()),
+                    publishersByPlan.getOrDefault(planId, List.of()),
                     talentByPlan.getOrDefault(planId, List.of()),
                     mappingsByPlan.getOrDefault(planId, List.of()),
                     actualShootDateByWorkflowInstance.get(workflowInstanceId),
@@ -227,7 +238,8 @@ public class PipelineDashboardService {
     }
 
     private PipelineRow buildRow(ContentPlan plan, List<User> camerapersons, List<User> editors,
-                                  List<String> talent, List<PlannedOutputPublicationTargetMapping> mappings,
+                                  List<User> publishers, List<String> talent,
+                                  List<PlannedOutputPublicationTargetMapping> mappings,
                                   LocalDate actualShootDate, LocalDate actualEditDate, LocalDate actualLiveDate,
                                   Map<UUID, PlannedOutput> outputsById, boolean onHold,
                                   Map<UUID, Map<UUID, ActualPublicationEvent>> latestEventByOutputAndTarget,
@@ -248,6 +260,7 @@ public class PipelineDashboardService {
         String cameraPersonNames = camerapersons.stream().map(User::getFullName).distinct()
                 .collect(Collectors.joining(", "));
         String editorNames = editors.stream().map(User::getFullName).distinct().collect(Collectors.joining(", "));
+        String publisherNames = publishers.stream().map(User::getFullName).distinct().collect(Collectors.joining(", "));
         String modelNames = String.join(", ", talent);
         String actor = plan.getPreparedBy() != null ? plan.getPreparedBy().getFullName() : "—";
 
@@ -270,10 +283,10 @@ public class PipelineDashboardService {
 
         return new PipelineRow(plan.getId(), plan.getContentId(), sku, plan.getIdea().getTitle(), referenceLink,
                 referenceLinkIsUrl, category, blankToDash(channels), actor, blankToDash(cameraPersonNames),
-                blankToDash(modelNames), blankToDash(editorNames), plan.getFolderLink(), plan.getPlannedShootDate(),
-                plan.getPlannedEditDate(), plan.getPlannedLiveDate(), dateToDash(actualShootDate),
-                dateToDash(actualEditDate), dateToDash(actualLiveDate), blankToDash(platforms),
-                performanceState, performanceLinkEligible, status.getStatusName(), priority,
+                blankToDash(modelNames), blankToDash(editorNames), blankToDash(publisherNames), plan.getFolderLink(),
+                plan.getPlannedShootDate(), plan.getPlannedEditDate(), plan.getPlannedLiveDate(),
+                dateToDash(actualShootDate), dateToDash(actualEditDate), dateToDash(actualLiveDate),
+                blankToDash(platforms), performanceState, performanceLinkEligible, status.getStatusName(), priority,
                 delayDays != null, delayDays, platformSummaries, onHold);
     }
 
@@ -642,6 +655,7 @@ public class PipelineDashboardService {
             case "cameraPersons" -> Comparator.comparing(PipelineRow::getCameraPersons, Comparator.nullsLast(Comparator.naturalOrder()));
             case "models" -> Comparator.comparing(PipelineRow::getModels, Comparator.nullsLast(Comparator.naturalOrder()));
             case "videoEditors" -> Comparator.comparing(PipelineRow::getVideoEditors, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "publishers" -> Comparator.comparing(PipelineRow::getPublishers, Comparator.nullsLast(Comparator.naturalOrder()));
             case "platforms" -> Comparator.comparing(PipelineRow::getPlatforms, Comparator.nullsLast(Comparator.naturalOrder()));
             case "performanceState" -> Comparator.comparing(PipelineRow::getPerformanceState, Comparator.nullsLast(Comparator.naturalOrder()));
             default -> null;

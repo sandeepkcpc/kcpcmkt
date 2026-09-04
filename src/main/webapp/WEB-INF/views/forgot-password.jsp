@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Forgot Password</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
+    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
 </head>
 <body class="auth-page">
 <main class="auth-card">

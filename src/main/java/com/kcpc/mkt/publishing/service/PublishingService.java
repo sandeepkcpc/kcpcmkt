@@ -11,6 +11,8 @@ import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.masterdata.domain.PublicationTarget;
 import com.kcpc.mkt.masterdata.repository.PublicationTargetRepository;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
 import com.kcpc.mkt.performance.repository.PerformanceObligationRepository;
 import com.kcpc.mkt.planning.domain.ContentPlan;
@@ -69,6 +71,7 @@ public class PublishingService {
     private final com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService;
     private final AuditService auditService;
     private final HoldService holdService;
+    private final NotificationService notificationService;
 
     public PublishingService(ContentPlanRepository contentPlanRepository, PlannedOutputRepository plannedOutputRepository,
                               PublicationTargetRepository publicationTargetRepository,
@@ -82,7 +85,8 @@ public class PublishingService {
                               WorkflowTransitionService workflowService, AuthorizationService authorizationService,
                               OperationalEligibilityService operationalEligibilityService,
                               com.kcpc.mkt.performance.service.PerformanceEligibilityService performanceEligibilityService,
-                              AuditService auditService, HoldService holdService) {
+                              AuditService auditService, HoldService holdService,
+                              NotificationService notificationService) {
         this.contentPlanRepository = contentPlanRepository;
         this.plannedOutputRepository = plannedOutputRepository;
         this.publicationTargetRepository = publicationTargetRepository;
@@ -99,6 +103,7 @@ public class PublishingService {
         this.performanceEligibilityService = performanceEligibilityService;
         this.auditService = auditService;
         this.holdService = holdService;
+        this.notificationService = notificationService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -173,6 +178,12 @@ public class PublishingService {
                 new PublishingAssignment(plan, publisher, actor));
         auditService.record(actor, Optional.empty(), "PUBLISHING", "PUBLISHER_ASSIGNED", "publishing_assignments",
                 assignment.getId(), null);
+        // Single hook for every path that assigns a Publisher (Edit Review Approve fold-in, Skip
+        // Edit Stage, and a direct Assign Publisher call) - the existing-row-return branch above
+        // never reaches here, so an idempotent re-assignment never produces a duplicate notification.
+        notificationService.notify(publisher, NotificationType.TASK_ASSIGNED, "Publishing Ready",
+                plan.getContentId() + " is ready for publishing", plan,
+                "TASK_ASSIGNED:PublishingAssignment:" + assignment.getId());
         return assignment;
     }
 

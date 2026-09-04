@@ -3,14 +3,15 @@
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 <c:set var="currentPath" value="${empty requestScope['jakarta.servlet.forward.request_uri'] ? pageContext.request.requestURI : requestScope['jakarta.servlet.forward.request_uri']}" />
 <c:set var="ctx" value="${pageContext.request.contextPath}" />
+<%-- Header refinement: logo, primary nav and the notification/profile actions all now live in one
+     unified row (.app-header) instead of a separate brand row + a second, darker nav strip below
+     it - same nav links/routes/active-state logic, same notification/profile markup, just
+     relocated into a single flex row so the whole header reads as one cohesive unit. --%>
 <header class="app-header">
-    <span class="brand">KCPC Bandhani</span>
-    <form method="post" action="${ctx}/logout" class="logout-form">
-        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
-        <button type="submit" class="link-button">Sign out</button>
-    </form>
-</header>
-<nav class="app-nav">
+    <span class="brand">
+        <img src="${ctx}/images/kcpc-logo.png" alt="KCPC Bandhani" class="brand-logo">
+    </span>
+    <nav class="app-nav">
     <%-- ENG-057: EMPLOYEE-class users (Cameraperson/Editor/Publisher/Model etc.) get a minimal
          3-tab nav - the full company-wide reporting/admin nav below is CEO/MM-only territory
          regardless of any individual permission grant an Employee might separately hold, matching
@@ -131,4 +132,94 @@
             </c:if>
         </c:otherwise>
     </c:choose>
-</nav>
+    </nav>
+    <div class="app-header-actions">
+        <%-- Notification bell: real data, server-rendered on every page load (MvcNavigationAdvice's
+             unreadNotificationCount/latestNotifications - same per-request-attribute pattern as
+             currentUserFullName above), so opening the dropdown needs no extra request. Only
+             meaningful workflow events reach here (assignment/reassignment/review/reschedule/
+             cancel/completion) - never raw activity/UI logging - see NotificationService's own
+             class javadoc. --%>
+        <div class="app-header-notification">
+            <button type="button" class="app-header-notification-btn" id="headerNotificationTrigger"
+                    aria-haspopup="true" aria-expanded="false">
+                &#128276;
+                <c:if test="${unreadNotificationCount > 0}">
+                    <span class="app-header-notification-badge">${unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>
+                </c:if>
+            </button>
+            <div class="app-header-notification-menu hidden" id="headerNotificationMenu" role="menu">
+                <div class="app-header-notification-menu-header">
+                    <span>Notifications</span>
+                    <c:if test="${unreadNotificationCount > 0}">
+                        <button type="button" class="app-header-notification-mark-all"
+                                id="headerNotificationMarkAllRead" data-url="${ctx}/app/notifications/mark-all-read">Mark all as read</button>
+                    </c:if>
+                </div>
+                <div class="app-header-notification-list">
+                    <c:forEach var="n" items="${latestNotifications}">
+                        <%-- targetTab (e.g. a comment's own stage) lands click-through directly on that
+                             section instead of always the generic Overview tab - null/empty for every
+                             other notification type, whose link is unchanged. Plain EL concatenation,
+                             deliberately not <c:url>: that tag calls response.encodeURL() under the hood,
+                             which can append ";jsessionid=..." to the href and break byte-identical-response
+                             assumptions elsewhere (see MyPerformanceViewLinkTest) - this app never relies on
+                             URL-based session tracking (cookie-only JWT auth), so it's never needed here. --%>
+                        <c:choose>
+                            <c:when test="${not empty n.targetTab}">
+                                <c:set var="notifItemHref" value="${ctx}/app/deliverables/${n.contentPlan.id}?tab=${n.targetTab}"/>
+                            </c:when>
+                            <c:otherwise>
+                                <c:set var="notifItemHref" value="${ctx}/app/deliverables/${n.contentPlan.id}"/>
+                            </c:otherwise>
+                        </c:choose>
+                        <a class="app-header-notification-item ${n.unread ? 'app-header-notification-item-unread' : ''}"
+                           href="${notifItemHref}" data-mark-read-url="${ctx}/app/notifications/${n.id}/read"
+                           data-unread="${n.unread}">
+                            <span class="app-header-notification-dot" aria-hidden="true"></span>
+                            <span class="app-header-notification-body">
+                                <span class="app-header-notification-title"><c:out value="${n.title}"/></span>
+                                <span class="app-header-notification-message"><c:out value="${n.message}"/></span>
+                                <span class="app-header-notification-time" data-created-at="${n.createdAt}"></span>
+                            </span>
+                        </a>
+                    </c:forEach>
+                    <c:if test="${empty latestNotifications}">
+                        <p class="app-header-notification-empty muted">No notifications yet.</p>
+                    </c:if>
+                </div>
+                <a class="app-header-notification-view-all" href="${ctx}/app/notifications">View all notifications</a>
+            </div>
+        </div>
+        <span class="app-header-divider"></span>
+        <div class="app-header-profile">
+            <button type="button" class="app-header-profile-trigger" id="headerProfileTrigger"
+                    aria-haspopup="true" aria-expanded="false">
+                <span class="app-header-avatar" data-fullname="${currentUserFullName}"></span>
+                <span class="app-header-profile-text">
+                    <span class="app-header-profile-name"><c:out value="${currentUserFullName}"/></span>
+                    <c:if test="${not empty businessRoleName}">
+                        <span class="app-header-profile-role"><c:out value="${businessRoleName}"/></span>
+                    </c:if>
+                </span>
+                <span class="app-header-profile-chevron">&#9662;</span>
+            </button>
+            <div class="app-header-profile-menu hidden" id="headerProfileMenu" role="menu">
+                <div class="app-header-profile-menu-identity">
+                    <span class="app-header-avatar" data-fullname="${currentUserFullName}"></span>
+                    <span class="app-header-profile-menu-details">
+                        <span class="app-header-profile-menu-name"><c:out value="${currentUserFullName}"/></span>
+                        <span class="app-header-profile-menu-email"><c:out value="${currentUserEmail}"/></span>
+                    </span>
+                </div>
+                <div class="app-header-profile-menu-divider"></div>
+                <form method="post" action="${ctx}/logout" class="logout-form">
+                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                    <button type="submit" class="app-header-profile-menu-signout">&#8618; Sign out</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</header>
+<script src="${ctx}/js/header-user-menu.js" defer></script>
+<script src="${ctx}/js/header-notifications.js" defer></script>

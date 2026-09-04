@@ -11,6 +11,8 @@ import com.kcpc.mkt.identity.repository.UserRepository;
 import com.kcpc.mkt.identity.service.AuthorizationService;
 import com.kcpc.mkt.identity.service.OperationalEligibilityService;
 import com.kcpc.mkt.marks.domain.RoleType;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.domain.ContentPlanTalentEntry;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
@@ -66,6 +68,7 @@ public class AdminActionService {
     private final AuditService auditService;
     private final WorkflowTransitionService workflowService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public AdminActionService(ContentPlanRepository contentPlanRepository,
                                ShootingAssignmentRepository shootingAssignmentRepository,
@@ -80,7 +83,8 @@ public class AdminActionService {
                                AuthorizationService authorizationService,
                                OperationalEligibilityService operationalEligibilityService,
                                AvailableActionService availableActionService, AuditService auditService,
-                               WorkflowTransitionService workflowService, UserRepository userRepository) {
+                               WorkflowTransitionService workflowService, UserRepository userRepository,
+                               NotificationService notificationService) {
         this.contentPlanRepository = contentPlanRepository;
         this.shootingAssignmentRepository = shootingAssignmentRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
@@ -97,6 +101,7 @@ public class AdminActionService {
         this.auditService = auditService;
         this.workflowService = workflowService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -137,7 +142,31 @@ public class AdminActionService {
                 priorShoot, priorEdit, priorLive, plan.getPlannedShootDate(), plan.getPlannedEditDate(),
                 plan.getPlannedLiveDate(), reason, actor, actingGrant.orElse(null)));
         auditService.record(actor, actingGrant, "ADMIN_ACTION", "RESCHEDULED", "content_plans", plan.getId(), reason);
+        String dateText = plan.getPlannedLiveDate() != null ? plan.getPlannedLiveDate().toString() : "an updated date";
+        for (User affected : currentlyAffectedUsers(plan)) {
+            notificationService.notify(affected, NotificationType.TASK_RESCHEDULED, "Task Rescheduled",
+                    "Planned date for " + plan.getContentId() + " has been changed to " + dateText, plan,
+                    "TASK_RESCHEDULED:RescheduleRecord:" + record.getId());
+        }
         return record;
+    }
+
+    /** Reschedule/Cancel notification targets: every currently active Shoot/Edit/Publish assignee
+     * plus every Model/Talent entry on this plan - deduplicated by user id (the same real person
+     * can legitimately hold more than one of these at once, e.g. Model + Cameraperson - see
+     * ShootReassignmentModelTest), so they are notified exactly once, never once per role held. */
+    private List<User> currentlyAffectedUsers(ContentPlan plan) {
+        java.util.LinkedHashMap<UUID, User> byId = new java.util.LinkedHashMap<>();
+        shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .forEach(a -> byId.put(a.getCameraperson().getId(), a.getCameraperson()));
+        editingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .forEach(a -> byId.put(a.getEditor().getId(), a.getEditor()));
+        publishingAssignmentRepository.findByContentPlanAndActiveTrue(plan)
+                .forEach(a -> byId.put(a.getPublisher().getId(), a.getPublisher()));
+        talentEntryRepository.findByContentPlan(plan).stream()
+                .filter(t -> t.getTalentUser() != null)
+                .forEach(t -> byId.put(t.getTalentUser().getId(), t.getTalentUser()));
+        return List.copyOf(byId.values());
     }
 
     @Transactional
@@ -172,8 +201,9 @@ public class AdminActionService {
             for (ShootingAssignment old : previous) {
                 old.end();
                 shootingAssignmentRepository.save(old);
-                reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, old.getCameraperson(),
-                        RoleType.CAMERAPERSON, AssigneeSide.PREVIOUS));
+                ReassignmentAssignee away = reassignmentAssigneeRepository.save(new ReassignmentAssignee(record,
+                        old.getCameraperson(), RoleType.CAMERAPERSON, AssigneeSide.PREVIOUS));
+                notifyReassignedAway(old.getCameraperson(), plan, away);
             }
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
@@ -182,8 +212,9 @@ public class AdminActionService {
                 // to SHOOTING) - reassignment and initial assignment must never diverge (spec §10).
                 operationalEligibilityService.requireShootExecutionEligible(newUser, workflowInstance);
                 shootingAssignmentRepository.save(new ShootingAssignment(plan, newUser, actor));
-                reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.CAMERAPERSON,
-                        AssigneeSide.NEW));
+                ReassignmentAssignee added = reassignmentAssigneeRepository.save(new ReassignmentAssignee(record,
+                        newUser, RoleType.CAMERAPERSON, AssigneeSide.NEW));
+                notifyReassigned(newUser, plan, added);
             }
             // Model(s)/Talent reassignment - SHOOTING only, and only when the caller actually
             // supplied this field. null means "not touched" (an older API caller that doesn't know
@@ -206,8 +237,9 @@ public class AdminActionService {
                     // is mandatory) - the frozen REST plain-name-string path can leave this null; that
                     // entry is still replaced below, just not individually logged as a PREVIOUS row.
                     if (old.getTalentUser() != null) {
-                        reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, old.getTalentUser(),
-                                RoleType.MODEL, AssigneeSide.PREVIOUS));
+                        ReassignmentAssignee away = reassignmentAssigneeRepository.save(new ReassignmentAssignee(
+                                record, old.getTalentUser(), RoleType.MODEL, AssigneeSide.PREVIOUS));
+                        notifyReassignedAway(old.getTalentUser(), plan, away);
                     }
                 }
                 talentEntryRepository.deleteByContentPlan(plan);
@@ -215,8 +247,9 @@ public class AdminActionService {
                     User newModelUser = userRepository.findById(newModelUserId)
                             .orElseThrow(() -> DomainException.notFound("User not found: " + newModelUserId));
                     talentEntryRepository.save(new ContentPlanTalentEntry(plan, newModelUser.getFullName(), newModelUser));
-                    reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newModelUser, RoleType.MODEL,
-                            AssigneeSide.NEW));
+                    ReassignmentAssignee added = reassignmentAssigneeRepository.save(new ReassignmentAssignee(record,
+                            newModelUser, RoleType.MODEL, AssigneeSide.NEW));
+                    notifyReassigned(newModelUser, plan, added);
                 }
             }
         } else {
@@ -224,8 +257,9 @@ public class AdminActionService {
             for (EditingAssignment old : previous) {
                 old.end();
                 editingAssignmentRepository.save(old);
-                reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, old.getEditor(), RoleType.EDITOR,
-                        AssigneeSide.PREVIOUS));
+                ReassignmentAssignee away = reassignmentAssigneeRepository.save(new ReassignmentAssignee(record,
+                        old.getEditor(), RoleType.EDITOR, AssigneeSide.PREVIOUS));
+                notifyReassignedAway(old.getEditor(), plan, away);
             }
             for (UUID newUserId : newAssigneeUserIds) {
                 User newUser = userRepository.findById(newUserId)
@@ -234,12 +268,25 @@ public class AdminActionService {
                 // to EDITING) - reassignment and initial assignment must never diverge (spec §10).
                 operationalEligibilityService.requireEditExecutionEligible(newUser, workflowInstance);
                 editingAssignmentRepository.save(new EditingAssignment(plan, newUser, actor));
-                reassignmentAssigneeRepository.save(new ReassignmentAssignee(record, newUser, RoleType.EDITOR,
-                        AssigneeSide.NEW));
+                ReassignmentAssignee added = reassignmentAssigneeRepository.save(new ReassignmentAssignee(record,
+                        newUser, RoleType.EDITOR, AssigneeSide.NEW));
+                notifyReassigned(newUser, plan, added);
             }
         }
         auditService.record(actor, actingGrant, "ADMIN_ACTION", "REASSIGNED", "content_plans", plan.getId(), reason);
         return record;
+    }
+
+    private void notifyReassigned(User newRecipient, ContentPlan plan, ReassignmentAssignee added) {
+        notificationService.notify(newRecipient, NotificationType.TASK_REASSIGNED, "Task Reassigned",
+                plan.getContentId() + " has been assigned to you", plan,
+                "TASK_REASSIGNED:ReassignmentAssignee:" + added.getId());
+    }
+
+    private void notifyReassignedAway(User previousRecipient, ContentPlan plan, ReassignmentAssignee away) {
+        notificationService.notify(previousRecipient, NotificationType.TASK_REASSIGNED_AWAY, "Task Reassigned",
+                plan.getContentId() + " has been reassigned", plan,
+                "TASK_REASSIGNED_AWAY:ReassignmentAssignee:" + away.getId());
     }
 
     /** ERD-CON-006: blocked once ever Completed. */
@@ -258,11 +305,20 @@ public class AdminActionService {
         Optional<PermissionGrant> actingGrant = authorizationService.requireAuthority(actor,
                 OperationalPermission.PERM_12_CANCEL, LifecycleStage.ADMINISTRATIVE, workflowInstance);
 
+        // Affected users must be gathered BEFORE the CAN transition/cancellation record - not that
+        // it matters for who is currently assigned (unaffected by cancellation itself), but so a
+        // reader never has to wonder whether "currently active" means before or after this action.
+        List<User> affectedUsers = currentlyAffectedUsers(plan);
         workflowService.transition(workflowInstance, WorkflowStatus.CAN, actor,
                 actingGrant, "CANCEL", reason);
         CancellationRecord record = cancellationRecordRepository.save(
                 new CancellationRecord(workflowInstance, reason, actor, actingGrant.orElse(null)));
         auditService.record(actor, actingGrant, "ADMIN_ACTION", "CANCELLED", "content_plans", plan.getId(), reason);
+        for (User affected : affectedUsers) {
+            notificationService.notify(affected, NotificationType.TASK_CANCELLED, "Task Cancelled",
+                    plan.getContentId() + " has been cancelled", plan,
+                    "TASK_CANCELLED:CancellationRecord:" + record.getId());
+        }
         return record;
     }
 

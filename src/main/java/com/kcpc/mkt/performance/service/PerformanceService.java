@@ -8,6 +8,8 @@ import com.kcpc.mkt.identity.domain.OperationalPermission;
 import com.kcpc.mkt.identity.domain.PermissionGrant;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.identity.service.AuthorizationService;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.performance.domain.CreativePerformanceScorecard;
 import com.kcpc.mkt.performance.domain.PerformanceMetricCorrection;
 import com.kcpc.mkt.performance.domain.PerformanceObligation;
@@ -52,13 +54,15 @@ public class PerformanceService {
     private final AuthorizationService authorizationService;
     private final PerformanceEligibilityService performanceEligibilityService;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     public PerformanceService(PerformanceObligationRepository obligationRepository,
                                CreativePerformanceScorecardRepository scorecardRepository,
                                PerformanceMetricCorrectionRepository metricCorrectionRepository,
                                ContentPlanRepository contentPlanRepository, WorkflowTransitionService workflowService,
                                AuthorizationService authorizationService,
-                               PerformanceEligibilityService performanceEligibilityService, AuditService auditService) {
+                               PerformanceEligibilityService performanceEligibilityService, AuditService auditService,
+                               NotificationService notificationService) {
         this.obligationRepository = obligationRepository;
         this.scorecardRepository = scorecardRepository;
         this.metricCorrectionRepository = metricCorrectionRepository;
@@ -67,6 +71,7 @@ public class PerformanceService {
         this.authorizationService = authorizationService;
         this.performanceEligibilityService = performanceEligibilityService;
         this.auditService = auditService;
+        this.notificationService = notificationService;
     }
 
     private PerformanceObligation requireObligation(UUID obligationId) {
@@ -349,6 +354,16 @@ public class PerformanceService {
             }
             auditService.record(actor, actingGrant, "PERFORMANCE", "DELIVERABLE_COMPLETED", "content_plans",
                     plan.getId(), null);
+            // Notifies the plan's Preparer only (not the whole team - Shoot/Edit completion is
+            // already covered by their own REVIEW_APPROVED notification). Known MVP limitation:
+            // tied to the WorkflowInstance's own id, so a plan that completes a second time after a
+            // Reopen/repost cycle will not re-notify (the (recipient, eventReference) pair already
+            // exists) - acceptable for now rather than threading a per-cycle identifier through here.
+            if (plan.getPreparedBy() != null) {
+                notificationService.notify(plan.getPreparedBy(), NotificationType.TASK_COMPLETED, "Task Completed",
+                        plan.getContentId() + " has been completed", plan,
+                        "TASK_COMPLETED:WorkflowInstance:" + workflowInstance.getId());
+            }
         }
     }
 }

@@ -8,6 +8,7 @@
     <meta charset="UTF-8">
     <title>KCPC Bandhani — ${plan.contentId}</title>
     <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
+    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />

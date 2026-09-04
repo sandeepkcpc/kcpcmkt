@@ -15,6 +15,8 @@ import com.kcpc.mkt.marks.domain.PredefinedRoleMarks;
 import com.kcpc.mkt.marks.domain.RoleType;
 import com.kcpc.mkt.marks.repository.PersonalMarkAttributionRepository;
 import com.kcpc.mkt.marks.repository.PredefinedRoleMarksRepository;
+import com.kcpc.mkt.notification.domain.NotificationType;
+import com.kcpc.mkt.notification.service.NotificationService;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.planning.repository.ContentPlanRepository;
 import com.kcpc.mkt.production.domain.EditingAssignment;
@@ -57,6 +59,7 @@ public class EditingService {
     private final AuditService auditService;
     private final PublishingService publishingService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public EditingService(ContentPlanRepository contentPlanRepository,
                            EditingAssignmentRepository editingAssignmentRepository,
@@ -67,7 +70,7 @@ public class EditingService {
                            AuthorizationService authorizationService,
                            OperationalEligibilityService operationalEligibilityService, HoldService holdService,
                            AuditService auditService, PublishingService publishingService,
-                           UserRepository userRepository) {
+                           UserRepository userRepository, NotificationService notificationService) {
         this.contentPlanRepository = contentPlanRepository;
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.participantRepository = participantRepository;
@@ -81,6 +84,7 @@ public class EditingService {
         this.auditService = auditService;
         this.publishingService = publishingService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     private ContentPlan requirePlan(UUID contentPlanId) {
@@ -120,6 +124,12 @@ public class EditingService {
         }
         auditService.record(assigner, Optional.empty(), "EDITING", "EDITOR_ASSIGNED", "editing_assignments",
                 assignment.getId(), null);
+        // Single hook for every path that assigns an Editor (Shoot Review Approve fold-in, Skip
+        // Shoot Stage, and a direct Assign Editor call) - the existing-row-return branch above
+        // never reaches here, so an idempotent re-assignment never produces a duplicate notification.
+        notificationService.notify(editor, NotificationType.TASK_ASSIGNED, "New Task Assigned",
+                "You have been assigned " + plan.getContentId(), plan,
+                "TASK_ASSIGNED:EditingAssignment:" + assignment.getId());
         return assignment;
     }
 
@@ -279,6 +289,14 @@ public class EditingService {
                 "SUBMIT_EDIT_REVIEW", null);
         auditService.record(submitter, Optional.empty(), "EDITING", "EDIT_REVIEW_SUBMITTED", "content_plans",
                 plan.getId(), null);
+        // See ShootingService#submitShootReview's own comment: explicit PERM_07_EDIT_REVIEW grant
+        // holders only, never a blanket broadcast to every native CEO/MM user.
+        for (User reviewerCandidate : authorizationService.findActiveGranteesWithExplicitGrant(
+                OperationalPermission.PERM_07_EDIT_REVIEW, LifecycleStage.EDITING, workflowInstance)) {
+            notificationService.notify(reviewerCandidate, NotificationType.REVIEW_REQUIRED, "Review Required",
+                    plan.getContentId() + " is waiting for your review", plan,
+                    "REVIEW_REQUIRED:ReviewCycle:" + cycle.getId());
+        }
         return cycle;
     }
 
@@ -357,6 +375,13 @@ public class EditingService {
             workflowService.transition(workflowInstance, WorkflowStatus.RFP, reviewer, actingGrant,
                     "READY_FOR_PUBLISHING", null);
             auditService.record(reviewer, actingGrant, "EDITING", "EDIT_APPROVED", "content_plans", plan.getId(), null);
+            for (UUID recipientId : distinctRecipients) {
+                User recipient = participants.stream().filter(p -> p.getEditor().getId().equals(recipientId))
+                        .findFirst().orElseThrow().getEditor();
+                notificationService.notify(recipient, NotificationType.REVIEW_APPROVED, "Review Approved",
+                        plan.getContentId() + " Edit has been approved", plan,
+                        "REVIEW_DECISION:ReviewCycle:" + cycle.getId());
+            }
 
             publishingService.assignPublisherTeam(reviewer, contentPlanId, publishers);
         } else {
@@ -369,6 +394,12 @@ public class EditingService {
                     "REQUEST_REWORK_EDIT", reason);
             auditService.record(reviewer, actingGrant, "EDITING", "EDIT_REWORK_REQUESTED", "content_plans",
                     plan.getId(), reason);
+            for (User activeEditor : editingAssignmentRepository.findByContentPlanAndActiveTrue(plan).stream()
+                    .map(EditingAssignment::getEditor).distinct().toList()) {
+                notificationService.notify(activeEditor, NotificationType.CHANGES_REQUIRED, "Changes Required",
+                        "Changes are required for " + plan.getContentId(), plan,
+                        "REVIEW_DECISION:ReviewCycle:" + cycle.getId());
+            }
         }
         return plan;
     }
