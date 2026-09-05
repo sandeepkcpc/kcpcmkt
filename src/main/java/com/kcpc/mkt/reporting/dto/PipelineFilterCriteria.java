@@ -23,7 +23,6 @@ public record PipelineFilterCriteria(
         String cameraperson,
         String model,
         String videoEditor,
-        String platform,
         String channel,
         String status,
         String performanceState,

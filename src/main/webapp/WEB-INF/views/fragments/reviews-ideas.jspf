@@ -355,11 +355,19 @@
                                     <div class="panel reviews-planning-card">
                                         <h3 class="reviews-section-heading"><span class="reviews-section-number">2</span> Schedule</h3>
                                         <div class="form-grid">
-                                            <label>Planned Live Date * <input type="date" id="reviewsIdeaPlannedLiveDate" min="${today}"></label>
-                                            <label id="reviewsIdeaShootDateLabel">Shoot Date * <input type="date" id="reviewsIdeaShootDate" min="${today}">
+                                            <label>Planned Live Date * <input type="date" id="reviewsIdeaPlannedLiveDate" min="${today}" data-kcpc-calendar="live"></label>
+<%-- Planned Live Date calendar data (kcpc-date-picker.js): the same Upcoming Channel Plan
+     UpcomingChannelPlanService computes for the KPI Dashboard Overview, restricted to today
+     onwards. Embedded rather than fetched, mirroring reports-kpi-overview.jspf's own
+     #kpiUpcomingPlanData block. "<" is already escaped by UpcomingChannelPlanJsonWriter. --%>
+<script type="application/json" id="kcpcPlannedLiveDatePlanData">${plannedLiveDatePlanJson}</script>
+<script type="application/json" id="kcpcPlannedShootPlanData">${plannedShootPlanJson}</script>
+<script type="application/json" id="kcpcPlannedEditPlanData">${plannedEditPlanJson}</script>
+
+                                            <label id="reviewsIdeaShootDateLabel">Shoot Date * <input type="date" id="reviewsIdeaShootDate" min="${today}" data-kcpc-calendar="shoot">
                                                 <span class="reviews-schedule-hint" id="reviewsIdeaShootDateHint">Standard: Live Date &minus; 5 days</span>
                                                 <span class="reviews-schedule-error hidden" id="reviewsIdeaShootDateError"></span></label>
-                                            <label id="reviewsIdeaEditDateLabel">Edit Date * <input type="date" id="reviewsIdeaEditDate" min="${today}">
+                                            <label id="reviewsIdeaEditDateLabel">Edit Date * <input type="date" id="reviewsIdeaEditDate" min="${today}" data-kcpc-calendar="edit">
                                                 <span class="reviews-schedule-hint" id="reviewsIdeaEditDateHint">Standard: Live Date &minus; 2 days</span>
                                                 <span class="reviews-schedule-error hidden" id="reviewsIdeaEditDateError"></span></label>
                                             <label class="grid-span-all hidden" id="reviewsIdeaUrgencyReasonLabel">Urgency Reason (required for Urgent)
@@ -559,7 +567,7 @@
                                          carries no status of its own) and never duplicates a later assignment
                                          (PublishingService#assignPublisher is already idempotent). --%>
                                     <div class="panel reviews-planning-card" id="reviewsIdeaPublisherAssignmentSection">
-                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">4</span> Publisher Assignment</h3>
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">5</span> Publisher Assignment</h3>
                                         <div class="kcpc-model-picker">
                                             <label id="reviewsIdeaPublisherLabel">Publisher(s) *</label>
                                             <div class="kcpc-model-input">
@@ -579,7 +587,7 @@
                                     </div>
 
                                     <div class="panel reviews-planning-card" id="reviewsIdeaTeamMarksSection">
-                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">5</span> Team Marks (Approve Only)</h3>
+                                        <h3 class="reviews-section-heading"><span class="reviews-section-number">6</span> Team Marks (Approve Only)</h3>
                                         <%-- ENG-096: each mark only applies to a role whose stage is actually part of
                                              the selected pipeline - Cameraperson/Model tied to Shoot, Editor to Edit -
                                              toggled live by updateReviewsIdeaStagesFields() below, same stage-truth

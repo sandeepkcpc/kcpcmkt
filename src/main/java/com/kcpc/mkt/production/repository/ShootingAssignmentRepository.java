@@ -3,7 +3,7 @@ package com.kcpc.mkt.production.repository;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.production.domain.ShootingAssignment;
-import com.kcpc.mkt.reporting.dto.UserActiveTaskCount;
+import com.kcpc.mkt.reporting.dto.UserContentPlanRef;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -28,10 +28,10 @@ public interface ShootingAssignmentRepository extends JpaRepository<ShootingAssi
 
     Optional<ShootingAssignment> findByContentPlanAndCamerapersonAndActiveTrue(ContentPlan contentPlan, User cameraperson);
 
-    /** Assignee-picker workload display: one grouped COUNT query, no per-candidate lookup - see
-     * AssigneeWorkloadCountService/AssigneeActiveWindows. */
-    @Query("select a.cameraperson.id as userId, count(a) as activeCount from ShootingAssignment a "
-            + "where a.active = true and a.contentPlan.workflowInstance.currentStatusCode in :activeWindow "
-            + "group by a.cameraperson.id")
-    List<UserActiveTaskCount> countActiveGroupedByCameraperson(@Param("activeWindow") Collection<WorkflowStatus> activeWindow);
+    /** Assignee-picker workload display: the (user, Content Plan) pairs this role is currently
+     * active on, de-duplicated across every role by AssigneeWorkloadCountService. One query, no
+     * per-candidate lookup. */
+    @Query("select a.cameraperson.id as userId, a.contentPlan.id as contentPlanId from ShootingAssignment a "
+            + "where a.active = true and a.contentPlan.workflowInstance.currentStatusCode in :activeWindow")
+    List<UserContentPlanRef> findActiveContentPlanRefsByCameraperson(@Param("activeWindow") Collection<WorkflowStatus> activeWindow);
 }

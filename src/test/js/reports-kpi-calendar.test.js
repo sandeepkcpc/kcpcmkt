@@ -315,8 +315,38 @@ run('Clicking a date with contentIds shows an expandable Content Details section
     assert.ok(dom.detail.innerHTML.indexOf('C-0926-0003') !== -1);
 });
 
-// --- Content Details dedup: presentation-only, never touches the Planned count or the raw data --
-run('Four identical Content IDs render once, and Content Details count is 1', () => {
+// --- Cross-channel dedup: the one duplication the server CANNOT remove for us. Each channel's own
+// contentIds is already distinct server-side (LinkedHashSet in upcomingChannelPlan()), but the same
+// Content ID planned on two different Channel/Accounts legitimately appears once under each - the
+// date-level Content Details summary must collapse those into one entry. ---------------------------
+run('One Content ID on two channels renders once in Content Details, with both counts kept at 1', () => {
+    const today = new Date();
+    const iso = localIso(today);
+    const dom = buildDom([{
+        plannedLiveDate: iso,
+        channels: [
+            { channelHandle: 'kcpcbandhani', count: 1, contentIds: ['C-0926-0001'] },
+            { channelHandle: 'kcpc_sikar', count: 1, contentIds: ['C-0926-0001'] }
+        ]
+    }]);
+    loadScriptAgainst(dom.document);
+    dom.openBtn.dispatch('click');
+    plannedCells(dom)[0].dispatch('click');
+
+    assert.ok(dom.detail.innerHTML.indexOf('Content Details (1)') !== -1,
+        'one distinct piece of content is planned that day, across both channels');
+    assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'kpi-calendar-content-id'), 1,
+        'the ID must appear exactly once in the rendered Content Details list');
+    // Each channel's own Planned count is printed exactly as received - the date-level dedup above
+    // must never reach back into the per-channel numbers.
+    assert.strictEqual(countOccurrences(dom.detail.innerHTML, '<span class="kpi-calendar-detail-count">1</span>'), 2,
+        'both channels must still show their own count of 1');
+});
+
+// --- Defensive: a legacy/unmigrated payload that still carries duplicated contentIds within one
+// channel (the retired mapping-row shape) must still render a unique list, and must still print the
+// count exactly as received rather than silently "correcting" it. ---------------------------------
+run('A legacy payload with duplicates inside one channel still renders uniquely, count untouched', () => {
     const today = new Date();
     const iso = localIso(today);
     const dom = buildDom([{
@@ -334,20 +364,21 @@ run('Four identical Content IDs render once, and Content Details count is 1', ()
         'summary count must be the UNIQUE count, not the raw 4');
     assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'kpi-calendar-content-id'), 1,
         'the ID must appear exactly once in the rendered Content Details list');
-    // The Planned count is a completely separate metric (ch.count) and must stay 4 regardless.
+    // ch.count is rendered verbatim; this file never recomputes it.
     assert.ok(dom.detail.innerHTML.indexOf('<span class="kpi-calendar-detail-count">4</span>') !== -1,
-        'Planned count must remain 4 - it is never reduced by Content Details dedup');
+        'Planned count must be printed as received - the JS never recomputes it');
 });
 
-run('Mixed duplicate/unique Content IDs render only the unique ones', () => {
+run('Mixed duplicate/unique Content IDs across channels render only the unique ones', () => {
     const today = new Date();
     const iso = localIso(today);
+    // C-0926-0002 is planned on BOTH channels - the realistic cross-channel duplicate.
     const dom = buildDom([{
         plannedLiveDate: iso,
-        channels: [{
-            channelHandle: 'kcpcbandhani', count: 4,
-            contentIds: ['C-0926-0001', 'C-0926-0002', 'C-0926-0002', 'C-0926-0003']
-        }]
+        channels: [
+            { channelHandle: 'kcpcbandhani', count: 2, contentIds: ['C-0926-0001', 'C-0926-0002'] },
+            { channelHandle: 'kcpc_sikar', count: 2, contentIds: ['C-0926-0002', 'C-0926-0003'] }
+        ]
     }]);
     loadScriptAgainst(dom.document);
     dom.openBtn.dispatch('click');
@@ -356,10 +387,10 @@ run('Mixed duplicate/unique Content IDs render only the unique ones', () => {
     assert.ok(dom.detail.innerHTML.indexOf('Content Details (3)') !== -1);
     assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'C-0926-0001'), 1);
     assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'C-0926-0002'), 1,
-        'the duplicated ID must still appear exactly once');
+        'the ID planned on both channels must still appear exactly once');
     assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'C-0926-0003'), 1);
-    // The Planned count (the raw, undeduplicated 4) must be unaffected.
-    assert.ok(dom.detail.innerHTML.indexOf('<span class="kpi-calendar-detail-count">4</span>') !== -1);
+    // Each channel's own Planned count is printed as received and never reduced by the dedup.
+    assert.strictEqual(countOccurrences(dom.detail.innerHTML, '<span class="kpi-calendar-detail-count">2</span>'), 2);
 });
 
 run('First-seen order is preserved after dedup, not alphabetical/sorted', () => {
@@ -367,10 +398,10 @@ run('First-seen order is preserved after dedup, not alphabetical/sorted', () => 
     const iso = localIso(today);
     const dom = buildDom([{
         plannedLiveDate: iso,
-        channels: [{
-            channelHandle: 'kcpcbandhani', count: 4,
-            contentIds: ['C-0926-0003', 'C-0926-0001', 'C-0926-0003', 'C-0926-0002']
-        }]
+        channels: [
+            { channelHandle: 'kcpcbandhani', count: 2, contentIds: ['C-0926-0003', 'C-0926-0001'] },
+            { channelHandle: 'kcpc_sikar', count: 2, contentIds: ['C-0926-0003', 'C-0926-0002'] }
+        ]
     }]);
     loadScriptAgainst(dom.document);
     dom.openBtn.dispatch('click');
@@ -391,7 +422,7 @@ run('Content Details summary count always equals the number of unique <li> entri
     const dom = buildDom([{
         plannedLiveDate: iso,
         channels: [
-            { channelHandle: 'kcpcbandhani', count: 3, contentIds: ['C-0926-0001', 'C-0926-0001', 'C-0926-0001'] },
+            { channelHandle: 'kcpcbandhani', count: 3, contentIds: ['C-0926-0001', 'C-0926-0003', 'C-0926-0004'] },
             { channelHandle: 'kcpc_sikar', count: 2, contentIds: ['C-0926-0002', 'C-0926-0001'] }
         ]
     }]);
@@ -399,10 +430,11 @@ run('Content Details summary count always equals the number of unique <li> entri
     dom.openBtn.dispatch('click');
     plannedCells(dom)[0].dispatch('click');
 
-    // Raw total across both channels is 5 (3 + 2); unique across both channels is 2 (0001, 0002) -
-    // dedup applies across the whole date's allContentIds, not per-channel.
-    assert.ok(dom.detail.innerHTML.indexOf('Content Details (2)') !== -1);
-    assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'kpi-calendar-content-id'), 2);
+    // Per-channel totals sum to 5 (3 + 2), but C-0926-0001 is planned on both channels, so the
+    // date-level unique count is 4 - dedup applies across the whole date's allContentIds. The
+    // summary is deliberately allowed to be lower than the sum of the per-channel counts.
+    assert.ok(dom.detail.innerHTML.indexOf('Content Details (4)') !== -1);
+    assert.strictEqual(countOccurrences(dom.detail.innerHTML, 'kpi-calendar-content-id'), 4);
     // Both channels' own Planned counts stay exactly as received.
     assert.ok(dom.detail.innerHTML.indexOf('<span class="kpi-calendar-detail-count">3</span>') !== -1);
     assert.ok(dom.detail.innerHTML.indexOf('<span class="kpi-calendar-detail-count">2</span>') !== -1);
@@ -413,7 +445,7 @@ run('The main Upcoming Channel Plan list (outside the calendar modal) is never t
     const iso = localIso(today);
     const dom = buildDom([{
         plannedLiveDate: iso,
-        channels: [{ channelHandle: 'kcpcbandhani', count: 4, contentIds: ['C-0926-0001', 'C-0926-0001'] }]
+        channels: [{ channelHandle: 'kcpcbandhani', count: 2, contentIds: ['C-0926-0001', 'C-0926-0002'] }]
     }]);
     // Simulate the separate, pre-existing list markup that lives outside the calendar modal -
     // reports-kpi-calendar.js must never read or write it.
@@ -436,7 +468,7 @@ run('Empty/null contentIds mixed with real ones stays safe and dedups only what 
     const dom = buildDom([{
         plannedLiveDate: iso,
         channels: [
-            { channelHandle: 'kcpcbandhani', count: 2, contentIds: ['C-0926-0001', 'C-0926-0001'] },
+            { channelHandle: 'kcpcbandhani', count: 1, contentIds: ['C-0926-0001'] },
             { channelHandle: 'kcpc_sikar', count: 1, contentIds: [] },
             { channelHandle: 'kcpclegacy', count: 1 } // contentIds field entirely absent
         ]

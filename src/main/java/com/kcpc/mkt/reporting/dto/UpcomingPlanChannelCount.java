@@ -2,14 +2,21 @@ package com.kcpc.mkt.reporting.dto;
 
 import java.util.List;
 
-/** One Channel/Account's still-outstanding planned-publication-target count for one Planned Live
- * Date, inside {@link UpcomingPlanDateGroup}. The counting unit is one
- * {@code planned_output_publication_target_mappings} row that has no matching
- * {@code actual_publication_events} row yet (see {@code KpiDashboardService#upcomingChannelPlan}).
- * {@code contentIds} is the surviving mappings' own Content Plan IDs for this (date, channel) group
- * - captured from data already being iterated to compute {@code count}, never a second query - for
- * the Overview calendar's optional "Content Details" section (KPI Dashboard Overview calendar
- * enhancement). {@code count == contentIds.size()} always. */
+/** One Channel/Account's still-outstanding planned-content count for one Planned Live Date, inside
+ * {@link UpcomingPlanDateGroup}. The counting unit is one DISTINCT Content Plan
+ * ({@code content_plans.content_id}): a Content Plan targeting Instagram + YouTube + Facebook all
+ * under this same Channel/Account counts ONCE, not three times. Eligibility is still decided per
+ * {@code planned_output_publication_target_mappings} row - a row counts while it has no matching
+ * {@code actual_publication_events} row - so a Content ID stays counted until every one of its
+ * targets on this Channel/Account has gone live (see
+ * {@code KpiDashboardService#upcomingChannelPlan}).
+ *
+ * <p>{@code contentIds} is exactly those distinct Content Plan IDs, in first-seen order, captured
+ * from the data already being iterated to compute {@code count} - never a second query - and
+ * rendered by the Overview calendar's "Content Details" section. {@code count == contentIds.size()}
+ * always, and both are the number of distinct pieces of content. Note the same Content ID may still
+ * appear under several DIFFERENT Channel/Accounts on the same date; those are separate publication
+ * commitments and each is counted once under its own channel. */
 public class UpcomingPlanChannelCount {
 
     private final String channelHandle;

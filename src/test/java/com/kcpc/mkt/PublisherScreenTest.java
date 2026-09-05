@@ -113,14 +113,21 @@ class PublisherScreenTest {
         publisher.login(pubEmail, "Passw0rd!");
 
         // My Work: Publisher-flavored KPI cards + Active Work table, no Marks tab, "Start
-        // Publishing" action, "1 / 2" Targets column not yet resolved... actually still 0 resolved.
+        // Publishing" action.
         String myWorkAtRfp = publisher.get("/app/my-work").body();
         assertThat(myWorkAtRfp).contains("Active Publishing").contains("Pending Targets").contains(">Completed<");
         assertThat(myWorkAtRfp).doesNotContain("data-tab=\"marks\"");
         assertThat(myWorkAtRfp).contains(plan.getContentId());
-        assertThat(myWorkAtRfp).contains("Pub Detail Publisher"); // Publisher(s) column
-        assertThat(myWorkAtRfp).contains("0 / 2"); // Targets column - neither mapped target resolved yet
         assertThat(myWorkAtRfp).contains("Start Publishing");
+        // The Active Publishing Tasks table's Publisher(s) and Targets columns were replaced by a
+        // single Platforms column (the same chip UI as the Dashboard's Upcoming Tasks table), so
+        // the per-row publisher name and the "resolved / total" targets text are no longer
+        // rendered there. The Pending Targets KPI card above is a separate, unchanged calculation
+        // - still asserted on the same line as the other KPI cards.
+        assertThat(activePublishingHeaderRow(myWorkAtRfp))
+                .contains("<th>Platforms</th>")
+                .doesNotContain(">Publisher(s)<")
+                .doesNotContain(">Targets<");
 
         // RFP: redesigned page, "Ready for Publishing" status, primary action Start Publishing, no
         // management controls, no review-feedback concept anywhere on this page.
@@ -156,7 +163,12 @@ class PublisherScreenTest {
         String atPartial = publisher.get("/app/deliverables/" + planId).body();
         assertThat(atPartial).contains("1 / 2 resolved"); // Publishing Information "Targets" row
         String myWorkPartial = publisher.get("/app/my-work").body();
-        assertThat(myWorkPartial).contains("1 / 2"); // Active table Targets column
+        // The Active table's "1 / 2" Targets column is gone; the same partial-resolution fact is
+        // now carried by the Platforms chips, per platform: Instagram has its one channel
+        // published (chip "active"), YouTube's is still pending (chip "muted").
+        assertThat(myWorkPartial).contains("aria-label=\"Instagram: 1 of 1 published\"");
+        assertThat(myWorkPartial).contains("aria-label=\"YouTube: 0 of 1 published\"");
+        // The Pending Targets KPI card is a separate calculation and is unchanged.
         assertThat(myWorkPartial).contains("Pending Targets");
 
         publisher.postJson("/api/v1/content-plans/" + planId + "/publishing/events",
@@ -189,5 +201,19 @@ class PublisherScreenTest {
                 "{\"fullName\":\"" + fullName + "\",\"email\":\"" + email + "\",\"password\":\"Passw0rd!\","
                         + "\"businessRoleId\":\"" + businessRoleId + "\",\"creationReason\":\"publisher screen test fixture\"}");
         return response.get("userId").asText();
+    }
+
+    /**
+     * The Active Publishing Tasks table's own header row. Scoped rather than asserted against the
+     * whole body: "Targets" also appears in the Pending Targets KPI card and the publisher's name
+     * appears in the page header's profile menu, so a whole-page doesNotContain would fail for
+     * reasons unrelated to this table's columns.
+     */
+    private static String activePublishingHeaderRow(String body) {
+        int start = body.indexOf("Active Publishing Tasks");
+        assertThat(start).as("Active Publishing Tasks table is rendered").isPositive();
+        int theadEnd = body.indexOf("</thead>", start);
+        assertThat(theadEnd).isGreaterThan(start);
+        return body.substring(start, theadEnd);
     }
 }

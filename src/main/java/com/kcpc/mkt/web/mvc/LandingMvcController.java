@@ -18,6 +18,8 @@ import com.kcpc.mkt.production.repository.ShootingAssignmentRepository;
 import com.kcpc.mkt.publishing.domain.PublishingAssignment;
 import com.kcpc.mkt.publishing.repository.PublishingAssignmentRepository;
 import com.kcpc.mkt.publishing.service.PublishingService;
+import com.kcpc.mkt.reporting.dto.PipelineChannelStatus;
+import com.kcpc.mkt.reporting.dto.PipelinePlatformSummary;
 import com.kcpc.mkt.reporting.service.PipelineDashboardService;
 import com.kcpc.mkt.security.KcpcUserPrincipal;
 import com.kcpc.mkt.web.mvc.dto.ActiveWorkItem;
@@ -47,12 +49,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -180,8 +184,48 @@ public class LandingMvcController {
         return "redirect:/app/my-work";
     }
 
+    /**
+     * My Work &rarr; Dashboard filters (Publisher). Purely a display filter over the two Publishing
+     * lists this method already builds - it never changes which assignments the Publisher is
+     * allowed to see (that is decided solely by {@code findByPublisherAndActiveTrue} plus the
+     * existing workflow-window bucketing above) and never touches permissions or workflow state.
+     *
+     * <p>Filtering is done server-side against real Content Plan data (Planned Live Date, and the
+     * plan's actual Planned Output &rarr; Publication Target mappings), never by hiding rows in the
+     * browser, so the rendered table and its count badge always agree with the underlying data.
+     *
+     * <p>The two tabs filter INDEPENDENTLY and are computed from different data sources - the
+     * Dashboard's {@code dash*} parameters apply only to Upcoming Tasks, the Publishing tab's
+     * {@code pub*} parameters only to Active Publishing Tasks. Neither tab's options, counts or
+     * rows are derived from the other's list, and a submit from one tab round-trips the other's
+     * parameters untouched, so changing a filter on one tab never disturbs the other.
+     *
+     * @param dashDate      Dashboard: exact Planned Live Date for Upcoming Tasks; null = every
+     *                      date. A single date rather than a range - the Today/Tomorrow cards and
+     *                      the picker all set this one parameter, so Today is simply
+     *                      {@code dashDate=<today>} and carries no special server-side meaning
+     * @param dashChannel   Dashboard: single channel handle; blank/null = All Channels
+     * @param dashPlatforms Dashboard: zero or more platform names; empty/null = All Platforms.
+     *                      ANDed with the other two - an Upcoming row must match all three
+     * @param pubDate       Publishing: exact Planned Live Date for Active Publishing Tasks
+     * @param pubChannel    Publishing: single channel handle; blank/null = All Channels
+     * @param pubPlatforms  Publishing: zero or more platform names; empty/null = All Platforms
+     * @param tab       stage tab to open on load ("dashboard"/"shoot"/"edit"/"publish"). Purely a
+     *                  view concern: the filter panel is rendered above BOTH Publishing tables, so
+     *                  this returns the user to whichever one they filtered from instead of
+     *                  bouncing them to the first tab. Ignored if that tab is not rendered for
+     *                  this employee, in which case my-work-tabs.js falls back to the first tab as
+     *                  before. Never affects which rows or tabs the employee is allowed to see
+     */
     @GetMapping("/app/my-work")
-    public String myWork(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model) {
+    public String myWork(@AuthenticationPrincipal KcpcUserPrincipal principal, Model model,
+                         @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate dashDate,
+                         @RequestParam(required = false) String dashChannel,
+                         @RequestParam(name = "dashPlatform", required = false) List<String> dashPlatforms,
+                         @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate pubDate,
+                         @RequestParam(required = false) String pubChannel,
+                         @RequestParam(name = "pubPlatform", required = false) List<String> pubPlatforms,
+                         @RequestParam(required = false) String tab) {
         User user = principal.user();
         model.addAttribute("user", user);
         model.addAttribute("accessClass", user.resolvedAccessClass());
@@ -244,6 +288,14 @@ public class LandingMvcController {
         // as its own list from the start (not filtered out of activeWork/completedWork afterward)
         // so it can never accidentally leak into either of those two stages' own tables.
         List<UpcomingWorkItem> upcomingPublishWork = new ArrayList<>();
+        // My Work -> Dashboard filters: each Publishing row's real platform/channel breakdown,
+        // keyed by Content Plan id. Populated in the Publishing loop below for BOTH the Active and
+        // Upcoming branches (the Upcoming branch already built it for its own Platforms column -
+        // it is captured here rather than recomputed, so no extra query is added for those rows),
+        // and read only by the Channel/Platform filter predicate. Deliberately a side map rather
+        // than a new ActiveWorkItem field: the filter needs this data, the Active Publishing table
+        // does not render it, and ActiveWorkItem is shared with the Shoot/Edit rows.
+        Map<UUID, List<PipelinePlatformSummary>> publishPlatformsByPlan = new HashMap<>();
         boolean anyActiveShootLead = false;
         String shootLeadDisplayName = null;
         boolean anyActiveEditLead = false;
@@ -339,6 +391,9 @@ public class LandingMvcController {
                 boolean onHold = onHoldWorkflowInstanceIds.contains(plan.getWorkflowInstance().getId());
                 boolean publishBlocked = !operationalEligibilityService.isPublishingExecutionEligible(user, plan.getWorkflowInstance());
                 boolean repost = publishingService.currentPublishingCycleStart(plan.getWorkflowInstance()) != null;
+                // Dashboard Channel/Platform filter input for this Active row - same builder the
+                // Upcoming branch below already uses, so both lists filter on identical data.
+                publishPlatformsByPlan.put(plan.getId(), pipelineDashboardService.buildPlatformSummariesForPlan(plan));
                 activeWork.add(new ActiveWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan), "Publisher",
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()),
@@ -355,11 +410,15 @@ public class LandingMvcController {
                 Integer upcomingDelayDays = (plan.getPlannedLiveDate() != null && plan.getPlannedLiveDate().isBefore(today))
                         ? (int) java.time.temporal.ChronoUnit.DAYS.between(plan.getPlannedLiveDate(), today)
                         : null;
+                // Built once and reused for both the row's own Platforms column and the Dashboard
+                // Channel/Platform filter - never called twice for the same plan.
+                List<PipelinePlatformSummary> upcomingPlatforms = pipelineDashboardService.buildPlatformSummariesForPlan(plan);
+                publishPlatformsByPlan.put(plan.getId(), upcomingPlatforms);
                 upcomingPublishWork.add(new UpcomingWorkItem(plan.getId(), plan.getContentId(), contentTitle(plan),
                         plan.getContentPriority() == null ? null : plan.getContentPriority().name(),
                         priorityCssClass(plan.getContentPriority()), plan.getPlannedLiveDate(), stageLabel(s),
                         targets.resolvedCount() + " / " + targets.totalCount(), plan.getFolderLink(), upcomingDelayDays,
-                        pipelineDashboardService.buildPlatformSummariesForPlan(plan)));
+                        upcomingPlatforms));
             } else {
                 // Everything else (PP/PFUP once publication scope has resolved, COMP, and the
                 // terminal/dormant CAN/RJ/RET) - genuinely done from the Publisher's own
@@ -439,23 +498,150 @@ public class LandingMvcController {
                 .toList();
         List<CompletedWorkItem> publishCompletedWork = completedWork.stream()
                 .filter(item -> "PUBLISH".equals(item.getStageWorked())).toList();
-        model.addAttribute("publishActiveWork", publishActiveWork);
+
+        // ----- My Work Publishing filters --------------------------------------------------
+        // TWO INDEPENDENT filter scopes, one per tab, deliberately not one shared set:
+        //
+        //   Dashboard  (dash* parameters) filters Upcoming Tasks           - upcomingPublishWork
+        //   Publishing (pub*  parameters) filters Active Publishing Tasks  - publishActiveWork
+        //
+        // Each tab's dropdown options, Today/Tomorrow counts and row filtering are computed from
+        // that tab's OWN list only, so the two never borrow each other's numbers, and applying or
+        // clearing a filter on one tab leaves the other exactly as it was. The panels round-trip
+        // the other tab's parameters untouched (hidden inputs in the form, and encoded into the
+        // quick-pick card links), which is what keeps them independent across a submit.
+        Set<String> dashPlatformOptions = new TreeSet<>();
+        Set<String> dashChannelOptions = new TreeSet<>();
+        collectFilterOptions(upcomingPublishWork.stream().map(UpcomingWorkItem::getContentPlanId).toList(),
+                publishPlatformsByPlan, dashPlatformOptions, dashChannelOptions);
+        Set<String> pubPlatformOptions = new TreeSet<>();
+        Set<String> pubChannelOptions = new TreeSet<>();
+        collectFilterOptions(publishActiveWork.stream().map(ActiveWorkItem::getContentPlanId).toList(),
+                publishPlatformsByPlan, pubPlatformOptions, pubChannelOptions);
+
+        Set<String> dashSelectedPlatforms = cleanPlatforms(dashPlatforms);
+        String dashSelectedChannel = notBlank(dashChannel) ? dashChannel : null;
+        boolean dashFilterActive = dashDate != null || dashSelectedChannel != null || !dashSelectedPlatforms.isEmpty();
+
+        Set<String> pubSelectedPlatforms = cleanPlatforms(pubPlatforms);
+        String pubSelectedChannel = notBlank(pubChannel) ? pubChannel : null;
+        boolean pubFilterActive = pubDate != null || pubSelectedChannel != null || !pubSelectedPlatforms.isEmpty();
+
+        LocalDate tomorrow = today.plusDays(1);
+
+        // Today/Tomorrow counts, per tab, from that tab's own list. They also honour that tab's
+        // CURRENT Channel/Platform selection (only the date criterion is swapped for the card's
+        // own date), so a card's number is exactly how many rows clicking it would show.
+        long dashTodayCount = countRowsOn(today, upcomingPublishWork, UpcomingWorkItem::getContentPlanId,
+                UpcomingWorkItem::getPlannedDate, publishPlatformsByPlan, dashSelectedChannel, dashSelectedPlatforms);
+        long dashTomorrowCount = countRowsOn(tomorrow, upcomingPublishWork, UpcomingWorkItem::getContentPlanId,
+                UpcomingWorkItem::getPlannedDate, publishPlatformsByPlan, dashSelectedChannel, dashSelectedPlatforms);
+        long pubTodayCount = countRowsOn(today, publishActiveWork, ActiveWorkItem::getContentPlanId,
+                ActiveWorkItem::getPlannedDate, publishPlatformsByPlan, pubSelectedChannel, pubSelectedPlatforms);
+        long pubTomorrowCount = countRowsOn(tomorrow, publishActiveWork, ActiveWorkItem::getContentPlanId,
+                ActiveWorkItem::getPlannedDate, publishPlatformsByPlan, pubSelectedChannel, pubSelectedPlatforms);
+
+        // Quick-pick card links: a link submits no form, so each one must carry BOTH its own tab's
+        // Channel/Platform selection AND the other tab's whole filter state, or clicking a card on
+        // one tab would silently clear the other tab's filters.
+        model.addAttribute("dashTodayQs", myWorkFilterQs(today, dashSelectedChannel, dashSelectedPlatforms,
+                pubDate, pubSelectedChannel, pubSelectedPlatforms, true));
+        model.addAttribute("dashTomorrowQs", myWorkFilterQs(tomorrow, dashSelectedChannel, dashSelectedPlatforms,
+                pubDate, pubSelectedChannel, pubSelectedPlatforms, true));
+        model.addAttribute("pubTodayQs", myWorkFilterQs(today, pubSelectedChannel, pubSelectedPlatforms,
+                dashDate, dashSelectedChannel, dashSelectedPlatforms, false));
+        model.addAttribute("pubTomorrowQs", myWorkFilterQs(tomorrow, pubSelectedChannel, pubSelectedPlatforms,
+                dashDate, dashSelectedChannel, dashSelectedPlatforms, false));
+
+        // Clear links: keep the OTHER tab's filter, drop only this tab's. Always ends in "?" or
+        // "...&" so the JSP can append "tab=<name>" directly.
+        model.addAttribute("dashClearQs", clearQs(pubDate, pubSelectedChannel, pubSelectedPlatforms, "pub"));
+        model.addAttribute("pubClearQs", clearQs(dashDate, dashSelectedChannel, dashSelectedPlatforms, "dash"));
+
+        model.addAttribute("todayDate", today);
+        model.addAttribute("tomorrowDate", tomorrow);
+
+        model.addAttribute("dashPlatformOptions", dashPlatformOptions);
+        model.addAttribute("dashChannelOptions", dashChannelOptions);
+        model.addAttribute("dashDateParam", dashDate);
+        model.addAttribute("dashChannelParam", dashSelectedChannel);
+        model.addAttribute("dashPlatformParams", dashSelectedPlatforms);
+        model.addAttribute("dashFilterActive", dashFilterActive);
+        model.addAttribute("dashTodayCount", dashTodayCount);
+        model.addAttribute("dashTomorrowCount", dashTomorrowCount);
+        model.addAttribute("dashTodaySelected", today.equals(dashDate));
+        model.addAttribute("dashTomorrowSelected", tomorrow.equals(dashDate));
+        // A date that is neither Today nor Tomorrow came from the "Select Date" picker - that
+        // card is then the highlighted one.
+        model.addAttribute("dashCustomDateSelected", dashDate != null
+                && !today.equals(dashDate) && !tomorrow.equals(dashDate));
+
+        model.addAttribute("pubPlatformOptions", pubPlatformOptions);
+        model.addAttribute("pubChannelOptions", pubChannelOptions);
+        model.addAttribute("pubDateParam", pubDate);
+        model.addAttribute("pubChannelParam", pubSelectedChannel);
+        model.addAttribute("pubPlatformParams", pubSelectedPlatforms);
+        model.addAttribute("pubFilterActive", pubFilterActive);
+        model.addAttribute("pubTodayCount", pubTodayCount);
+        model.addAttribute("pubTomorrowCount", pubTomorrowCount);
+        model.addAttribute("pubTodaySelected", today.equals(pubDate));
+        model.addAttribute("pubTomorrowSelected", tomorrow.equals(pubDate));
+        model.addAttribute("pubCustomDateSelected", pubDate != null
+                && !today.equals(pubDate) && !tomorrow.equals(pubDate));
+
+        // Counts/tab-visibility are deliberately computed from the UNFILTERED lists, BEFORE the
+        // filter is applied: the KPI cards summarise this Publisher's whole workload (not the
+        // current view), and - critically - showPublishTab must never depend on the filter, or a
+        // filter matching zero rows would hide the Dashboard tab that carries the filter panel
+        // itself, leaving no way to clear it.
+        int upcomingPublishingTotal = upcomingPublishWork.size();
+        int activePublishingTotal = publishActiveWork.size();
+        long delayedPublishingTotal = publishActiveWork.stream().filter(ActiveWorkItem::isDelayed).count();
+        boolean anyUnfilteredPublishWork = !upcomingPublishWork.isEmpty() || !publishActiveWork.isEmpty();
+
+        List<UpcomingWorkItem> upcomingPublishWorkFiltered = upcomingPublishWork.stream()
+                .filter(item -> matchesPublishFilter(item.getPlannedDate(), publishPlatformsByPlan.get(item.getContentPlanId()),
+                        dashDate, dashSelectedChannel, dashSelectedPlatforms))
+                .toList();
+        List<ActiveWorkItem> publishActiveWorkFiltered = publishActiveWork.stream()
+                .filter(item -> matchesPublishFilter(item.getPlannedDate(), publishPlatformsByPlan.get(item.getContentPlanId()),
+                        pubDate, pubSelectedChannel, pubSelectedPlatforms))
+                .toList();
+
+        // View-only: pre-selects a stage tab. my-work-tabs.js already honours a server-rendered
+        // "active" button and otherwise falls back to the first tab, so an unknown/absent value
+        // simply keeps the existing default behaviour.
+        model.addAttribute("activeStageTab", notBlank(tab) ? tab : null);
+
+        model.addAttribute("publishActiveWork", publishActiveWorkFiltered);
         model.addAttribute("publishCompletedWork", publishCompletedWork);
+        // Platforms column for the Publishing tab's Active Publishing Tasks table, keyed by
+        // Content Plan id. Exactly the same PipelinePlatformSummary data the Dashboard's Upcoming
+        // Tasks rows already carry inline (and that the filter above matches on), exposed as a map
+        // rather than added to ActiveWorkItem: that DTO is shared with the Shoot and Edit rows,
+        // which have no platform concept, and it is already built here for the filter - so this
+        // adds a lookup, not a second data source or an extra query.
+        model.addAttribute("publishPlatformsByPlan", publishPlatformsByPlan);
         // ENG-097: upcomingPublishWork is already its own dedicated list (built directly in the
         // main Publishing loop above, never filtered out of activeWork/completedWork afterward), so
         // it's used as-is - already sorted by Planned Live Date ascending.
-        model.addAttribute("upcomingPublishWork", upcomingPublishWork);
-        model.addAttribute("upcomingPublishingCount", upcomingPublishWork.size());
-        model.addAttribute("activePublishingCount", publishActiveWork.size());
+        model.addAttribute("upcomingPublishWork", upcomingPublishWorkFiltered);
+        // KPI-card counts: unfiltered totals (this Publisher's whole workload). The two filtered
+        // tables show their own row counts via fn:length() on the lists above, so a filtered table
+        // header never contradicts the rows underneath it.
+        model.addAttribute("upcomingPublishingCount", upcomingPublishingTotal);
+        model.addAttribute("activePublishingCount", activePublishingTotal);
         model.addAttribute("pendingTargetsCount", pendingTargetsTotal);
-        model.addAttribute("delayedPublishingCount", publishActiveWork.stream().filter(ActiveWorkItem::isDelayed).count());
+        model.addAttribute("delayedPublishingCount", delayedPublishingTotal);
         model.addAttribute("publishCompletedCount", publishCompletedWork.size());
         boolean hasPublishingExecutionPermission =
                 authorizationService.hasAnyActiveGrant(user, OperationalPermission.PERM_08_PUBLISHING_EXECUTION);
         model.addAttribute("hasPublishingExecutionPermission", hasPublishingExecutionPermission);
+        // anyUnfilteredPublishWork (not the filtered lists) - see the note above: the Dashboard tab
+        // carries the filter panel, so its visibility must never depend on the filter's own result.
         model.addAttribute("showPublishTab",
-                hasPublishingExecutionPermission || !upcomingPublishWork.isEmpty()
-                        || !publishActiveWork.isEmpty() || !publishCompletedWork.isEmpty());
+                hasPublishingExecutionPermission || anyUnfilteredPublishWork
+                        || !publishCompletedWork.isEmpty());
 
         // Marks moved to the dedicated /app/my-performance page (see #myPerformance below) - My
         // Work stays scoped to work management (Active Work/History) only, never marks/performance.
@@ -1065,7 +1251,6 @@ public class LandingMvcController {
                             @RequestParam(required = false) String cameraperson,
                             @RequestParam(name = "model", required = false) String modelFilter,
                             @RequestParam(required = false) String videoEditor,
-                            @RequestParam(required = false) String platform,
                             @RequestParam(required = false) String channel,
                             @RequestParam(required = false) String status,
                             @RequestParam(required = false) String performanceState,
@@ -1117,24 +1302,29 @@ public class LandingMvcController {
                 .filter(r -> PERFORMANCE_STATUS_LABELS.contains(r.getStatus())).count());
         model.addAttribute("completedCount", allRows.stream()
                 .filter(r -> "Completed".equals(r.getStatus())).count());
+        // Cancelled tab: counted from the SAME unfiltered row set and with the SAME predicate
+        // PipelineDashboardService#matchesStage uses for stage=cancelled, so the badge can never
+        // disagree with the number of rows the tab actually returns.
+        model.addAttribute("cancelledCount", allRows.stream()
+                .filter(r -> "Cancelled".equals(r.getStatus())).count());
 
-        // ENG-071: options for the Status/Platform/Channel filter dropdowns - distinct values
-        // actually present across the full (unfiltered) row set, so a dropdown never offers a
-        // choice that would always return zero rows.
+        // ENG-071: options for the Status/Channel filter dropdowns - distinct values actually
+        // present across the full (unfiltered) row set, so a dropdown never offers a choice that
+        // would always return zero rows. The Platform filter was replaced by the Channel one: the
+        // Platforms COLUMN is unchanged and still rendered, it is only no longer a filter
+        // dimension here (collectFilterOptions, which feeds the separate Publishing screen's own
+        // platform filter, is untouched).
         Set<String> statusOptions = new LinkedHashSet<>();
-        Set<String> platformOptions = new LinkedHashSet<>();
         Set<String> channelOptions = new LinkedHashSet<>();
         for (com.kcpc.mkt.reporting.dto.PipelineRow row : allRows) {
             statusOptions.add(row.getStatus());
-            addSplitValues(platformOptions, row.getPlatforms());
             addSplitValues(channelOptions, row.getChannels());
         }
         model.addAttribute("statusOptions", statusOptions);
-        model.addAttribute("platformOptions", platformOptions);
         model.addAttribute("channelOptions", channelOptions);
 
         com.kcpc.mkt.reporting.dto.PipelineFilterCriteria criteria = new com.kcpc.mkt.reporting.dto.PipelineFilterCriteria(
-                q, stage, sku, idea, priority, cameraperson, modelFilter, videoEditor, platform, channel, status,
+                q, stage, sku, idea, priority, cameraperson, modelFilter, videoEditor, channel, status,
                 performanceState, delayed, plannedShootFrom, plannedShootTo, plannedEditFrom, plannedEditTo,
                 plannedLiveFrom, plannedLiveTo, actualShootFrom, actualShootTo, actualEditFrom, actualEditTo,
                 actualLiveFrom, actualLiveTo, sortBy, sortDir);
@@ -1166,7 +1356,6 @@ public class LandingMvcController {
         model.addAttribute("camerapersonParam", cameraperson);
         model.addAttribute("modelParam", modelFilter);
         model.addAttribute("videoEditorParam", videoEditor);
-        model.addAttribute("platformParam", platform);
         model.addAttribute("channelParam", channel);
         model.addAttribute("statusParam", status);
         model.addAttribute("performanceStateParam", performanceState);
@@ -1195,7 +1384,7 @@ public class LandingMvcController {
         model.addAttribute("camerapersonFilterActive", notBlank(cameraperson));
         model.addAttribute("modelFilterActive", notBlank(modelFilter));
         model.addAttribute("videoEditorFilterActive", notBlank(videoEditor));
-        model.addAttribute("platformChannelFilterActive", notBlank(platform) || notBlank(channel));
+        model.addAttribute("platformChannelFilterActive", notBlank(channel));
         model.addAttribute("statusFilterActive", notBlank(status) || delayed);
         model.addAttribute("performanceFilterActive", notBlank(performanceState));
         model.addAttribute("plannedShootFilterActive", plannedShootFrom != null || plannedShootTo != null);
@@ -1217,7 +1406,6 @@ public class LandingMvcController {
         addQueryParam(filterQs, "cameraperson", cameraperson);
         addQueryParam(filterQs, "model", modelFilter);
         addQueryParam(filterQs, "videoEditor", videoEditor);
-        addQueryParam(filterQs, "platform", platform);
         addQueryParam(filterQs, "channel", channel);
         addQueryParam(filterQs, "status", status);
         addQueryParam(filterQs, "performanceState", performanceState);
@@ -1264,6 +1452,160 @@ public class LandingMvcController {
 
     private static boolean notBlank(String value) {
         return value != null && !value.isBlank();
+    }
+
+    /**
+     * My Work &rarr; Dashboard row filter (Publisher). All three criteria are combined with AND -
+     * a row must satisfy the date range AND the channel AND the platform selection to survive.
+     * Every unset criterion is a no-op, so no filter at all keeps every row.
+     *
+     * <p>Both the Channel and Platform criteria are evaluated against the plan's real Planned
+     * Output &rarr; Publication Target mappings ({@code summaries}), never against a rendered
+     * label - the same data the Content Pipeline dashboard's own platform/channel columns use.
+     *
+     * @param plannedDate the row's Planned Live Date; a row without one cannot equal a requested
+     *                    date and is therefore excluded whenever {@code liveDate} is set
+     * @param summaries   the plan's platform/channel breakdown; null/empty means the plan has no
+     *                    resolved publication targets yet, so it cannot match a channel/platform
+     *                    selection (but is unaffected when neither is selected)
+     * @param liveDate    exact Planned Live Date to keep; null = no date criterion
+     */
+    private static boolean matchesPublishFilter(LocalDate plannedDate, List<PipelinePlatformSummary> summaries,
+                                                LocalDate liveDate, String channel, Set<String> platforms) {
+        if (liveDate != null && !liveDate.equals(plannedDate)) {
+            return false;
+        }
+        boolean channelWanted = notBlank(channel);
+        boolean platformWanted = platforms != null && !platforms.isEmpty();
+        if (!channelWanted && !platformWanted) {
+            return true;
+        }
+        if (summaries == null || summaries.isEmpty()) {
+            return false;
+        }
+        boolean channelMatched = !channelWanted;
+        boolean platformMatched = !platformWanted;
+        for (PipelinePlatformSummary summary : summaries) {
+            if (platformWanted && platforms.contains(summary.getPlatformName())) {
+                platformMatched = true;
+            }
+            if (channelWanted) {
+                for (PipelineChannelStatus cs : summary.getChannels()) {
+                    if (channel.equals(cs.getChannelHandle())) {
+                        channelMatched = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return channelMatched && platformMatched;
+    }
+
+    /** Trims blanks out of a submitted multi-select and preserves the submitted order. */
+    private static Set<String> cleanPlatforms(List<String> platforms) {
+        return platforms == null ? Set.of()
+                : platforms.stream().filter(LandingMvcController::notBlank)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * Platform/channel dropdown options for ONE tab, gathered from that tab's own rows only.
+     * Deliberately scoped per list rather than page-wide: the Dashboard must never offer a channel
+     * that exists only on an Active Publishing row (and vice versa), or the dropdown would present
+     * a choice that always returns zero rows on that tab.
+     *
+     * <p>Options come from the tab's UNFILTERED rows, so applying a filter never shrinks the list
+     * of things you can still filter by.
+     */
+    private static void collectFilterOptions(List<UUID> planIds,
+                                             Map<UUID, List<PipelinePlatformSummary>> platformsByPlan,
+                                             Set<String> platformOptions, Set<String> channelOptions) {
+        for (UUID planId : planIds) {
+            List<PipelinePlatformSummary> summaries = platformsByPlan.get(planId);
+            if (summaries == null) {
+                continue;
+            }
+            for (PipelinePlatformSummary summary : summaries) {
+                if (notBlank(summary.getPlatformName())) {
+                    platformOptions.add(summary.getPlatformName());
+                }
+                for (PipelineChannelStatus cs : summary.getChannels()) {
+                    if (notBlank(cs.getChannelHandle())) {
+                        channelOptions.add(cs.getChannelHandle());
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Rows in ONE tab's list whose Planned Live Date is exactly {@code date}, honouring that tab's
+     * own Channel/Platform selection - i.e. the number its Today/Tomorrow quick-pick card shows,
+     * and exactly what clicking that card will display.
+     *
+     * <p>Generic over the row type so the Dashboard's {@link UpcomingWorkItem} list and the
+     * Publishing tab's {@link ActiveWorkItem} list are counted by the SAME code against the SAME
+     * {@link #matchesPublishFilter} predicate the tables themselves are filtered with - a card's
+     * count can therefore never disagree with the table it leads to. The two tabs differ only in
+     * which list is passed in, never in the counting rule.
+     */
+    private static <T> long countRowsOn(LocalDate date, List<T> rows,
+                                        java.util.function.Function<T, UUID> planIdOf,
+                                        java.util.function.Function<T, LocalDate> plannedDateOf,
+                                        Map<UUID, List<PipelinePlatformSummary>> platformsByPlan,
+                                        String channel, Set<String> platforms) {
+        return rows.stream()
+                .filter(row -> matchesPublishFilter(plannedDateOf.apply(row),
+                        platformsByPlan.get(planIdOf.apply(row)), date, channel, platforms))
+                .count();
+    }
+
+    /**
+     * Query string for one tab's Clear link: the OTHER tab's filter only, so clearing one tab
+     * leaves the other exactly as it was. Always ends in {@code "?"} (nothing to keep) or
+     * {@code "...&"}, so the caller can append {@code tab=<name>} without knowing which.
+     */
+    private static String clearQs(LocalDate otherDate, String otherChannel, Set<String> otherPlatforms,
+                                  String otherPrefix) {
+        org.springframework.web.util.UriComponentsBuilder qs =
+                org.springframework.web.util.UriComponentsBuilder.newInstance();
+        addQueryParam(qs, otherPrefix + "Date", asString(otherDate));
+        addQueryParam(qs, otherPrefix + "Channel", otherChannel);
+        for (String platform : otherPlatforms) {
+            addQueryParam(qs, otherPrefix + "Platform", platform);
+        }
+        String encoded = qs.build().encode().toUriString();
+        return encoded.isEmpty() ? "?" : encoded + "&";
+    }
+
+    /**
+     * Query string for one tab's quick-pick card. Carries that tab's own date/channel/platform
+     * selection AND the other tab's entire filter state, because a card is a link and submits no
+     * form - without the second half, clicking a card on one tab would silently clear the other
+     * tab's filters. Includes the leading "?".
+     *
+     * @param dashboardScope true when the card belongs to the Dashboard tab (so {@code date}/
+     *                       {@code channel}/{@code platforms} are the dash* parameters and the
+     *                       "other" arguments are the pub* ones); false for the Publishing tab
+     */
+    private static String myWorkFilterQs(LocalDate date, String channel, Set<String> platforms,
+                                         LocalDate otherDate, String otherChannel, Set<String> otherPlatforms,
+                                         boolean dashboardScope) {
+        String ownPrefix = dashboardScope ? "dash" : "pub";
+        String otherPrefix = dashboardScope ? "pub" : "dash";
+        org.springframework.web.util.UriComponentsBuilder qs =
+                org.springframework.web.util.UriComponentsBuilder.newInstance();
+        addQueryParam(qs, ownPrefix + "Date", asString(date));
+        addQueryParam(qs, ownPrefix + "Channel", channel);
+        for (String platform : platforms) {
+            addQueryParam(qs, ownPrefix + "Platform", platform);
+        }
+        addQueryParam(qs, otherPrefix + "Date", asString(otherDate));
+        addQueryParam(qs, otherPrefix + "Channel", otherChannel);
+        for (String platform : otherPlatforms) {
+            addQueryParam(qs, otherPrefix + "Platform", platform);
+        }
+        return qs.build().encode().toUriString();
     }
 
     private static String asString(LocalDate value) {

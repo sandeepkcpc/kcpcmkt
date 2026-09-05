@@ -119,7 +119,7 @@ class TeamWorkloadEmployeeActiveDedupTest {
         String ideaId = idea.get("ideaId").asText();
         JsonNode approved = ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + liveDate + "\","
                         + "\"shootDate\":\"" + shootDate + "\",\"editDate\":\"" + editDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/tw-dedup-" + Instant.now().toEpochMilli() + "\","
                         + "\"outputs\":[{\"outputType\":\"POST\",\"publicationTargetIds\":[\"" + PUBLICATION_TARGET_ID + "\"]}],"

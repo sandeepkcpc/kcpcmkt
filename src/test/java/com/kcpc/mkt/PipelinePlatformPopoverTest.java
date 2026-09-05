@@ -98,7 +98,7 @@ class PipelinePlatformPopoverTest {
                 Map.entry("cameramanMark", java.util.List.of("1.0")),
                 Map.entry("editorMark", java.util.List.of("1.0")),
                 Map.entry("modelMark", java.util.List.of("1.0")),
-                Map.entry("contentPriority", java.util.List.of("MEDIUM")),
+                Map.entry("contentPriority", java.util.List.of("HIGH")),
                 Map.entry("skuReference", java.util.List.of(skuTag)),
                 Map.entry("plannedLiveDate", java.util.List.of(plannedLiveDate)),
                 Map.entry("folderLink", java.util.List.of("https://drive.example.com/ppt-" + unique)),

@@ -42,7 +42,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * cover exactly what a JS-only harness cannot: the calendar's JSON data source
  * (#kpiUpcomingPlanData) actually reaches the page, is exactly what the existing list already
  * shows, and continues to obey Upcoming Channel Plan's existing business rules (exit-on-actual-
- * publication, current-state/not-date-ranged) - none of which this task changed. Grid rendering,
+ * publication, current-state/not-date-ranged) - neither of which the distinct-Content-ID counting
+ * change touched. The counting unit itself IS asserted here, because the calendar must show the
+ * same distinct-Content-ID numbers the list does: see
+ * {@link #calendarJsonContentIdsAreUniqueWithinAChannel()}. Grid rendering,
  * highlighting, month navigation, and the click-to-detail interaction are covered separately in
  * src/test/js/reports-kpi-calendar.test.js. Fixtures mirror KpiOverviewUpcomingChannelPlanTest's
  * exact pattern (repository-level Planned Output/Publication Target/Actual Publication Event rows).
@@ -110,7 +113,7 @@ class KpiUpcomingChannelPlanCalendarTest {
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + liveDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/kpi-cal-" + unique + "\","
                         + "\"camerapersonUserIds\":[\"" + camId + "\"],\"publisherUserIds\":[\"" + pubId + "\"]}}");
         return contentPlanRepository.findByIdea(ideaRepository.findById(UUID.fromString(ideaId)).orElseThrow())
@@ -118,8 +121,18 @@ class KpiUpcomingChannelPlanCalendarTest {
     }
 
     PublicationTarget target(long unique, String suffix, String channelHandle) {
+        return targetOn(channel(unique, channelHandle), unique, suffix);
+    }
+
+    /** A Channel/Account of its own, reusable across several Publication Targets. */
+    CompanyChannel channel(long unique, String channelHandle) {
+        return channelRepository.save(new CompanyChannel(channelHandle + "-" + unique));
+    }
+
+    /** One more Platform on an EXISTING Channel/Account - the "same content, several platforms,
+     *  one channel" shape the distinct-Content-ID rule collapses to a single entry. */
+    PublicationTarget targetOn(CompanyChannel channel, long unique, String suffix) {
         Platform platform = platformRepository.save(new Platform("KpiCalPlatform" + unique + suffix));
-        CompanyChannel channel = channelRepository.save(new CompanyChannel(channelHandle + "-" + unique));
         return publicationTargetRepository.save(new PublicationTarget(platform, channel, "Target " + unique + suffix));
     }
 
@@ -310,6 +323,58 @@ class KpiUpcomingChannelPlanCalendarTest {
         java.util.List<String> ids = new java.util.ArrayList<>();
         channel.get("contentIds").forEach(n -> ids.add(n.asText()));
         assertThat(ids).containsExactlyInAnyOrder(planOne.getContentId(), planTwo.getContentId());
+    }
+
+    /** Distinct-Content-ID counting, as the calendar sees it: one Content ID on three Platforms of
+     *  ONE Channel/Account is count 1 and a single-entry Content Details list - so the calendar
+     *  detail pane can never render the same Content ID three times. */
+    @Test
+    void calendarJsonContentIdsAreUniqueWithinAChannel() throws Exception {
+        TestApiClient ceo = ceo();
+        long unique = Instant.now().toEpochMilli();
+        LocalDate liveDate = LocalDate.now().plusYears(4).plusDays(unique % 150);
+        ContentPlan plan = approvePlan(ceo, unique, liveDate);
+        CompanyChannel chan = channel(unique, "kpicalUniqueChan");
+        mapping(plan, targetOn(chan, unique, "UniInsta"));
+        mapping(plan, targetOn(chan, unique, "UniYouTube"));
+        mapping(plan, targetOn(chan, unique, "UniFacebook"));
+
+        JsonNode channel = findChannel(planDataJson(overviewHtml(ceo, null)), liveDate,
+                "kpicalUniqueChan-" + unique);
+        assertThat(channel).isNotNull();
+        assertThat(channel.get("count").asLong())
+                .as("3 platforms of one Channel/Account, one Content ID -> 1").isEqualTo(1);
+        assertThat(channel.get("contentIds").size())
+                .as("Content Details must list the Content ID once, not once per platform").isEqualTo(1);
+        assertThat(channel.get("contentIds").get(0).asText()).isEqualTo(plan.getContentId());
+    }
+
+    /** The same Content ID on two different Channel/Accounts stays two separate entries in the JSON
+     *  - one under each channel - so the calendar's per-channel counts remain independent. */
+    @Test
+    void calendarJsonKeepsTheSameContentIdSeparatePerChannel() throws Exception {
+        TestApiClient ceo = ceo();
+        long unique = Instant.now().toEpochMilli();
+        LocalDate liveDate = LocalDate.now().plusYears(4).plusDays(200 + unique % 100);
+        ContentPlan plan = approvePlan(ceo, unique, liveDate);
+        CompanyChannel bandhani = channel(unique, "kpicalCrossBandhani");
+        CompanyChannel sikar = channel(unique, "kpicalCrossSikar");
+        mapping(plan, targetOn(bandhani, unique, "CrossA"));
+        mapping(plan, targetOn(bandhani, unique, "CrossB")); // second platform of the same channel
+        mapping(plan, targetOn(sikar, unique, "CrossC"));
+
+        JsonNode groups = planDataJson(overviewHtml(ceo, null));
+        JsonNode first = findChannel(groups, liveDate, "kpicalCrossBandhani-" + unique);
+        JsonNode second = findChannel(groups, liveDate, "kpicalCrossSikar-" + unique);
+        assertThat(first).isNotNull();
+        assertThat(second).isNotNull();
+        assertThat(first.get("count").asLong()).isEqualTo(1);
+        assertThat(first.get("contentIds").size()).isEqualTo(1);
+        assertThat(second.get("count").asLong()).isEqualTo(1);
+        assertThat(second.get("contentIds").size()).isEqualTo(1);
+        assertThat(first.get("contentIds").get(0).asText())
+                .as("it is genuinely the same content, counted once under each Channel/Account")
+                .isEqualTo(second.get("contentIds").get(0).asText());
     }
 
     // --- 12: adding Content IDs to the JSON does not alter the existing list's own rendered data --

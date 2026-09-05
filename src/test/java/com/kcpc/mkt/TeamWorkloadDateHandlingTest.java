@@ -249,7 +249,7 @@ class TeamWorkloadDateHandlingTest {
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + LocalDate.now().plusDays(10) + "\","
                         + "\"folderLink\":\"https://drive.example.com/skip-shoot-" + unique + "\","
                         + "\"editorUserIds\":[\"" + editor.id() + "\"],\"leadEditorUserId\":\"" + editor.id() + "\","
                         + "\"publisherUserIds\":[\"" + pub.id() + "\"],"
@@ -363,7 +363,7 @@ class TeamWorkloadDateHandlingTest {
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + liveDate + "\","
                         + "\"shootDate\":\"" + shootDate + "\",\"editDate\":\"" + editDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/tw-date-" + Instant.now().toEpochMilli() + "\","
                         + "\"camerapersonUserIds\":[\"" + cam.id() + "\"],\"publisherUserIds\":[\"" + pub.id() + "\"]}}");

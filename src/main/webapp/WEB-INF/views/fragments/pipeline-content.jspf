@@ -34,6 +34,9 @@
     <a class="pipeline-stage-tab ${stageParam == 'completed' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=completed&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
         <span class="pipeline-stage-icon">&#9989;</span> Completed <span class="pipeline-stage-count">${completedCount}</span>
     </a>
+    <a class="pipeline-stage-tab cancelled ${stageParam == 'cancelled' ? 'active' : ''}" href="${pageContext.request.contextPath}/app/pipeline?${filterQueryString}&stage=cancelled&page=1&size=${pipelineSize}&sortBy=${sortByParam}&sortDir=${sortDirParam}">
+        <span class="pipeline-stage-icon">&#128683;</span> Cancelled <span class="pipeline-stage-count">${cancelledCount}</span>
+    </a>
 </div>
 
 <%-- ENG-073: one shared GET form spans the compact filter bar through the end of the table.
@@ -61,11 +64,17 @@
                 <option value="LOW" ${priorityParam == 'LOW' ? 'selected' : ''}>Low</option>
             </select>
         </label>
-        <label class="pipeline-filter-inline">Platform
-            <select name="platform">
-                <option value="">All Platforms</option>
-                <c:forEach var="p" items="${platformOptions}">
-                    <option value="${p}" ${platformParam == p ? 'selected' : ''}><c:out value="${p}"/></option>
+        <%-- Channel/Account filter (was Platform). Options are the distinct channel_handle values
+             actually present in the unfiltered row set, so the dropdown never offers a choice that
+             returns nothing. A row's Channels value is already de-duplicated
+             (PipelineDashboardService builds it with .distinct()), so one Content ID published to
+             Instagram + YouTube + Facebook under one Channel/Account matches once, and a Content ID
+             spanning two Channel/Accounts matches under either. --%>
+        <label class="pipeline-filter-inline">Channels
+            <select name="channel">
+                <option value="">All Channels</option>
+                <c:forEach var="ch" items="${channelOptions}">
+                    <option value="${ch}" ${channelParam == ch ? 'selected' : ''}><c:out value="${ch}"/></option>
                 </c:forEach>
             </select>
         </label>

@@ -108,7 +108,7 @@ class MvcScreenSmokeTest {
                 "cameramanMark", List.of("1.0"),
                 "editorMark", List.of("1.0"),
                 "modelMark", List.of("1.0"),
-                "contentPriority", List.of("MEDIUM"),
+                "contentPriority", List.of("HIGH"),
                 "plannedLiveDate", List.of(liveDate),
                 "folderLink", List.of("https://drive.example.com/mvc-" + unique),
                 "outputsJson", List.of("[{\"outputType\":\"POST\",\"publicationTargetIds\":[\""

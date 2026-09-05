@@ -9,7 +9,7 @@
      relocated into a single flex row so the whole header reads as one cohesive unit. --%>
 <header class="app-header">
     <span class="brand">
-        <img src="${ctx}/images/kcpc-logo.png" alt="KCPC Bandhani" class="brand-logo">
+        <img src="<c:url value='/images/kcpc-logo.png'/>" alt="KCPC Bandhani" class="brand-logo">
     </span>
     <nav class="app-nav">
     <%-- ENG-057: EMPLOYEE-class users (Cameraperson/Editor/Publisher/Model etc.) get a minimal
@@ -221,5 +221,5 @@
         </div>
     </div>
 </header>
-<script src="${ctx}/js/header-user-menu.js" defer></script>
-<script src="${ctx}/js/header-notifications.js" defer></script>
+<script src="<c:url value='/js/header-user-menu.js'/>" defer></script>
+<script src="<c:url value='/js/header-notifications.js'/>" defer></script>

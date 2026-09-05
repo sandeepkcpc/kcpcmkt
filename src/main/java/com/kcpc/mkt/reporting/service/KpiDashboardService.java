@@ -84,6 +84,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -147,6 +148,8 @@ public class KpiDashboardService {
     private final ShootingAssignmentRepository shootingAssignmentRepository;
     private final EditingAssignmentRepository editingAssignmentRepository;
     private final PublishingAssignmentRepository publishingAssignmentRepository;
+    /** The single shared Upcoming Channel Plan computation (see UpcomingChannelPlanService). */
+    private final UpcomingChannelPlanService upcomingChannelPlanService;
     private final UserRepository userRepository;
 
     public KpiDashboardService(AuthorizationService authorizationService, ContentPlanRepository contentPlanRepository,
@@ -167,7 +170,8 @@ public class KpiDashboardService {
                                 ShootingAssignmentRepository shootingAssignmentRepository,
                                 EditingAssignmentRepository editingAssignmentRepository,
                                 PublishingAssignmentRepository publishingAssignmentRepository,
-                                UserRepository userRepository) {
+                                UserRepository userRepository,
+                                UpcomingChannelPlanService upcomingChannelPlanService) {
         this.authorizationService = authorizationService;
         this.contentPlanRepository = contentPlanRepository;
         this.ideaRepository = ideaRepository;
@@ -189,6 +193,7 @@ public class KpiDashboardService {
         this.editingAssignmentRepository = editingAssignmentRepository;
         this.publishingAssignmentRepository = publishingAssignmentRepository;
         this.userRepository = userRepository;
+        this.upcomingChannelPlanService = upcomingChannelPlanService;
     }
 
     private void requireViewAuthority(User requester) {
@@ -487,7 +492,7 @@ public class KpiDashboardService {
         List<AttentionItem> attention = attentionItems(ctx, performanceOverdue);
         IdeaFunnelDto funnel = ideaFunnel(ctx);
         List<CurrentWorkOwnershipRow> currentWorkOwnership = currentWorkOwnershipSummary();
-        List<UpcomingPlanDateGroup> upcomingChannelPlan = upcomingChannelPlan();
+        List<UpcomingPlanDateGroup> upcomingChannelPlan = upcomingChannelPlanService.upcomingChannelPlan();
 
         return new OverviewDashboardDto(activeWip, delayed, onTime, publishedContent, avgEndToEnd, reworkRate,
                 pendingReviews, performanceOverdue, stageHealth, attention, funnel, currentWorkOwnership,
@@ -599,69 +604,11 @@ public class KpiDashboardService {
     }
 
     // ================================================================================ UPCOMING CHANNEL PLAN
-    // (Overview redesign, ENG-097): how much planned publication is still outstanding, grouped by
-    // Planned Live Date then Channel/Account (never Platform - spec explicit). Deliberately a
-    // CURRENT-STATE metric, not date-ranged, for the same reason Current Work Ownership isn't: it
-    // represents "still-outstanding future planned publication work" right now, not a historical
-    // window. Counting unit (verified against the schema, not assumed): one
-    // planned_output_publication_target_mappings row - the exact same row
-    // ActualPublicationEventRepository's own existence checks are keyed on
-    // (plannedOutput + publicationTarget) - so "outstanding" is precisely "this mapping row has no
-    // matching ActualPublicationEvent yet," and "exits immediately" falls out of that same check
-    // with no separate/new state. Terminal Content Plans (Cancelled/Completed/Rejected - the same
-    // NON_TERMINAL_EXCLUSIONS set already used elsewhere in this class) are excluded: a cancelled
-    // plan's obligations are void, and a completed plan has nothing left "still to go live."
-    // NOT incorporated: publication_target_na_records (a target explicitly marked Not Applicable).
-    // The spec's exit rule names only the actual-publication-event source, not N/A - an N/A'd
-    // target with no actual publication event would still show as outstanding here. Flagged in the
-    // implementation report rather than silently resolved either way.
-
-    private List<UpcomingPlanDateGroup> upcomingChannelPlan() {
-        List<PlannedOutputPublicationTargetMapping> allMappings = mappingRepository.findAll();
-        if (allMappings.isEmpty()) {
-            return List.of();
-        }
-        Set<UUID> contentPlanIds = allMappings.stream()
-                .map(m -> m.getPlannedOutput().getContentPlan().getId()).collect(Collectors.toSet());
-        Set<String> publishedKeys = eventRepository.findByContentPlan_IdIn(contentPlanIds).stream()
-                .map(e -> e.getPlannedOutput().getId() + "|" + e.getPublicationTarget().getId())
-                .collect(Collectors.toSet());
-
-        // Content IDs per (date, channel) group (KPI Dashboard Overview calendar enhancement,
-        // "Content Details" section) are collected here, from the SAME mapping rows already being
-        // walked to compute the count - no new query, no change to which rows survive or what
-        // "outstanding" means. count is always contentIds.size(); a plan's own Content ID can
-        // legitimately repeat within one group (e.g. two Reels for the same plan on the same
-        // Channel/Account both due the same Planned Live Date), matching count exactly.
-        Map<LocalDate, Map<String, List<String>>> byDateThenChannel = new TreeMap<>();
-        for (PlannedOutputPublicationTargetMapping mapping : allMappings) {
-            PlannedOutput output = mapping.getPlannedOutput();
-            ContentPlan plan = output.getContentPlan();
-            if (NON_TERMINAL_EXCLUSIONS.contains(plan.getWorkflowInstance().getCurrentStatusCode().name())) {
-                continue;
-            }
-            LocalDate liveDate = plan.getPlannedLiveDate();
-            if (liveDate == null) {
-                continue;
-            }
-            String key = output.getId() + "|" + mapping.getPublicationTarget().getId();
-            if (publishedKeys.contains(key)) {
-                continue; // already actually published - exits immediately, regardless of the date
-            }
-            String channelHandle = mapping.getPublicationTarget().getChannel().getChannelHandle();
-            byDateThenChannel.computeIfAbsent(liveDate, d -> new TreeMap<>())
-                    .computeIfAbsent(channelHandle, c -> new ArrayList<>())
-                    .add(plan.getContentId());
-        }
-        List<UpcomingPlanDateGroup> groups = new ArrayList<>();
-        for (var dateEntry : byDateThenChannel.entrySet()) {
-            List<UpcomingPlanChannelCount> channels = dateEntry.getValue().entrySet().stream()
-                    .map(e -> new UpcomingPlanChannelCount(e.getKey(), e.getValue().size(), e.getValue()))
-                    .toList();
-            groups.add(new UpcomingPlanDateGroup(dateEntry.getKey(), channels));
-        }
-        return groups;
-    }
+    // Extracted verbatim into UpcomingChannelPlanService so the KPI Dashboard Overview and the Idea
+    // Review & Planning screen's Planned Live Date calendar share ONE implementation of the
+    // distinct-Content-ID-per-(date, channel) rule instead of two that could drift. That class'
+    // javadoc carries the full counting/eligibility contract. Nothing about this screen's behaviour,
+    // permission gate or DTOs changed - this is the same computation, called from one place.
 
     /** Avg End-to-End Cycle Time (spec correction, approved): Idea.submittedAt -&gt; the ORIGINAL
      * cycle's PUBLICATION_SCOPE_RESOLVED timestamp - completion of the publishing scope, not first

@@ -51,7 +51,7 @@
             <button type="button" class="idea-details-trigger" id="kpiUpcomingCalendarOpen"
                     aria-label="Open planning calendar" title="Open planning calendar">&#128197;</button>
         </div>
-        <p class="muted kpi-block-subtitle">How much planning is already done per Channel/Account by Planned Live Date.</p>
+        <p class="muted kpi-block-subtitle">How many distinct Content IDs are planned per Channel/Account by Planned Live Date.</p>
         <div class="kpi-upcoming-plan">
             <c:forEach var="group" items="${overview.upcomingChannelPlan}">
                 <div class="kpi-upcoming-date-group">
@@ -68,7 +68,13 @@
                 <p class="muted">No upcoming planned publications.</p>
             </c:if>
         </div>
-        <p class="muted kpi-funnel-note">If a target goes live before its planned date, it exits this list immediately.</p>
+        <%-- Counting unit is DISTINCT Content ID per Channel/Account (KpiDashboardService#
+             upcomingChannelPlan) - the same content on Instagram + YouTube + Facebook under one
+             Channel/Account is 1, not 3 - so a Content ID only leaves once every one of its
+             targets on that channel has gone live. --%>
+        <p class="muted kpi-funnel-note">Counts are distinct Content IDs; the same content on several
+            platforms of one Channel/Account counts once. Content exits this list as soon as all its
+            targets on that Channel/Account go live, even before the planned date.</p>
     </div>
 
     <div class="panel">

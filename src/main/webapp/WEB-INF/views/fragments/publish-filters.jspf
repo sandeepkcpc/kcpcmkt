@@ -1,0 +1,169 @@
+<%-- My Work Publishing filter panel (Publisher). Rendered ABOVE each of the two Publishing task
+     tables: the Dashboard tab's Upcoming Tasks and the Publishing tab's Active Publishing Tasks.
+
+     One shared fragment rendering TWO INDEPENDENT filters. The component is identical; only the
+     data differs. The Dashboard copy drives the dash* parameters and filters Upcoming Tasks; the
+     Publishing copy drives the pub* parameters and filters Active Publishing Tasks. Options,
+     Today/Tomorrow counts and row filtering are computed per tab from that tab's own list
+     (LandingMvcController#myWork), so neither tab borrows the other's numbers and applying or
+     clearing a filter on one leaves the other untouched.
+
+     Static-included (<%@ include %>), so it inherits the including page's taglib declarations and
+     reads its model attributes directly. Two values must be set by the includer immediately
+     before the include:
+       filterPanelId - unique DOM id prefix; the fragment renders twice on one page, so a
+                       hardcoded id would produce duplicate ids (invalid HTML, and it would break
+                       any lookup that takes the first match).
+       filterTab     - stage tab this copy belongs to ("dashboard" / "publish"); round-tripped as
+                       the "tab" parameter so submitting or clearing returns the user to the tab
+                       they were filtering from, instead of bouncing them to the first tab.
+       fPrefix       - request-parameter prefix for THIS copy ("dash" / "pub").
+       fDateParam / fChannelParam / fPlatformParams / fChannelOptions / fPlatformOptions /
+       fTodayCount / fTomorrowCount / fTodayQs / fTomorrowQs / fTodaySelected /
+       fTomorrowSelected / fCustomDateSelected
+                     - this copy's own state and options, from its own tab's list.
+       fOtherPrefix / fOtherDate / fOtherChannel / fOtherPlatforms
+                     - the OTHER tab's current filter, re-submitted as hidden inputs so this
+                       form's submit preserves it instead of clearing it.
+
+     Filtering is server-side against real Content Plan data (Planned Live Date + the plan's
+     actual Planned Output -> Publication Target mappings). Rows are never merely hidden in the
+     browser, so each table's count badge always matches the rows actually rendered. --%>
+<form method="get" action="<c:url value='/app/my-work'/>" class="my-work-dashboard-filters" id="${filterPanelId}Form">
+    <%-- Returns the user to this tab after Apply. Placed first so it submits even when the form
+         is submitted by pressing Enter inside the date picker. --%>
+    <input type="hidden" name="tab" value="${filterTab}">
+    <%-- The other tab's filter, carried straight through. A GET form submits only its own fields,
+         so without these hidden inputs applying a filter here would wipe the other tab's. --%>
+    <c:if test="${not empty fOtherDate}"><input type="hidden" name="${fOtherPrefix}Date" value="${fOtherDate}"></c:if>
+    <c:if test="${not empty fOtherChannel}"><input type="hidden" name="${fOtherPrefix}Channel" value="${fn:escapeXml(fOtherChannel)}"></c:if>
+    <c:forEach var="op" items="${fOtherPlatforms}">
+        <input type="hidden" name="${fOtherPrefix}Platform" value="${fn:escapeXml(op)}">
+    </c:forEach>
+    <div class="pipeline-filter-bar">
+        <%-- Planned Live Date: Today / Tomorrow quick-pick cards plus a single-date picker. All
+             three set the SAME date parameter for THIS tab (${fPrefix}Date) - Today is simply
+             <prefix>Date=<today>, with no special server-side meaning - so the three are mutually
+             exclusive by construction and exactly one can ever be highlighted.
+
+             The cards are links, not submit buttons, precisely BECAUSE the picker below also
+             writes ${fPrefix}Date: two same-named controls in one form would submit two date
+             values on a card click, and the server would bind whichever came first. Each card
+             link therefore carries the current Channel/Platform selection in its own query string
+             (built in LandingMvcController#myWork), so clicking a card swaps only the date and
+             preserves the other two filters - and the other TAB's whole filter state too. Those
+             query strings always begin with "?<prefix>Date=" (the card's own date is never null),
+             which is why "&tab=" can be appended directly.
+             Emitted through <c:out> so the "&" separators between query parameters come out as
+             "&amp;" - a raw "&" in an href is invalid HTML, even though browsers tolerate it. --%>
+        <span class="pipeline-filter-inline mw-date-quickpick-group">Planned Live Date
+            <span class="mw-date-quickpick">
+                <%-- Single-line pills: the date itself lives in the title/aria-label rather than
+                     a second visible line, so every control in this bar - both cards, the picker,
+                     and the two dropdowns - shares one control height and one baseline. --%>
+                <a class="mw-date-card ${fTodaySelected ? 'active' : ''}"
+                   href="<c:url value='/app/my-work'/><c:out value='${fTodayQs}'/>&amp;tab=${filterTab}"
+                   title="Planned Live Date ${todayDate} &middot; ${fTodayCount} task${fTodayCount == 1 ? '' : 's'}"
+                   aria-label="Today, ${todayDate}, ${fTodayCount} tasks"
+                   ${fTodaySelected ? 'aria-current="true"' : ''}>
+                    <span class="mw-date-card-label">Today</span>
+                    <span class="mw-date-card-count">${fTodayCount}</span>
+                </a>
+                <a class="mw-date-card ${fTomorrowSelected ? 'active' : ''}"
+                   href="<c:url value='/app/my-work'/><c:out value='${fTomorrowQs}'/>&amp;tab=${filterTab}"
+                   title="Planned Live Date ${tomorrowDate} &middot; ${fTomorrowCount} task${fTomorrowCount == 1 ? '' : 's'}"
+                   aria-label="Tomorrow, ${tomorrowDate}, ${fTomorrowCount} tasks"
+                   ${fTomorrowSelected ? 'aria-current="true"' : ''}>
+                    <span class="mw-date-card-label">Tomorrow</span>
+                    <span class="mw-date-card-count">${fTomorrowCount}</span>
+                </a>
+                <%-- Submitting the form (Apply Filters, or Enter in the picker) is what applies a
+                     picked date, so it stays a normal form control. Highlighted only when the
+                     active date is neither Today nor Tomorrow. --%>
+                <span class="mw-date-card mw-date-card-picker ${fCustomDateSelected ? 'active' : ''}"
+                      title="Filter by a specific Planned Live Date">
+                    <input type="date" name="${fPrefix}Date" value="${fDateParam}" aria-label="Planned live date">
+                </span>
+            </span>
+        </span>
+        <label class="pipeline-filter-inline">Channel
+            <select name="${fPrefix}Channel">
+                <option value="">All Channels</option>
+                <c:forEach var="ch" items="${fChannelOptions}">
+                    <option value="${fn:escapeXml(ch)}" ${fChannelParam == ch ? 'selected' : ''}><c:out value="${ch}"/></option>
+                </c:forEach>
+            </select>
+        </label>
+        <%-- Platforms: a collapsed <details>/<summary> dropdown holding a checkbox list, NOT a
+             <select multiple> - that renders as a permanently expanded list box (every platform
+             visible at once), which both broke the single-row filter layout and looked nothing
+             like the Channel dropdown beside it. This is the same <details> picker pattern the
+             codebase already uses for multi-value pickers (.kcpc-stages-picker in
+             reviews-ideas.jspf, .reviews-platform-picker), so it needs no JavaScript: <details>
+             opens and closes natively, and the checkboxes submit with the form.
+
+             The wire format is unchanged - each checked box submits its own ${fPrefix}Platform
+             parameter, exactly what <select multiple> submitted - so no filter logic changes. No
+             selection at all means All Platforms (the server treats an empty/absent parameter as
+             "no platform criterion"), which is why there is deliberately no "All Platforms"
+             checkbox: checking it would be indistinguishable from selecting a real platform
+             named "". Options are the platforms actually present on this Publisher's own rows, so
+             the list tracks the real catalogue rather than being hardcoded. --%>
+        <span class="pipeline-filter-inline">Platforms
+            <details class="mw-platform-picker">
+                <summary class="mw-platform-picker-toggle" aria-describedby="${filterPanelId}Hint">
+                    <span class="mw-platform-picker-value">
+                        <c:choose>
+                            <c:when test="${empty fPlatformParams}">All Platforms</c:when>
+                            <%-- Up to two selections read better as the platform names themselves;
+                                 beyond that the chips would wrap and break the row's height, so it
+                                 collapses to a count. --%>
+                            <c:when test="${fn:length(fPlatformParams) le 2}">
+                                <c:forEach var="sel" items="${fPlatformParams}">
+                                    <span class="mw-platform-chip"><c:out value="${sel}"/></span>
+                                </c:forEach>
+                            </c:when>
+                            <c:otherwise>${fn:length(fPlatformParams)} platforms selected</c:otherwise>
+                        </c:choose>
+                    </span>
+                    <span class="mw-platform-picker-caret" aria-hidden="true">&#9662;</span>
+                </summary>
+                <div class="mw-platform-checklist">
+                    <c:forEach var="p" items="${fPlatformOptions}">
+                        <label class="platform-check-item">
+                            <input type="checkbox" name="${fPrefix}Platform" value="${fn:escapeXml(p)}"
+                                   ${fPlatformParams.contains(p) ? 'checked' : ''}>
+                            <c:out value="${p}"/>
+                        </label>
+                    </c:forEach>
+                    <c:if test="${empty fPlatformOptions}">
+                        <span class="muted">No platforms available</span>
+                    </c:if>
+                </div>
+            </details>
+        </span>
+        <%-- Grouped and pushed to the far right of the row (margin-left:auto on the group), so
+             the three filter fields read left-to-right and the actions sit apart from them. --%>
+        <span class="mw-filter-actions">
+            <button type="submit" class="btn-primary">&#9881; Apply Filters</button>
+                <%-- Clear resets THIS tab's date/channel/platform only - it keeps the tab, and keeps
+                 the other tab's filter intact (carried in ${fClearQs}), so clearing here never
+                 silently clears the other tab as well. --%>
+            <a class="btn-outline" href="<c:url value='/app/my-work'/><c:out value='${fClearQs}'/>tab=${filterTab}">Clear</a>
+        </span>
+    </div>
+    <%-- Deliberately does NOT repeat either table's own heading text verbatim ("Upcoming Tasks" /
+         "Active Publishing Tasks"): those two strings are section markers used to locate each
+         table when scraping this page, and repeating one here - above the table - would make the
+         earlier match win and silently mis-scope the region. --%>
+    <p class="muted" id="${filterPanelId}Hint">
+        <c:choose>
+            <c:when test="${empty fPlatformOptions and empty fChannelOptions}">
+                No publication targets are mapped on your assigned content yet, so there is nothing to filter by channel or platform.
+            </c:when>
+            <c:otherwise>
+                Applies to both Publishing lists on this page.
+            </c:otherwise>
+        </c:choose>
+    </p>
+</form>

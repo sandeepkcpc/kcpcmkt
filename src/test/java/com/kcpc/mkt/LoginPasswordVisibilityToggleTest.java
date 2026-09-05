@@ -52,7 +52,9 @@ class LoginPasswordVisibilityToggleTest {
         assertThat(body).contains("/login\">");
         assertThat(body).contains("<button type=\"submit\">Sign In</button>");
 
-        assertThat(body).contains("/js/login-password-toggle.js");
+        // Cache-busting rewrites this to a content-hashed path (see BrandLogoTest's own identical
+        // note) - matched loosely so this survives the hash changing whenever the script's bytes do.
+        assertThat(body).containsPattern("/js/login-password-toggle(-[0-9a-f]{32})?\\.js");
     }
 
     @Test

@@ -6,8 +6,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Submit Idea</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -20,6 +20,6 @@
 
     <p class="idea-submit-footer-hint">&#9432; Your idea will be visible in My Ideas after submission.</p>
 </main>
-<script src="${pageContext.request.contextPath}/js/idea-submit.js"></script>
+<script src="<c:url value='/js/idea-submit.js'/>"></script>
 </body>
 </html>

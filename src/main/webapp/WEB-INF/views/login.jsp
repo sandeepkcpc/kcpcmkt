@@ -5,12 +5,12 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Sign In</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body class="auth-page">
 <main class="auth-card">
-    <img src="${pageContext.request.contextPath}/images/kcpc-logo.png" alt="KCPC Bandhani" class="auth-logo">
+    <img src="<c:url value='/images/kcpc-logo.png'/>" alt="KCPC Bandhani" class="auth-logo">
     <p class="subtitle">Content Production Lifecycle</p>
     <c:if test="${not empty errorMessage}">
         <div class="alert alert-error">${errorMessage}</div>
@@ -31,6 +31,6 @@
         <button type="submit">Sign In</button>
     </form>
 </main>
-<script src="${pageContext.request.contextPath}/js/login-password-toggle.js" defer></script>
+<script src="<c:url value='/js/login-password-toggle.js'/>" defer></script>
 </body>
 </html>

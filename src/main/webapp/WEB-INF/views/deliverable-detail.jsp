@@ -7,8 +7,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — ${plan.contentId}</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -1060,7 +1060,20 @@
                                           action="${pageContext.request.contextPath}/app/deliverables/${plan.id}/outputs/${o.reelGroupId}/edit">
                                         <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
                                         <label>Output Type
+                                            <%-- ${outputTypes} carries only the types still open to new
+                                                 use (OutputType#selectableValues). An output created
+                                                 before a type was retired still carries it, and would
+                                                 otherwise render with NO option selected - the browser
+                                                 would then submit the first type in the list, silently
+                                                 converting a historical row on any unrelated edit (a
+                                                 title fix, say). Its own value is therefore re-added as
+                                                 a selected option so editing round-trips it unchanged.
+                                                 Retired types stay absent from the "+ Add Output" form
+                                                 below, which has no existing value to preserve. --%>
                                             <select class="kcpc-output-type-select" name="outputType">
+                                                <c:if test="${not outputTypes.contains(o.outputType)}">
+                                                    <option value="${o.outputType}" selected>${o.outputType}</option>
+                                                </c:if>
                                                 <c:forEach var="t" items="${outputTypes}">
                                                     <option value="${t}" ${t == o.outputType ? 'selected' : ''}>${t}</option>
                                                 </c:forEach>
@@ -2361,18 +2374,18 @@
     </aside>
     </div>
 </main>
-<script src="${pageContext.request.contextPath}/js/publication-scope.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/assignment-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/review-decision.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/reassign-form.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/publishing-checklist.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/my-work-tabs.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/content-detail.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/publisher-assignment-modal.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/skip-stage-modal.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/performance-metric-correction.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
+<script src="<c:url value='/js/publication-scope.js'/>" defer></script>
+<script src="<c:url value='/js/model-picker.js'/>" defer></script>
+<script src="<c:url value='/js/assignment-picker.js'/>" defer></script>
+<script src="<c:url value='/js/review-decision.js'/>" defer></script>
+<script src="<c:url value='/js/stage-discussion.js'/>" defer></script>
+<script src="<c:url value='/js/reassign-form.js'/>" defer></script>
+<script src="<c:url value='/js/publishing-checklist.js'/>" defer></script>
+<script src="<c:url value='/js/my-work-tabs.js'/>" defer></script>
+<script src="<c:url value='/js/content-detail.js'/>" defer></script>
+<script src="<c:url value='/js/publisher-assignment-modal.js'/>" defer></script>
+<script src="<c:url value='/js/skip-stage-modal.js'/>" defer></script>
+<script src="<c:url value='/js/performance-metric-correction.js'/>" defer></script>
+<script src="<c:url value='/js/script-description-modal.js'/>" defer></script>
 </body>
 </html>

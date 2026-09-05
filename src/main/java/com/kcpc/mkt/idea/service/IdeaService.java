@@ -453,6 +453,14 @@ public class IdeaService {
         // Content Priority defaults to LOW when not explicitly provided - never left null. The
         // Planning form itself now pre-selects LOW (still changeable), so this is a safety-net for
         // any caller that omits the field entirely, not something a real UI submission relies on.
+        // Approval CREATES the Content Plan, so a retired priority (see ContentPriority) is never
+        // legitimate here - there is no pre-existing value to preserve. Refused for API callers
+        // too, not just hidden from the Planning Basics dropdown.
+        if (planning.contentPriority() != null && !planning.contentPriority().isSelectable()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Priority " + planning.contentPriority().name() + " is retired and can no longer be "
+                            + "assigned. Existing " + planning.contentPriority().name() + " plans are unaffected.");
+        }
         contentPlan.setContentPriority(planning.contentPriority() != null
                 ? planning.contentPriority() : com.kcpc.mkt.planning.domain.ContentPriority.LOW);
         contentPlan.setSku(planning.skuReference(), planning.skuNotApplicable());
@@ -579,6 +587,15 @@ public class IdeaService {
     private void createPlannedOutputGroup(ContentPlan contentPlan, PlanningOutputRequest outputRequest) {
         if (outputRequest.outputType() == null) {
             return;
+        }
+        // A retired Output Type (see OutputType) is closed to new Planned Outputs - refused here
+        // as well as being absent from the Planned Outputs grid, so an API caller posting one
+        // directly to Idea Review approval is rejected rather than quietly creating it.
+        if (!outputRequest.outputType().isSelectable()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Output Type " + outputRequest.outputType().name() + " is retired and can no longer be "
+                            + "used for new Planned Outputs. Existing " + outputRequest.outputType().name()
+                            + " outputs are unaffected.");
         }
         List<PublicationTarget> publicationTargets = new ArrayList<>();
         if (outputRequest.publicationTargetIds() != null) {

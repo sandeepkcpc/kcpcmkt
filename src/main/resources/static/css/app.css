@@ -1108,6 +1108,10 @@ button[type="submit"].success { background: #1a7f4b; }
 }
 .pipeline-stage-tab.active .pipeline-stage-count { background: rgba(255,255,255,0.25); color: #fff; }
 .pipeline-stage-tab.attention:not(.active) { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+/* Cancelled: a terminal, negative state - the same muted-red treatment as Needs Attention,
+   deliberately one step calmer (slate-tinted border) so an alert and an archive state do not
+   read as equally urgent. Active state is the shared accent pill, unchanged. */
+.pipeline-stage-tab.cancelled:not(.active) { color: #9f1239; border-color: #e5c3cb; background: #fdf5f6; }
 .pipeline-stage-icon { font-size: 0.85rem; }
 .pipeline-stage-count {
     display: inline-flex; align-items: center; justify-content: center;
@@ -1201,6 +1205,126 @@ button[type="submit"].success { background: #1a7f4b; }
     box-sizing: border-box;
 }
 .btn-primary:hover { background: #d63852; border-color: #d63852; }
+
+/* My Work -> Dashboard (Publisher) filter panel. Reuses .pipeline-filter-bar wholesale so the
+   controls, spacing and baseline are identical to the Content Pipeline filter bar - these two
+   rules only cover the one control that bar has never had to render: a MULTI-select.
+   Both are scoped under .my-work-dashboard-filters, so the Content Pipeline's own filter bar
+   (single-selects only) is not touched at all. */
+/* The hint line under the bar - pulled up against the bar's own 0.55rem bottom margin so the
+   filter panel reads as one block rather than a bar with a detached stray sentence. */
+.my-work-dashboard-filters > .muted {
+    margin: -0.15rem 0 0.85rem;
+    font-size: 0.78rem;
+}
+
+/* Today / Tomorrow / Select Date quick-pick pills. EVERY control in this bar - both pills, the
+   date picker, and the Channel/Platform dropdowns - is pinned to the shared
+   --pipeline-filter-control-h, so the row is one clean horizontal band with a single baseline
+   rather than controls of three different heights. The pills are single-line for that reason:
+   the date itself is exposed via title/aria-label instead of a second visible line. */
+.my-work-dashboard-filters .mw-date-quickpick { display: flex; align-items: center; gap: 0.4rem; }
+.my-work-dashboard-filters .mw-date-card {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    height: var(--pipeline-filter-control-h);
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
+    padding: 0 0.7rem;
+    border: 1px solid var(--kcpc-border); border-radius: 7px;
+    background: var(--kcpc-surface); color: var(--kcpc-ink);
+    text-decoration: none; cursor: pointer; white-space: nowrap;
+    /* .pipeline-filter-inline (the label wrapper) uppercases and letter-spaces its text for the
+       field label; the pill's own contents opt back out so they read normally. */
+    text-transform: none; letter-spacing: normal;
+}
+.my-work-dashboard-filters a.mw-date-card:hover { border-color: var(--kcpc-accent); }
+.my-work-dashboard-filters .mw-date-card-label {
+    font-size: 0.8rem; font-weight: 600; color: var(--kcpc-ink);
+}
+/* Count badge - same pill treatment as .pipeline-stage-count, so a filter-bar count and a tab
+   count read as the same kind of thing. */
+.my-work-dashboard-filters .mw-date-card-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.4rem; height: 1.4rem; padding: 0 0.35rem;
+    border-radius: 999px; background: #eef0f4; color: #6b7280;
+    font-size: 0.72rem; font-weight: 700;
+}
+.my-work-dashboard-filters .mw-date-card.active .mw-date-card-count {
+    background: var(--kcpc-accent); color: #fff;
+}
+/* Selected state: accent border + tint, and the label/count promoted to the accent colour so the
+   active card is unmistakable at a glance rather than relying on the border alone. */
+.my-work-dashboard-filters .mw-date-card.active {
+    border-color: var(--kcpc-accent);
+    background: rgba(233, 69, 96, 0.07); /* --kcpc-accent #e94560 at 7% */
+    box-shadow: inset 0 0 0 1px var(--kcpc-accent);
+}
+.my-work-dashboard-filters .mw-date-card.active .mw-date-card-label { color: var(--kcpc-accent); }
+/* The picker pill wraps a real <input type="date">, which the shared .pipeline-filter-bar rule
+   would otherwise size to the full control height inside an already-bordered pill. */
+.my-work-dashboard-filters .mw-date-card-picker { cursor: default; }
+.my-work-dashboard-filters .mw-date-card-picker input[type="date"] {
+    height: auto; min-height: 0;
+    padding: 0; border: 0; background: transparent;
+    font-size: 0.8rem; color: var(--kcpc-ink);
+}
+
+/* Platforms dropdown: a <details>/<summary> multi-select, deliberately built to look exactly like
+   the Channel <select> beside it (same height, border, radius, padding and type scale) so the two
+   filters read as one pair. Same component pattern as .kcpc-stages-picker; no JavaScript. */
+.my-work-dashboard-filters .mw-platform-picker { position: relative; }
+.my-work-dashboard-filters .mw-platform-picker-toggle {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    height: var(--pipeline-filter-control-h);
+    min-height: var(--pipeline-filter-control-h);
+    box-sizing: border-box;
+    padding: 0 0.65rem;
+    border: 1px solid var(--kcpc-border); border-radius: 7px;
+    background: var(--kcpc-surface); color: var(--kcpc-ink);
+    font-size: 0.85rem; font-weight: 400;
+    text-transform: none; letter-spacing: normal; white-space: nowrap;
+    list-style: none; cursor: pointer;
+}
+/* Both are needed to suppress the native disclosure triangle across browsers - the ::marker form
+   for standards-compliant engines, the -webkit- form for Safari. */
+.my-work-dashboard-filters .mw-platform-picker-toggle::-webkit-details-marker { display: none; }
+.my-work-dashboard-filters .mw-platform-picker-toggle::marker { content: ""; }
+.my-work-dashboard-filters .mw-platform-picker-value {
+    display: inline-flex; align-items: center; gap: 0.25rem; overflow: hidden;
+}
+.my-work-dashboard-filters .mw-platform-picker-caret { color: #6b7280; font-size: 0.7rem; }
+.my-work-dashboard-filters .mw-platform-picker[open] .mw-platform-picker-toggle {
+    border-color: var(--kcpc-accent);
+}
+.my-work-dashboard-filters .mw-platform-chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 14px;
+    background: #f1f3ff; color: var(--kcpc-ink);
+    font-size: 0.72rem; font-weight: 600;
+}
+/* Absolutely positioned so opening the dropdown overlays the content below instead of pushing the
+   whole filter bar (and the table under it) downwards. */
+.my-work-dashboard-filters .mw-platform-checklist {
+    position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+    display: flex; flex-direction: column; gap: 0.3rem;
+    min-width: 100%; max-height: 14rem; overflow-y: auto;
+    padding: 0.5rem;
+    border: 1px solid var(--kcpc-border); border-radius: 7px;
+    background: var(--kcpc-surface);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+}
+.my-work-dashboard-filters .mw-platform-checklist .platform-check-item {
+    display: flex; align-items: center; gap: 0.4rem; margin: 0;
+    font-size: 0.82rem; font-weight: 400; color: var(--kcpc-ink);
+    text-transform: none; letter-spacing: normal; white-space: nowrap; cursor: pointer;
+}
+.my-work-dashboard-filters .mw-platform-checklist .platform-check-item input { width: auto; margin: 0; }
+
+/* Apply/Clear pushed to the far right of the row, so the three filter fields group together on
+   the left and the actions read as a separate cluster. */
+.my-work-dashboard-filters .mw-filter-actions {
+    display: inline-flex; align-items: flex-end; gap: 0.5rem; margin-left: auto;
+}
 
 .pipeline-status-cell { display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
 .pipeline-status-badge {
@@ -3779,3 +3903,84 @@ button.btn-outline-success:hover { background: #f0fdf4; }
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); max-width: 340px;
 }
 .admin-tab:hover:not(.active) { color: var(--kcpc-ink); }
+
+/* ================================================================== Planned Live Date calendar
+   (kcpc-date-picker.js). Deliberately the SAME visual language as the Upcoming Channel Plan
+   calendar (.kpi-calendar-* above) - same 7-column grid, same cell size/radius, same blue
+   selected state, same muted weekday header - so the two calendars read as one product. Kept as
+   its own class namespace rather than reusing .kpi-calendar-*: that one is a read-only data
+   viewer living inside a modal, this is an anchored form control with a disabled-date rule, and
+   collapsing them would couple a Planning form to the KPI dashboard's markup. Applies only to a
+   field that opted in with data-kcpc-calendar. */
+.kcpc-datepicker {
+    position: fixed; z-index: 1100; width: 300px; max-width: 92vw;
+    background: #fff; border: 1px solid var(--kcpc-border); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14); padding: 0.75rem;
+}
+.kcpc-datepicker-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
+.kcpc-datepicker-nav .btn-outline { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.kcpc-datepicker-month-label { font-weight: 700; font-size: 0.92rem; }
+.kcpc-datepicker-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;
+    font-size: 0.72rem; color: #6b7280; margin-bottom: 0.3rem;
+}
+.kcpc-datepicker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.2rem; }
+.kcpc-datepicker-cell {
+    display: flex; align-items: center; justify-content: center; height: 2.1rem; border-radius: 6px;
+    font-size: 0.82rem; color: var(--kcpc-ink); background: none; border: 1px solid transparent;
+    font-family: inherit;
+}
+.kcpc-datepicker-cell-empty { visibility: hidden; }
+/* Selectable = a real <button> (today and every future date). */
+button.kcpc-datepicker-cell { cursor: pointer; }
+button.kcpc-datepicker-cell:hover { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+/* Past dates: rendered as non-interactive <span>s by kcpc-date-picker.js - visibly greyed, never
+   merely un-clickable. A past date is never marked planned either. */
+.kcpc-datepicker-cell-disabled { color: #c3c8d0; background: #f3f4f6; cursor: not-allowed; }
+.kcpc-datepicker-cell-today { font-weight: 700; border-color: #bfdbfe; }
+/* Content already planned: the COMPLETE cell gets a clear background - deliberately no dot, badge
+   or any other indicator. Same blue family as the selected state, one step lighter, so a planned
+   date reads as "notable" and the selected date still reads as "chosen" when both are on screen. */
+button.kcpc-datepicker-cell-planned {
+    background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; font-weight: 700;
+}
+button.kcpc-datepicker-cell-planned:hover { background: #bfdbfe; }
+button.kcpc-datepicker-cell-selected,
+button.kcpc-datepicker-cell-selected:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.kcpc-datepicker-cell:focus-visible, .kcpc-datepicker-prev:focus-visible,
+.kcpc-datepicker-next:focus-visible { outline: 2px solid var(--kcpc-accent); outline-offset: 1px; }
+/* Legend: three states, each shown as a full-cell swatch rather than a dot, because the cells they
+   describe are themselves whole-cell highlights. */
+.kcpc-datepicker-legend {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; margin-top: 0.55rem;
+    font-size: 0.7rem; color: #6b7280;
+}
+.kcpc-datepicker-legend-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+.kcpc-datepicker-legend-swatch {
+    display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 4px; flex: none;
+    border: 1px solid transparent;
+}
+.kcpc-datepicker-legend-swatch-planned { background: #dbeafe; border-color: #93c5fd; }
+.kcpc-datepicker-legend-swatch-free { background: #fff; border-color: var(--kcpc-border); }
+.kcpc-datepicker-legend-swatch-past { background: #f3f4f6; border-color: #e5e7eb; }
+/* Detail panel: "Planned Content By Channel" for the clicked date. Mirrors the Upcoming Channel
+   Plan calendar's own .kpi-calendar-detail block. */
+.kcpc-datepicker-detail { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--kcpc-border); }
+.kcpc-datepicker-detail-hint, .kcpc-datepicker-detail-empty {
+    margin: 0; font-size: 0.78rem; color: #6b7280;
+}
+.kcpc-datepicker-detail-date { margin: 0 0 0.35rem; font-size: 0.88rem; font-weight: 700; }
+.kcpc-datepicker-detail-caption {
+    margin: 0 0 0.4rem; font-size: 0.7rem; color: #6b7280; text-transform: uppercase;
+    letter-spacing: 0.03em; font-weight: 700;
+}
+.kcpc-datepicker-detail-list {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem;
+    max-height: 150px; overflow-y: auto;
+}
+.kcpc-datepicker-detail-list li { display: flex; justify-content: space-between; font-size: 0.82rem; gap: 0.75rem; }
+.kcpc-datepicker-detail-count { font-weight: 700; }
+/* The field keeps its native <input type="date"> behaviour and validation; only the browser's own
+   picker indicator is hidden, so this calendar is the single one a click can ever open. */
+input[data-kcpc-calendar]::-webkit-calendar-picker-indicator { display: none; }
+input[data-kcpc-calendar] { cursor: pointer; }

@@ -5,8 +5,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Change Password</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body class="auth-page">
 <main class="auth-card">

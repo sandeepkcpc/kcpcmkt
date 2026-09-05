@@ -1092,6 +1092,55 @@
         return checked;
     }
 
+    /**
+     * Renumbers the Approve/Planning form's section headings so the VISIBLE cards always read
+     * 1, 2, 3, ... with no gaps and no repeats, however the Stages picker has hidden or shown them.
+     *
+     * The JSP still ships a static number in each heading (so the form reads correctly before any
+     * JS runs); this is the single place that keeps them right afterwards. Driven purely by the
+     * existing `.hidden` class - this function never shows or hides anything itself, never touches
+     * a field, a value or a validation, and writes nothing but the digit inside
+     * `.reviews-section-number`. That also makes it idempotent: running it repeatedly, or after
+     * toggling stages any number of times, recomputes the same positions from the live DOM rather
+     * than incrementing anything, so duplicate or drifting numbers cannot accumulate.
+     *
+     * The bug it fixes: the JSP hardcodes Publisher Assignment as "5" and Team Marks as "6", so a
+     * Publishing-only pipeline - where Shoot Assignment, Editor Assignment and Team Marks are all
+     * hidden - rendered "1, 2, 3, 5". (Initial Shoot Assignment and Editor Assignment are both
+     * hardcoded "4" on purpose: exactly one of the two is ever visible, so they never collide.)
+     */
+    function renumberReviewPlanningSections() {
+        var container = document.getElementById('reviewsIdeaPlanningFields');
+        if (!container) {
+            return;
+        }
+        // The container itself is .hidden until Approve is picked, so visibility is judged relative
+        // to it - never via offsetParent/getComputedStyle, which would report every card as hidden
+        // while the panel is closed and renumber them all to nothing.
+        function isVisibleWithinPanel(card) {
+            var node = card;
+            while (node && node !== container) {
+                if (node.classList && node.classList.contains('hidden')) {
+                    return false;
+                }
+                node = node.parentNode;
+            }
+            return true;
+        }
+        var position = 0;
+        container.querySelectorAll('.reviews-planning-card').forEach(function (card) {
+            var numberEl = card.querySelector('.reviews-section-number');
+            if (!numberEl) {
+                return;
+            }
+            if (!isVisibleWithinPanel(card)) {
+                return; // a hidden card keeps whatever it had; it is not in the visible sequence
+            }
+            position += 1;
+            numberEl.textContent = String(position);
+        });
+    }
+
     function updateReviewsIdeaStagesFields() {
         var stages = reviewsIdeaCheckedStages();
         var shootStarts = stages.indexOf('SHOOT') !== -1;
@@ -1144,6 +1193,9 @@
         // Skipping/un-skipping Shoot or Edit changes which calculated date(s) the past-date guard
         // must actually look at - re-run it now, not just on Live Date/Planning Mode change.
         reviewsIdeaRevalidateScheduleForCurrentStages();
+        // Last, once every .hidden toggle above has settled: the headings must number what is
+        // actually on screen now.
+        renumberReviewPlanningSections();
     }
 
     region.addEventListener('kcpc:stages-changed', updateReviewsIdeaStagesFields);

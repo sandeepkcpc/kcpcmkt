@@ -7,8 +7,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — My Work</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -63,20 +63,32 @@
          assignment data for that stage (${showShootTab}/${showEditTab}/${showPublishTab},
          computed once in LandingMvcController#myWork - the same source the backend execution
          checks use, so a tab is never shown for a stage the employee cannot actually act in, and
-         never hidden for one they can). None of these buttons carries a hardcoded "active" class -
+         never hidden for one they can). Normally no button carries a hardcoded "active" class -
          my-work-tabs.js falls back to the first tab present in the DOM when none is pre-marked
          active, and since every button here is itself conditionally rendered, "first in the DOM"
          is always this employee's own first authorized tab (Dashboard > Shoot > Edit > Publishing
          priority, matching this fixed button order) - never a removed "All" tab. Task-specific
          stage detail screens (Shoot/Edit/Publishing Task Detail at /app/deliverables/{id}) are
-         unchanged by this. --%>
+         unchanged by this.
+
+         The one exception is ${activeStageTab}, set only when the request carried a "tab"
+         parameter - which the Publishing filter panels round-trip so that applying or clearing a
+         filter returns the user to the tab they were filtering from, instead of bouncing them
+         back to Dashboard. my-work-tabs.js already prefers a server-rendered "active" button, so
+         this needs no JS change; an absent or unrecognised value leaves the fallback untouched. --%>
     <div class="my-work-stage-tabs">
-        <%-- ENG-098: Publisher-only upcoming-work dashboard - same gate as the Publishing tab
-             itself (${showPublishTab}) since it's built entirely from that same Publisher data. --%>
-        <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab" data-tab="dashboard">Dashboard</button></c:if>
-        <c:if test="${showShootTab}"><button type="button" class="my-work-stage-tab" data-tab="shoot">Shoot</button></c:if>
-        <c:if test="${showEditTab}"><button type="button" class="my-work-stage-tab" data-tab="edit">Edit</button></c:if>
-        <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab" data-tab="publish">Publishing</button></c:if>
+        <%-- ENG-098: Publisher-only upcoming-work tab - same gate as the Publishing tab itself
+             (${showPublishTab}) since it's built entirely from that same Publisher data.
+
+             The visible LABEL is "Planning"; the identifier stays "dashboard" throughout -
+             data-tab/data-tab-panel, the ?tab= parameter, the dash* filter parameters, the
+             my-work-dashboard.js panel lookup and the DOM ids. That is deliberate: renaming the
+             identifier would change request parameters and break any bookmarked/shared filter URL
+             for no user-visible gain. Label and identifier are allowed to differ here. --%>
+        <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab ${activeStageTab == 'dashboard' ? 'active' : ''}" data-tab="dashboard">Planning</button></c:if>
+        <c:if test="${showShootTab}"><button type="button" class="my-work-stage-tab ${activeStageTab == 'shoot' ? 'active' : ''}" data-tab="shoot">Shoot</button></c:if>
+        <c:if test="${showEditTab}"><button type="button" class="my-work-stage-tab ${activeStageTab == 'edit' ? 'active' : ''}" data-tab="edit">Edit</button></c:if>
+        <c:if test="${showPublishTab}"><button type="button" class="my-work-stage-tab ${activeStageTab == 'publish' ? 'active' : ''}" data-tab="publish">Publishing</button></c:if>
     </div>
 
     <%-- Zero-authorized-tabs edge case: an employee with no execution permission and no
@@ -121,9 +133,38 @@
                 </div>
             </div>
         </div>
+        <%-- Filter panel above Upcoming Tasks. Shared with the Publishing tab's own copy below
+             (fragments/publish-filters.jspf) - both drive the same liveDate/channel/platform
+             parameters, which the controller applies to both Publishing lists in one pass. --%>
+        <c:set var="filterPanelId" value="publishDashboardFilter"/>
+        <c:set var="filterTab" value="dashboard"/>
+        <%-- This copy's own scope: the dash* parameters, computed from Upcoming Tasks only. --%>
+        <c:set var="fPrefix" value="dash"/>
+        <c:set var="fDateParam" value="${dashDateParam}"/>
+        <c:set var="fChannelParam" value="${dashChannelParam}"/>
+        <c:set var="fPlatformParams" value="${dashPlatformParams}"/>
+        <c:set var="fChannelOptions" value="${dashChannelOptions}"/>
+        <c:set var="fPlatformOptions" value="${dashPlatformOptions}"/>
+        <c:set var="fTodayCount" value="${dashTodayCount}"/>
+        <c:set var="fTomorrowCount" value="${dashTomorrowCount}"/>
+        <c:set var="fTodayQs" value="${dashTodayQs}"/>
+        <c:set var="fTomorrowQs" value="${dashTomorrowQs}"/>
+        <c:set var="fTodaySelected" value="${dashTodaySelected}"/>
+        <c:set var="fTomorrowSelected" value="${dashTomorrowSelected}"/>
+        <c:set var="fCustomDateSelected" value="${dashCustomDateSelected}"/>
+        <c:set var="fClearQs" value="${dashClearQs}"/>
+        <%-- The Publishing tab's filter, re-submitted untouched so filtering here never clears it. --%>
+        <c:set var="fOtherPrefix" value="pub"/>
+        <c:set var="fOtherDate" value="${pubDateParam}"/>
+        <c:set var="fOtherChannel" value="${pubChannelParam}"/>
+        <c:set var="fOtherPlatforms" value="${pubPlatformParams}"/>
+        <%@ include file="fragments/publish-filters.jspf" %>
         <div class="panel my-work-table-wrapper">
-            <h2>Upcoming Tasks <span class="count-badge">${upcomingPublishingCount}</span></h2>
-            <p class="muted">Tasks assigned to you but not yet in Publishing stage.</p>
+            <%-- Badge shows the number of rows actually rendered (the filtered list), never the
+                 unfiltered KPI-card total - otherwise a filtered table would contradict its own
+                 header. The KPI cards above intentionally keep showing whole-workload totals. --%>
+            <h2>Upcoming Tasks <span class="count-badge">${fn:length(upcomingPublishWork)}</span></h2>
+            <p class="muted">Tasks assigned to you but not yet in Publishing stage.<c:if test="${dashFilterActive}"> Showing ${fn:length(upcomingPublishWork)} of ${upcomingPublishingCount} matching this tab's filters.</c:if></p>
             <table class="data-table">
                 <thead>
                 <tr>
@@ -167,7 +208,16 @@
                     </tr>
                 </c:forEach>
                 <c:if test="${empty upcomingPublishWork}">
-                    <tr><td colspan="7" class="muted">No upcoming publishing tasks.</td></tr>
+                    <%-- Distinguishes "you genuinely have none" from "your filters excluded them
+                         all", so a zero-row table is never mistaken for lost work. --%>
+                    <tr><td colspan="7" class="muted">
+                        <c:choose>
+                            <c:when test="${dashFilterActive and upcomingPublishingCount > 0}">
+                                No upcoming publishing tasks match this tab's filters (${upcomingPublishingCount} total).
+                            </c:when>
+                            <c:otherwise>No upcoming publishing tasks.</c:otherwise>
+                        </c:choose>
+                    </td></tr>
                 </c:if>
                 </tbody>
             </table>
@@ -419,13 +469,48 @@
             <p class="execution-blocked-note">You do not currently hold Publishing execution permission - any task below is historical or awaiting reassignment.</p>
         </c:if>
 
+            <%-- Same filter panel as the Dashboard tab, rendered above this tab's own table so a
+                 Publisher working here does not have to switch tabs to filter. Both copies drive
+                 the identical liveDate/channel/platform parameters, applied server-side to both
+                 Publishing lists in one pass - so whichever panel is used, both tables agree.
+                 filterPanelId differs from the Dashboard copy's to keep DOM ids unique. --%>
+            <c:set var="filterPanelId" value="publishTabFilter"/>
+            <c:set var="filterTab" value="publish"/>
+            <%-- This copy's own scope: the pub* parameters, computed from Active Publishing Tasks
+                 only - never the Dashboard's Upcoming numbers. --%>
+            <c:set var="fPrefix" value="pub"/>
+            <c:set var="fDateParam" value="${pubDateParam}"/>
+            <c:set var="fChannelParam" value="${pubChannelParam}"/>
+            <c:set var="fPlatformParams" value="${pubPlatformParams}"/>
+            <c:set var="fChannelOptions" value="${pubChannelOptions}"/>
+            <c:set var="fPlatformOptions" value="${pubPlatformOptions}"/>
+            <c:set var="fTodayCount" value="${pubTodayCount}"/>
+            <c:set var="fTomorrowCount" value="${pubTomorrowCount}"/>
+            <c:set var="fTodayQs" value="${pubTodayQs}"/>
+            <c:set var="fTomorrowQs" value="${pubTomorrowQs}"/>
+            <c:set var="fTodaySelected" value="${pubTodaySelected}"/>
+            <c:set var="fTomorrowSelected" value="${pubTomorrowSelected}"/>
+            <c:set var="fCustomDateSelected" value="${pubCustomDateSelected}"/>
+            <c:set var="fClearQs" value="${pubClearQs}"/>
+            <%-- The Dashboard tab's filter, re-submitted untouched. --%>
+            <c:set var="fOtherPrefix" value="dash"/>
+            <c:set var="fOtherDate" value="${dashDateParam}"/>
+            <c:set var="fOtherChannel" value="${dashChannelParam}"/>
+            <c:set var="fOtherPlatforms" value="${dashPlatformParams}"/>
+            <%@ include file="fragments/publish-filters.jspf" %>
             <div class="panel my-work-table-wrapper">
                 <h2><span class="stage-badge stage-publish">PUBLISHING</span>Active Publishing Tasks</h2>
+                <%-- This tab's OWN filter (the pub* parameters, independent of the Dashboard's),
+                     spelled out so rows missing from this table are never mistaken for lost work. --%>
+                <c:if test="${pubFilterActive}">
+                    <p class="muted">Showing ${fn:length(publishActiveWork)} of ${activePublishingCount} &mdash; this tab's filters applied.
+                        <a href="<c:url value='/app/my-work'/><c:out value='${pubClearQs}'/>tab=publish">Clear filters</a></p>
+                </c:if>
                 <table class="data-table">
                     <thead>
                     <tr>
                         <th>Content ID</th><th>Content</th><th>Priority</th><th>Planned Live Date</th>
-                        <th>Publisher(s)</th><th>Targets</th><th>Status</th><th>Drive</th><th>Action</th>
+                        <th>Platforms</th><th>Status</th><th>Drive</th><th>Action</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -439,8 +524,35 @@
                                 </c:if>
                             </td>
                             <td class="${item.delayed ? 'planned-date-delayed' : ''}">${item.plannedDate}</td>
-                            <td><c:out value="${empty item.models ? '—' : item.models}"/></td>
-                            <td><c:out value="${empty item.targetsSummary ? '—' : item.targetsSummary}"/></td>
+                            <%-- Platforms: the SAME icon+count chip UI and the SAME
+                                 PipelinePlatformSummary data as the Dashboard tab's Upcoming Tasks
+                                 column - one shared fragment (fragments/pipeline-platform-chip.jspf)
+                                 and one shared builder
+                                 (PipelineDashboardService#buildPlatformSummariesForPlan), never a
+                                 second rendering or data implementation. Upcoming rows carry the
+                                 summaries on the DTO itself; Active rows look them up by Content
+                                 Plan id from publishPlatformsByPlan, because ActiveWorkItem is
+                                 shared with the Shoot/Edit rows, which have no platform concept.
+                                 Chip -> popover behaviour comes from the shared
+                                 platform-chip-popover.js. That module's chip-click listener is
+                                 delegated PER CONTAINER (only its outside-click/Escape handlers
+                                 are page-global), so this panel must be passed to wireClicks()
+                                 explicitly - my-work-dashboard.js wires both this panel and the
+                                 Dashboard one. Without that call these chips render correctly and
+                                 do nothing when clicked. --%>
+                            <td class="pipeline-col-wrap">
+                                <c:set var="activePlatformSummaries" value="${publishPlatformsByPlan[item.contentPlanId]}"/>
+                                <div class="pipeline-platform-chips">
+                                    <c:forEach var="summary" items="${activePlatformSummaries}" varStatus="ps">
+                                        <%-- Distinct id prefix from the Upcoming table's chips: both
+                                             tables render on the same page, so a shared prefix would
+                                             produce duplicate popover ids. --%>
+                                        <c:set var="popoverId" value="active-platform-popover-${item.contentPlanId}-${ps.index}"/>
+                                        <%@ include file="fragments/pipeline-platform-chip.jspf" %>
+                                    </c:forEach>
+                                    <c:if test="${empty activePlatformSummaries}"><span class="pipeline-team-empty">—</span></c:if>
+                                </div>
+                            </td>
                             <td>
                                 <c:choose>
                                     <c:when test="${item.repost}"><span class="stage-badge stage-repost">REPOST</span></c:when>
@@ -469,7 +581,17 @@
                         </tr>
                     </c:forEach>
                     <c:if test="${empty publishActiveWork}">
-                        <tr><td colspan="9" class="muted">No active publishing tasks.</td></tr>
+                        <%-- colspan 8: Publisher(s) and Targets were replaced by a single
+                             Platforms column, so this table is one column narrower than the
+                             Shoot/Edit tables above. --%>
+                        <tr><td colspan="8" class="muted">
+                            <c:choose>
+                                <c:when test="${pubFilterActive and activePublishingCount > 0}">
+                                    No active publishing tasks match this tab's filters (${activePublishingCount} total).
+                                </c:when>
+                                <c:otherwise>No active publishing tasks.</c:otherwise>
+                            </c:choose>
+                        </td></tr>
                     </c:if>
                     </tbody>
                 </table>
@@ -549,8 +671,8 @@
     </div> <%-- /assignment-mgmt mode-panel --%>
     </c:if>
 </main>
-<script src="${pageContext.request.contextPath}/js/my-work-tabs.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/platform-chip-popover.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/my-work-dashboard.js" defer></script>
+<script src="<c:url value='/js/my-work-tabs.js'/>" defer></script>
+<script src="<c:url value='/js/platform-chip-popover.js'/>" defer></script>
+<script src="<c:url value='/js/my-work-dashboard.js'/>" defer></script>
 </body>
 </html>

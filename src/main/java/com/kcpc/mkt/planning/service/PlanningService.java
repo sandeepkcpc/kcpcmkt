@@ -139,6 +139,15 @@ public class PlanningService {
         categoryService.requireActiveNameOrBlank(categoryText);
         plan.setCategoryText(categoryText);
         // Content Priority defaults to LOW when not explicitly provided - never left/cleared to null.
+        // A retired priority (see ContentPriority) is closed to new use, but re-submitting the
+        // value this plan ALREADY carries stays allowed: an existing MEDIUM plan must remain
+        // editable (category, SKU, talent, dates) without that edit silently re-grading it, and
+        // without the edit being refused outright. Only newly introducing a retired value fails.
+        if (priority != null && !priority.isSelectable() && priority != plan.getContentPriority()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Priority " + priority.name() + " is retired and can no longer be assigned. Existing "
+                            + priority.name() + " plans are unaffected.");
+        }
         plan.setContentPriority(priority != null ? priority : ContentPriority.LOW);
         plan.setSku(skuReference, skuNotApplicable);
         // Once structured Drive provisioning has a known root folder, folder_link becomes a
@@ -241,9 +250,24 @@ public class PlanningService {
         }
     }
 
+    /**
+     * Rejects an Output Type that has been retired from new usage (see {@link OutputType} - a
+     * retired constant stays fully valid for the historical rows that already carry it, and is
+     * closed only to NEW ones). Enforced here, at the service, rather than only by omitting the
+     * option from the dropdowns: a direct API call must be refused too, not silently accepted.
+     */
+    private static void requireSelectableOutputType(OutputType outputType) {
+        if (outputType != null && !outputType.isSelectable()) {
+            throw DomainException.badRequest(ErrorCode.VALIDATION_FAILED,
+                    "Output Type " + outputType.name() + " is retired and can no longer be used for new "
+                            + "Planned Outputs. Existing " + outputType.name() + " outputs are unaffected.");
+        }
+    }
+
     @Transactional
     public PlannedOutput addPlannedOutput(User user, UUID contentPlanId, OutputType outputType, ReelType reelType,
                                            String titleDescription) {
+        requireSelectableOutputType(outputType);
         ContentPlan plan = requireContentPlan(contentPlanId);
         requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
         PlannedOutput output = plannedOutputRepository.save(new PlannedOutput(plan, outputType, reelType, titleDescription));
@@ -265,6 +289,7 @@ public class PlanningService {
     @Transactional
     public List<PlannedOutput> addPlannedOutputs(User user, UUID contentPlanId, OutputType outputType,
                                                   List<ReelType> reelTypes, String titleDescription) {
+        requireSelectableOutputType(outputType);
         ContentPlan plan = requireContentPlan(contentPlanId);
         requirePlanningExecutionAuthority(user, plan.getWorkflowInstance());
         List<ReelType> typesToCreate = outputType == OutputType.REEL && reelTypes != null && !reelTypes.isEmpty()
@@ -327,6 +352,13 @@ public class PlanningService {
         }
         PlannedOutput anyMember = currentMembers.get(0);
         requirePlanningExecutionAuthority(user, anyMember.getContentPlan().getWorkflowInstance());
+        // Editing a group that is ALREADY a retired type (a historical STORY group whose title or
+        // targets are being corrected) must keep working and must not silently convert the row to
+        // some other type - so a retired type is refused only when it would be newly INTRODUCED
+        // here, never when the group already carries it.
+        if (outputType != anyMember.getOutputType()) {
+            requireSelectableOutputType(outputType);
+        }
 
         List<ReelType> desiredTypes = outputType == OutputType.REEL && reelTypes != null && !reelTypes.isEmpty()
                 ? reelTypes.stream().distinct().toList()

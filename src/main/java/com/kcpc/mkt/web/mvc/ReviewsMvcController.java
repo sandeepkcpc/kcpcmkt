@@ -109,6 +109,8 @@ public class ReviewsMvcController {
     private final com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService;
     private final com.kcpc.mkt.masterdata.service.CategoryService categoryService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.kcpc.mkt.reporting.service.UpcomingChannelPlanService upcomingChannelPlanService;
+    private final UpcomingChannelPlanJsonWriter upcomingChannelPlanJsonWriter;
     private final com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository;
 
     public ReviewsMvcController(IdeaRepository ideaRepository, IdeaService ideaService,
@@ -131,6 +133,8 @@ public class ReviewsMvcController {
                                  com.kcpc.mkt.marks.service.MarkCatalogueService markCatalogueService,
                                  com.kcpc.mkt.masterdata.service.CategoryService categoryService,
                                  com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                 com.kcpc.mkt.reporting.service.UpcomingChannelPlanService upcomingChannelPlanService,
+                                 UpcomingChannelPlanJsonWriter upcomingChannelPlanJsonWriter,
                                  com.kcpc.mkt.audit.repository.SystemAuditLogRepository systemAuditLogRepository) {
         this.ideaRepository = ideaRepository;
         this.ideaService = ideaService;
@@ -155,6 +159,8 @@ public class ReviewsMvcController {
         this.markCatalogueService = markCatalogueService;
         this.categoryService = categoryService;
         this.objectMapper = objectMapper;
+        this.upcomingChannelPlanService = upcomingChannelPlanService;
+        this.upcomingChannelPlanJsonWriter = upcomingChannelPlanJsonWriter;
         this.systemAuditLogRepository = systemAuditLogRepository;
     }
 
@@ -318,9 +324,9 @@ public class ReviewsMvcController {
         // Workflow redesign: Planning's former input set is collected right here, in the same
         // Approve flow, mirroring IdeaMvcController#detail's identical block exactly.
         if (!retainedView) {
-            model.addAttribute("priorities", ContentPriority.values());
+            model.addAttribute("priorities", ContentPriority.selectableValues());
             model.addAttribute("planningModes", PlanningMode.values());
-            model.addAttribute("outputTypes", OutputType.values());
+            model.addAttribute("outputTypes", OutputType.selectableValues());
             model.addAttribute("modelUsers", assigneeWorkloadCountService.withModelCounts(
                     userRepository.findByBusinessRole_RoleNameAndActiveTrueOrderByFullNameAsc("Model")));
             model.addAttribute("camerapersonUsers", assigneeWorkloadCountService.withShootCounts(
@@ -349,6 +355,20 @@ public class ReviewsMvcController {
             model.addAttribute("activePlatformNames", activeTargets.stream()
                     .map(t -> t.getPlatform().getPlatformName()).distinct().sorted().toList());
             model.addAttribute("today", LocalDate.now(BUSINESS_ZONE));
+            // Planned Live Date calendar: the SAME Upcoming Channel Plan the KPI Dashboard Overview
+            // renders (UpcomingChannelPlanService - one distinct-Content-ID-per-(date, channel)
+            // implementation, never a second counting rule here), restricted to today onwards since
+            // a planner can only pick today or later. Embedded as JSON with the page rather than
+            // fetched, exactly like the Overview calendar's own #kpiUpcomingPlanData block.
+            model.addAttribute("plannedLiveDatePlanJson", upcomingChannelPlanJsonWriter.write(
+                    upcomingChannelPlanService.upcomingChannelPlanFromToday()));
+            // Shoot Date / Edit Date calendars: the SAME aggregation, grouped on the Planned Shoot
+            // and Planned Edit date columns instead (UpcomingChannelPlanService#groupBy is shared
+            // verbatim - one distinct-Content-ID-per-(date, channel) rule for all three calendars).
+            model.addAttribute("plannedShootPlanJson", upcomingChannelPlanJsonWriter.write(
+                    upcomingChannelPlanService.plannedShootPlanFromToday()));
+            model.addAttribute("plannedEditPlanJson", upcomingChannelPlanJsonWriter.write(
+                    upcomingChannelPlanService.plannedEditPlanFromToday()));
         }
     }
 

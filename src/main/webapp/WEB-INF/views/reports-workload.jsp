@@ -7,8 +7,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Team Workload</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -19,6 +19,6 @@
         <%@ include file="fragments/team-workload-content.jspf" %>
     </div>
 </main>
-<script src="${pageContext.request.contextPath}/js/team-workload-dashboard.js" defer></script>
+<script src="<c:url value='/js/team-workload-dashboard.js'/>" defer></script>
 </body>
 </html>

@@ -7,8 +7,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — ${idea.businessIdeaCode}</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -333,9 +333,9 @@
                                         required when the Planned Live Date is fewer than 5 days away — Shoot Date, Edit Date and
                                         Urgency Reason become mandatory.</p>
 
-                                    <label>Planned Live Date * <input type="date" name="plannedLiveDate" min="${today}"></label>
-                                    <label id="idea-review-shoot-date-label">Shoot Date <input type="date" name="shootDate" min="${today}"></label>
-                                    <label id="idea-review-edit-date-label">Edit Date <input type="date" name="editDate" min="${today}"></label>
+                                    <label>Planned Live Date * <input type="date" name="plannedLiveDate" min="${today}" data-kcpc-calendar="live"></label>
+                                    <label id="idea-review-shoot-date-label">Shoot Date <input type="date" name="shootDate" min="${today}" data-kcpc-calendar="shoot"></label>
+                                    <label id="idea-review-edit-date-label">Edit Date <input type="date" name="editDate" min="${today}" data-kcpc-calendar="edit"></label>
                                     <label class="grid-span-all" id="idea-review-urgency-reason-label">Urgency Reason (required for Urgent)
                                         <input type="text" name="urgencyReason"></label>
                                 </div>
@@ -650,10 +650,19 @@
         </div>
     </div>
 </main>
-<script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/stages-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/idea-detail.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/idea-reference-link-edit.js" defer></script>
+<script src="<c:url value='/js/model-picker.js'/>" defer></script>
+<script src="<c:url value='/js/stages-picker.js'/>" defer></script>
+
+<%-- Planned Live Date calendar data (kcpc-date-picker.js): the same Upcoming Channel Plan
+     UpcomingChannelPlanService computes for the KPI Dashboard Overview, restricted to today
+     onwards. Embedded rather than fetched, mirroring reports-kpi-overview.jspf's own
+     #kpiUpcomingPlanData block. "<" is already escaped by UpcomingChannelPlanJsonWriter. --%>
+<script type="application/json" id="kcpcPlannedLiveDatePlanData">${plannedLiveDatePlanJson}</script>
+<script type="application/json" id="kcpcPlannedShootPlanData">${plannedShootPlanJson}</script>
+<script type="application/json" id="kcpcPlannedEditPlanData">${plannedEditPlanJson}</script>
+<script src="<c:url value='/js/kcpc-date-picker.js'/>" defer></script>
+<script src="<c:url value='/js/idea-detail.js'/>" defer></script>
+<script src="<c:url value='/js/script-description-modal.js'/>" defer></script>
+<script src="<c:url value='/js/idea-reference-link-edit.js'/>" defer></script>
 </body>
 </html>

@@ -385,9 +385,9 @@ public class DeliverableMvcController {
         model.addAttribute("activePublicationTargets", activeTargets);
         model.addAttribute("activePlatformNames", activeTargets.stream()
                 .map(t -> t.getPlatform().getPlatformName()).distinct().sorted().toList());
-        model.addAttribute("outputTypes", OutputType.values());
+        model.addAttribute("outputTypes", OutputType.selectableValues());
         model.addAttribute("reelTypes", ReelType.values());
-        model.addAttribute("priorities", ContentPriority.values());
+        model.addAttribute("priorities", ContentPriority.selectableValues());
         model.addAttribute("planningOptionsJson", buildPlanningOptionsJson(activeTargets, request));
 
         model.addAttribute("shootingAssignments", shootingAssignmentRepository.findByContentPlanAndActiveTrue(plan));
@@ -1198,7 +1198,7 @@ public class DeliverableMvcController {
         Map<String, Object> options = new java.util.LinkedHashMap<>();
         options.put("csrfParamName", csrfToken.getParameterName());
         options.put("csrfToken", csrfToken.getToken());
-        options.put("outputTypes", java.util.Arrays.stream(OutputType.values()).map(Enum::name).toList());
+        options.put("outputTypes", OutputType.selectableValues().stream().map(Enum::name).toList());
         options.put("reelTypes", java.util.Arrays.stream(ReelType.values()).map(Enum::name).toList());
         options.put("targets", activeTargets.stream().map(t -> Map.of(
                 "id", t.getId().toString(),

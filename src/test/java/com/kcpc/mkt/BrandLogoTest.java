@@ -40,7 +40,11 @@ class BrandLogoTest {
         HttpResponse<String> response = client.get("/login");
         assertThat(response.statusCode()).isEqualTo(200);
         String body = response.body();
-        assertThat(body).contains("<img src=\"/images/kcpc-logo.png\" alt=\"KCPC Bandhani\" class=\"auth-logo\">");
+        // Cache-busting (WebMvcConfig's ResourceUrlEncodingFilter + <c:url> in login.jsp) rewrites
+        // this to a content-hashed path (e.g. /images/kcpc-logo-3f86...fa.png) - matched loosely
+        // (an optional hash segment) so this test survives the hash changing whenever the actual
+        // logo bytes ever do, without re-encoding today's specific hash value into the assertion.
+        assertThat(body).containsPattern("<img src=\"/images/kcpc-logo(-[0-9a-f]{32})?\\.png\" alt=\"KCPC Bandhani\" class=\"auth-logo\">");
         assertThat(body).doesNotContain("<h1>KCPC Bandhani</h1>");
         // Subtitle and existing login fields/mechanics are all still present, unmoved.
         assertThat(body).contains("Content Production Lifecycle");
@@ -59,7 +63,7 @@ class BrandLogoTest {
         HttpResponse<String> response = ceo.get("/app/pipeline");
         assertThat(response.statusCode()).isEqualTo(200);
         String body = response.body();
-        assertThat(body).contains("<img src=\"/images/kcpc-logo.png\" alt=\"KCPC Bandhani\" class=\"brand-logo\">");
+        assertThat(body).containsPattern("<img src=\"/images/kcpc-logo(-[0-9a-f]{32})?\\.png\" alt=\"KCPC Bandhani\" class=\"brand-logo\">");
         assertThat(body).doesNotContain("brand-logo-badge");
         assertThat(body).doesNotContain("<span class=\"brand\">KCPC Bandhani</span>");
         // Logout form/action itself (see HeaderProfileMenuTest for the moved-into-dropdown Sign

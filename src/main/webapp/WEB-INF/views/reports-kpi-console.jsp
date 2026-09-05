@@ -8,8 +8,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — KPI Dashboard</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -25,9 +25,9 @@
      one has to compute/validate the Date Range fields first so reports-workspace.js's own
      auto-submit-on-select-change (unchanged) always reads the freshly-calculated values, and so an
      invalid range can stopImmediatePropagation() before that handler ever runs. --%>
-<script src="${pageContext.request.contextPath}/js/reports-kpi-date-preset.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/reports-workspace.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/reports-kpi-ownership-drilldown.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/reports-kpi-calendar.js" defer></script>
+<script src="<c:url value='/js/reports-kpi-date-preset.js'/>" defer></script>
+<script src="<c:url value='/js/reports-workspace.js'/>" defer></script>
+<script src="<c:url value='/js/reports-kpi-ownership-drilldown.js'/>" defer></script>
+<script src="<c:url value='/js/reports-kpi-calendar.js'/>" defer></script>
 </body>
 </html>

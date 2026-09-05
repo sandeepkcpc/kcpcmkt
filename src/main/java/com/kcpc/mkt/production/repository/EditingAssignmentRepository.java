@@ -3,7 +3,7 @@ package com.kcpc.mkt.production.repository;
 import com.kcpc.mkt.identity.domain.User;
 import com.kcpc.mkt.planning.domain.ContentPlan;
 import com.kcpc.mkt.production.domain.EditingAssignment;
-import com.kcpc.mkt.reporting.dto.UserActiveTaskCount;
+import com.kcpc.mkt.reporting.dto.UserContentPlanRef;
 import com.kcpc.mkt.workflow.domain.WorkflowStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -28,10 +28,8 @@ public interface EditingAssignmentRepository extends JpaRepository<EditingAssign
 
     Optional<EditingAssignment> findByContentPlanAndEditorAndActiveTrue(ContentPlan contentPlan, User editor);
 
-    /** Assignee-picker workload display: one grouped COUNT query, no per-candidate lookup - see
-     * AssigneeWorkloadCountService/AssigneeActiveWindows. */
-    @Query("select a.editor.id as userId, count(a) as activeCount from EditingAssignment a "
-            + "where a.active = true and a.contentPlan.workflowInstance.currentStatusCode in :activeWindow "
-            + "group by a.editor.id")
-    List<UserActiveTaskCount> countActiveGroupedByEditor(@Param("activeWindow") Collection<WorkflowStatus> activeWindow);
+    /** Assignee-picker workload display - see ShootingAssignmentRepository's equivalent. */
+    @Query("select a.editor.id as userId, a.contentPlan.id as contentPlanId from EditingAssignment a "
+            + "where a.active = true and a.contentPlan.workflowInstance.currentStatusCode in :activeWindow")
+    List<UserContentPlanRef> findActiveContentPlanRefsByEditor(@Param("activeWindow") Collection<WorkflowStatus> activeWindow);
 }

@@ -297,7 +297,7 @@ class TeamWorkloadModelAndContentIdDrillDownTest {
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + liveDate + "\","
                         + "\"shootDate\":\"" + shootDate + "\",\"editDate\":\"" + editDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/tw-drill-" + Instant.now().toEpochMilli() + "\","
                         + "\"camerapersonUserIds\":[\"" + cam.id() + "\"],\"publisherUserIds\":[\"" + pub.id() + "\"]}}");
@@ -315,7 +315,7 @@ class TeamWorkloadModelAndContentIdDrillDownTest {
         String ideaId = idea.get("ideaId").asText();
         ceo.postJson("/api/v1/ideas/" + ideaId + "/review",
                 "{\"decision\":\"APPROVE\",\"cameramanMark\":1.0,\"editorMark\":1.0,\"modelMark\":1.0,\"planning\":{"
-                        + "\"contentPriority\":\"MEDIUM\",\"plannedLiveDate\":\"" + liveDate + "\","
+                        + "\"contentPriority\":\"HIGH\",\"plannedLiveDate\":\"" + liveDate + "\","
                         + "\"shootDate\":\"" + shootDate + "\",\"editDate\":\"" + editDate + "\","
                         + "\"folderLink\":\"https://drive.example.com/tw-drill-" + Instant.now().toEpochMilli() + "\","
                         + "\"camerapersonUserIds\":[\"" + cam.id() + "\"],\"talentUserIds\":[\"" + model.id() + "\"],"

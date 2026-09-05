@@ -7,8 +7,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Reviews</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -20,14 +20,15 @@
         <%@ include file="fragments/reviews-content.jspf" %>
     </div>
 </main>
-<script src="${pageContext.request.contextPath}/js/stage-discussion.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/model-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/stages-picker.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/publication-scope.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/script-description-modal.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/idea-reference-link-edit.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/idea-submit.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/idea-create-modal.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/reviews-workspace.js" defer></script>
+<script src="<c:url value='/js/stage-discussion.js'/>" defer></script>
+<script src="<c:url value='/js/model-picker.js'/>" defer></script>
+<script src="<c:url value='/js/stages-picker.js'/>" defer></script>
+<script src="<c:url value='/js/publication-scope.js'/>" defer></script>
+<script src="<c:url value='/js/script-description-modal.js'/>" defer></script>
+<script src="<c:url value='/js/idea-reference-link-edit.js'/>" defer></script>
+<script src="<c:url value='/js/idea-submit.js'/>" defer></script>
+<script src="<c:url value='/js/idea-create-modal.js'/>" defer></script>
+<script src="<c:url value='/js/kcpc-date-picker.js'/>" defer></script>
+<script src="<c:url value='/js/reviews-workspace.js'/>" defer></script>
 </body>
 </html>

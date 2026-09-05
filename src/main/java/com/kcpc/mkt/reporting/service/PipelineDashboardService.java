@@ -527,9 +527,6 @@ public class PipelineDashboardService {
         if (notBlank(c.videoEditor()) && !containsIgnoreCase(row.getVideoEditors(), c.videoEditor())) {
             return false;
         }
-        if (notBlank(c.platform()) && !containsIgnoreCase(row.getPlatforms(), c.platform())) {
-            return false;
-        }
         if (notBlank(c.channel()) && !containsIgnoreCase(row.getChannels(), c.channel())) {
             return false;
         }
@@ -612,6 +609,11 @@ public class PipelineDashboardService {
             case "publishing" -> STAGE_PUBLISHING.contains(row.getStatus());
             case "performance" -> STAGE_PERFORMANCE.contains(row.getStatus());
             case "completed" -> "Completed".equals(row.getStatus());
+            // WorkflowStatus.CAN's own display name - the same terminal status the KPI/reporting
+            // logic already keys on. Cancelled rows were always present in the pipeline's row set
+            // (they render under All with a Cancelled status pill); this only gives them their own
+            // tab. No new status is introduced anywhere.
+            case "cancelled" -> "Cancelled".equals(row.getStatus());
             default -> true;
         };
     }

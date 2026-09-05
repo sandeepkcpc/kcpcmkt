@@ -127,14 +127,18 @@
         // second query, never invented here) - an older/unmigrated response with no contentIds
         // field on any channel simply omits this section rather than showing an empty one.
         //
-        // Presentation-only dedup: one Content ID can legitimately back several outstanding
-        // mapping rows (multiple Planned Outputs and/or multiple Publication Targets under one
-        // Channel), so allContentIds itself is left exactly as received - raw, undeduplicated,
-        // matching ch.count above 1:1 - and is never used for anything else. uniqueContentIds is
-        // a separate, display-only view of it: Set() preserves first-seen insertion order, so
-        // Array.from() here needs no extra sort. This count is deliberately NOT the same number
-        // as the Planned column above (ch.count, untouched) - it answers "how many distinct
-        // pieces of content", not "how many outstanding output x target commitments".
+        // Each channel's own ch.contentIds is ALREADY distinct and in first-seen order server-side
+        // (LinkedHashSet in upcomingChannelPlan()), and ch.count is that same distinct count - so
+        // multi-platform duplicates are gone before this file ever sees them. The Set() below is
+        // still required, and is the only dedup that happens here: allContentIds concatenates
+        // ACROSS channels, and one Content ID planned on two different Channel/Accounts for the
+        // same date legitimately appears once per channel. Deduping that gives the date-level
+        // "how many distinct pieces of content are planned on this date" the summary shows, so
+        // uniqueContentIds.length can be LOWER than the sum of the per-channel counts above (and
+        // equals it whenever no content spans two channels that day). Set() preserves first-seen
+        // insertion order, so Array.from() needs no extra sort. It is also what keeps this robust
+        // against a legacy/duplicated payload: the rendered list is unique either way, and the
+        // per-channel Planned counts (ch.count) are always printed exactly as received.
         var uniqueContentIds = Array.from(new Set(allContentIds));
         if (uniqueContentIds.length > 0) {
             html += '<details class="kpi-calendar-content-details">'

@@ -3,8 +3,9 @@ package com.kcpc.mkt.reporting.dto;
 import java.time.LocalDate;
 import java.util.List;
 
-/** One Planned Live Date's worth of still-outstanding planned publications, grouped by
- * Channel/Account (spec: date-grouped presentation, never Platform as the grouping dimension).
+/** One Planned Live Date's worth of still-outstanding planned content, grouped by Channel/Account
+ * (spec: date-grouped presentation, never Platform as the grouping dimension) and counted as
+ * distinct Content IDs per channel - see {@link UpcomingPlanChannelCount}.
  * Sorted ascending by {@code plannedLiveDate}; {@code channels} sorted by Channel/Account name. */
 public class UpcomingPlanDateGroup {
 

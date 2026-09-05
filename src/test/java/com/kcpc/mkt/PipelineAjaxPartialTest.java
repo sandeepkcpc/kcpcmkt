@@ -44,13 +44,15 @@ class PipelineAjaxPartialTest {
         ceo.login("ceo@kcpcbandhani.local", "ChangeMe123!");
 
         String fullPage = ceo.get("/app/pipeline").body();
-        assertThat(fullPage).contains("<!doctype html>").contains("<nav").contains("pipeline-dashboard.js");
+        // "pipeline-dashboard" alone (not the full ".js" filename) - cache-busting rewrites the
+        // actual src to a content-hashed path (e.g. pipeline-dashboard-<hash>.js), see BrandLogoTest.
+        assertThat(fullPage).contains("<!doctype html>").contains("<nav").contains("pipeline-dashboard");
         assertThat(fullPage).contains("id=\"pipelineDynamicRegion\"");
         assertThat(fullPage).contains("pipeline-stage-tabs").contains("id=\"pipelineFilterForm\"")
                 .contains("id=\"pipelineTable\"").contains("pipeline-pagination").contains("pipeline-footer-note");
 
         String partial = ceo.getAjax("/app/pipeline").body();
-        assertThat(partial).doesNotContain("<!doctype html>").doesNotContain("<nav").doesNotContain("pipeline-dashboard.js");
+        assertThat(partial).doesNotContain("<!doctype html>").doesNotContain("<nav").doesNotContain("pipeline-dashboard");
         // The #pipelineDynamicRegion wrapper div itself lives only in pipeline.jsp, not in the
         // shared fragment - the AJAX response IS exactly that div's new innerHTML, not the div.
         assertThat(partial).doesNotContain("id=\"pipelineDynamicRegion\"");

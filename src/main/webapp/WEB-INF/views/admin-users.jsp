@@ -6,8 +6,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Administration ▸ Users</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -133,7 +133,7 @@
     </div>
 </div>
 
-<script src="${pageContext.request.contextPath}/js/admin-shared.js" defer></script>
-<script src="${pageContext.request.contextPath}/js/admin-edit-user-modal.js" defer></script>
+<script src="<c:url value='/js/admin-shared.js'/>" defer></script>
+<script src="<c:url value='/js/admin-edit-user-modal.js'/>" defer></script>
 </body>
 </html>

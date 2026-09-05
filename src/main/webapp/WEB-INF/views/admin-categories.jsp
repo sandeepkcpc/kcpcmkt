@@ -5,8 +5,8 @@
 <head>
     <meta charset="UTF-8">
     <title>KCPC Bandhani — Category Catalogue</title>
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/app.css">
-    <link rel="icon" type="image/x-icon" href="${pageContext.request.contextPath}/images/favicon.ico">
+    <link rel="stylesheet" href="<c:url value='/css/app.css'/>">
+    <link rel="icon" type="image/x-icon" href="<c:url value='/images/favicon.ico'/>">
 </head>
 <body>
 <jsp:include page="fragments/nav.jsp" />
@@ -100,6 +100,6 @@
         Deactivating or deleting a category only affects future approvals - Content Plans that already used it
         keep their recorded category unchanged.</p>
 </main>
-<script src="${pageContext.request.contextPath}/js/admin-shared.js" defer></script>
+<script src="<c:url value='/js/admin-shared.js'/>" defer></script>
 </body>
 </html>

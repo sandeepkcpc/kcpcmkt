@@ -22,11 +22,51 @@ spring:
     multipart:
       max-file-size: 5MB
       max-request-size: 5MB
+  web:
+    resources:
+      chain:
+        # CACHE-BUST: content-hash cache busting for static assets. Every /css, /js and /images
+        # URL rendered through <c:url> comes out as e.g. /css/app-<md5-of-file-content>.css, so a
+        # deployment that changes a file changes that file's URL and the browser fetches it
+        # instead of serving the 30-day cached copy (nginx.conf `expires 30d`) under the old URL.
+        # Files that did NOT change keep their URL and stay cached - which is why this is a
+        # content hash rather than one global ?v=<build> stamp that would re-download everything.
+        # The hash is computed from the classpath content inside the WAR, so it is identical
+        # however the app is built and shipped (source -> WAR -> Docker image -> GCP VM).
+        # Requires the ResourceUrlEncodingFilter bean in WebMvcConfig to be in effect: without it
+        # <c:url> silently emits the plain unversioned path (i.e. degrades to today's behaviour).
+        strategy:
+          content:
+            enabled: true
+            paths: /css/**,/js/**,/images/**
+        # Resolved paths and their content hashes are memoized per file. Left OFF under the
+        # default profile (local `mvn spring-boot:run`, where spring-boot-maven-plugin's
+        # addResources serves src/main/resources live) so an edited CSS/JS file is still picked
+        # up on a plain browser refresh with no restart; switched ON for the docker profile
+        # below - local compose, dev VM and prod VM - where the files can never change while the
+        # container is running, so recomputing the MD5 per request would be pure waste.
+        cache: false
+      cache:
+        cachecontrol:
+          # Mirrors the `expires 30d` nginx already sends for these paths (nginx.conf), so the
+          # asset stays cacheable from the app itself if it is ever fronted by something other
+          # than this nginx (e.g. a GCP HTTPS Load Balancer). Applies only to resources served by
+          # the static resource handler - never to JSP pages or /api responses.
+          max-age: 30d
+          cache-public: true
 
 server:
   port: 8080
   servlet:
     session:
+      # Cookie-only session tracking. Without this Tomcat also honours URL-based tracking, and
+      # response.encodeURL() - which JSTL's <c:url> calls under the hood - appends
+      # ";jsessionid=..." to every asset href. That would make each content-hashed CSS/JS URL
+      # unique per visitor and defeat caching outright, on top of putting the session id in the
+      # page source. This app authenticates purely via the KCPC_AT cookie and never relies on
+      # URL-based session tracking (the JSESSIONID itself only exists because a JSP page creates
+      # an HttpSession by default), so restricting tracking to cookies changes no behaviour.
+      tracking-modes: cookie
       cookie:
         http-only: true
         secure: true
@@ -85,6 +125,10 @@ logging:
   level:
     root: INFO
     com.kcpc.mkt: INFO
+    # TEMPORARY DIAGNOSTIC - Upcoming Channel Plan distinct-Content-ID rollout verification.
+    # Prints "date | channel | count | uniqueContentIds" per rendered row. Remove this line (and
+    # KpiDashboardService#logUpcomingChannelPlan) once the dashboard has been confirmed.
+    com.kcpc.mkt.reporting.service.KpiDashboardService: DEBUG
 
 ---
 spring:
@@ -178,3 +222,16 @@ app:
   security:
     jwt:
       cookie-secure: ${COOKIE_SECURE:false}
+
+---
+# Docker profile - the profile every containerised environment runs under (local docker-compose,
+# deploy/dev, deploy/prod). See the spring.web.resources.chain.cache comment above for why the
+# resolver cache is enabled here but not for local `mvn spring-boot:run`.
+spring:
+  config:
+    activate:
+      on-profile: docker
+  web:
+    resources:
+      chain:
+        cache: true
